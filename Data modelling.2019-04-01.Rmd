@@ -1,0 +1,249 @@
+---
+title: "MOI Data"
+Feb-Apr 2019
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(RODBC)
+library(dplyr)
+library(purrr)
+library(stringr)
+source("P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Data modelling functions.2019-03-28.R")
+
+#debugSource('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Data modelling functions.2019-03-21.Test.R')
+# Remove hashtag to install packages
+#install.packages("tidyr")
+#install.packages("tidyverse")
+#install.packages("ggplot2")
+#install.packages("RODBC")
+#install.packages("stringr")
+```
+
+## Example: Load Data into SQL Server
+```{r}
+#schoolAbles <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/dboAssetInventoryEDUPortable2.csv')
+#sqlSave(schoolRodbc,schoolAbles,"dbo.AssetInventoryEDUPortablesNew",safer=FALSE,append=TRUE)
+```
+
+
+*Import Education Data
+```{r}
+schoolRodbc <-odbcConnect("SQLDNS")
+schoolCap <- sqlFetch(schoolRodbc, "cap.EDU_School_Cap")
+schoolForecast <- sqlFetch(schoolRodbc, "cap.EDU_Forecast_Ext")
+SchoolAssets <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDU")
+schoolAssetsPortables <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDUPortableNew")
+schoolPost <- read.csv('C:/Users/azk/Documents/Working away files/EDU_enrol_SCH_PCode_WSP_Temp.csv')
+pccf <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/PCCF_ONT_2018.csv') #postal code conversion file --> postal codes to lat/long
+households <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/6. Maps/households_2011.csv.gz')
+
+#officeSpace <- sqlFetch(schoolRodbc, "cap.IOAnnualSpaceBaselineBuilding")
+#officeSpace %>%
+#  write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/OfficeSpaceData.csv', row.names = FALSE)
+
+#officeSpaceAssets <- sqlFetch(schoolRodbc, "dbo.AssetInventoryIO")
+#officeSpaceAssets %>%
+#  write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/OfficeSpaceAssetData.csv', row.names = FALSE)
+
+```
+
+*Forecast Demand by School Board
+```{r}
+schoolForecastSlim <- schoolForecast %>%
+  rename(projectionYear = `Projection Year`) %>%
+  # select(projectionYear, SCH_YR, DSBINDEX, PANEL, ADE_JKSK, ADE_G1G3, ADE_G4G8, ADE_SEC, ADE)
+  group_by(SCH_YR, DSBINDEX) %>%
+  mutate(boardADE = sum(ADE), boardADEsec = sum(ADE_SEC), boardADEelem = sum(ADE_ELEM), boardADEjksk = sum(ADE_JKSK), boardADEg1g3 = sum(ADE_G1G3), boardADEg4g8 = sum(ADE_G4G8)) %>%
+  distinct(projectionYear, SCH_YR, DSBINDEX, boardADE, boardADEsec, boardADEelem, boardADEjksk, boardADEg1g3, boardADEg4g8) %>%
+  arrange(DSBINDEX, SCH_YR)
+```
+
+*Cleaning School Capacity and Historical Demand Data
+```{r}
+schoolCapSlim <- schoolCap %>%
+  select(Sch_yr, DSB_Index, BoardName, Panel, SFIS_ID, FacilityName, ADE, OTG, Latitude, longitude, Status, dataSetID) %>%
+  mutate(utilization = ADE / OTG) %>%
+  filter(Status == "Open", dataSetID == 2) %>%
+  arrange(desc(utilization), Sch_yr, SFIS_ID)
+
+#schoolCapSlim %>%
+  #write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/SchoolData.csv', row.names = FALSE)
+```
+
+*Calculate School Catchment Areas
+```{r}
+#Step 1: Join School forecast data to Postal Code data to match SFIS_ID to BSID
+schoolBSID <- schoolForecast %>%
+  filter(SCH_YR == 2017) %>%
+  select(BSID, schoolName = `School Name`, SFIS, schoolLat = latitude, schoolLong = longitude) %>%
+  group_by(BSID, schoolName, SFIS, schoolLat, schoolLong) %>%
+  arrange(schoolName)
+
+#Step 2: Join postal code centroids to school data 
+pccfSlim <- pccf %>%
+  rename(postalCode = ï..PostalCode) %>%
+  filter(SLI == 1)
+
+schoolCatchment <- schoolBSID %>%
+  select(BSID, SFIS, schoolName, schoolLat, schoolLong) %>%
+  left_join(select(schoolPost, BSID, Student.Postal.Code, Enrolment), by = c('BSID' = 'BSID')) %>%
+  left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, postalCode), by = c('Student.Postal.Code' = 'postalCode')) %>%
+  drop_na(studentLat, studentLong)
+
+#Step 3: Calculate Distance Between Coordinates (Haversine Function)
+schoolCatchmentDist <- schoolCatchment %>%
+  mutate(dist = haverFunction(schoolLat, schoolLong, studentLat, studentLong))
+  #mutate(dist = mapply(function(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
+  #mutate(dist = pmap(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
+
+#Step 4: Calculate percentile straight-line home-to-school distances by BSID
+percentileList <- c(0.5, 0.9)
+schoolCatchmentDistPercent <- schoolCatchmentDist %>%
+  group_by(BSID) %>%
+  summarise(list(enframe(quantile(dist, probs=percentileList)))) %>%
+  unnest %>%
+  rename(perc = name, percDist = value)
+
+#Step 5: Export to CSV for use in ArcGIS
+schoolCatchmentDistPercent
+  #write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/School Percentile Distances.csv')
+
+```
+
+*Clean and Simplify Portables Data
+```{r}
+#Select most recent Portable Data year for each school
+#schoolPortableYears <- schoolAssetsPortables %>%
+  #filter(DataSetID == 2, sch_yr = 2017) %>%
+  #select(SFIS_ID, Sch_yr) %>%
+  #group_by(SFIS_ID) %>%
+  #summarise(Sch_yr_max = max(Sch_yr))
+
+#Join most recent portable data to School Asset data, and sum total Ground Floor Area and Number of Portable Units by school
+filtList <- c('cafe|child care|administration|other|commercial|general|best start|staff')
+
+schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
+  filter(DataSetID == 2, Sch_yr == 2017) %>%
+  #filter out non-classroom room types
+  filter(!grepl(filtList, CurrentUse, ignore.case = TRUE)) %>%
+  #inner_join(schoolPortableYears, by = c('SFIS_ID' = 'SFIS_ID', 'Sch_yr' = 'Sch_yr_max')) %>%
+  select(Sch_yr, Dsb_index, SFIS_ID, FacilityName, GFA_m2, NumberOfUnits) %>%
+  group_by(Sch_yr, Dsb_index, SFIS_ID, FacilityName) %>%
+  summarise(sum(GFA_m2), sum(NumberOfUnits))
+
+```
+
+*Join Portables Data to School Cap/ADE Data
+```{r}
+#BID is unique field in AssetInventoryEDU when using only DataSetID = 2 and BID is not null
+schoolCapSlim %>%
+  left_join(schoolAssetsPortablesSlim, by = c('SFIS_ID' = 'SFIS_ID')) %>%
+  arrange(SFIS_ID)
+  #write.csv(.,file = "P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/schoolCapPortables.csv")
+```
+
+*Plot School Data
+```{r}
+options(scipen=999) # turn off scientific notation like 1e+06
+g <- ggplot(schoolCapSlim, aes(x=SFIS_ID, y=utilization)) +
+  geom_bar(stat="identity") +
+  ggtitle("School Utilization") + 
+  theme_grey() +
+  ylim(c(0, 10))
+#max(SchoolCapSlim$utilization)))
+
+g
+```
+
+
+```{r}
+schoolAssets %>%
+  filter(DataSetId == 2) %>%
+  #filter(!is.na(BID)) %>%
+
+#schoolAssetsLatLong %>%
+  #select(`BUILDING ID`, X_COORD, Y_COORD) %>%
+  #drop_na(`BUILDING ID`) %>%
+  #mutate(X_COORD_round = round(X_COORD, 3), Y_COORD_round = round(Y_COORD, 3)) %>%
+  #distinct(`BUILDING ID`, X_COORD_round, Y_COORD_round) %>%
+  #Several BUILDING IDs are being repeated because coordinates are recorded differently for duplicate copies of the Building ID; this happens at all scales of precision; must choose acceptable level of precision and then choose mechanism for selecting "correct" lat/long
+  #summarise(n())
+schoolCap
+```
+
+
+*Push Health Data into SQL Server
+```{r}
+#Loading Health Bed Census Summary data into SQL Server
+#healthBedsSummary <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Received files/Data received 2019-03-01/MOH_DailyBedCensus_Summary.txt')
+#sqlSave(healthRodbc,healthBedsSummary,"cap.MOH_DailyBedCensus_Summary",safer=FALSE, fast=TRUE)
+```
+
+
+
+*Import Health Data
+```{r}
+healthRodbc <-odbcConnect("SQLDNS")
+
+healthDailyBedHistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
+healthDailyBedCensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
+healthDischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
+
+healthHBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIS")
+healthHBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_Proj")
+
+healthLHINfacilityList <- sqlFetch(healthRodbc, "cap.MOH_LHIN_Hosp_Fac_List")
+healthHospitalLocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
+
+healthPopulationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
+healthBedDays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
+
+healthWaitTime <- sqlFetch(healthRodbc, "cap.HospitalWaitTime")
+
+#ALC Data
+healthALCAge <- sqlFetch(healthRodbc, "cap.ALCAge")
+healthALCAnnualVolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
+healthALCCases <- sqlFetch(healthRodbc, "cap.ALCCases")
+healthALCDesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
+healthALCDischarge <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
+healthALCInpatientBedType <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
+healthALCMonthlyRatebySite <- sqlFetch(healthRodbc, "cap.ALCMonthlyRateByProvinceLHINFacilitySite")
+healthALCMonthlyVolume <- sqlFetch(healthRodbc, "cap.ALCMonthlyVolumeAndTotalDays")
+
+#CIHI Data
+healthCIHIFacilityNameID <- sqlFetch(healthRodbc, "cap.CIHI_FacilityName_FacilityID")
+healthCIHIFacilityNumberOld <- sqlFetch(healthRodbc, "cap.CIHI_FacilityNumber_OLD")
+healthCIHIHospitalBeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
+healthCIHIWaitTimesRegion <- sqlFetch(healthRodbc, "cap.CIHI_Wait Times by Region")
+healthCIHIWaitTimesProvince <- sqlFetch(healthRodbc, "cap.CIHI_Wait_Time_Data_by_Province")
+
+#Health Asset Inventory
+healthInventoryMOHLTC <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC")
+healthInventoryMOHLTCfid <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC_FID_Map")
+
+#Lookup Tables
+healthHospitalSiteLookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
+healthLHINLookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
+
+healthPopulationLHIN %>%
+  filter(LHIN=='South West') %>%
+  arrange(Year, Gender, Age)
+
+healthHBAMprojected %>%
+  distinct(Care_Type)
+
+```
+
+*Import MAG Data
+```{r}
+
+```
+
+
+
+
