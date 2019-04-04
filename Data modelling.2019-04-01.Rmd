@@ -1,5 +1,5 @@
 ---
-title: "MOI Data"
+title: "MOI Data Clean-up"
 Feb-Apr 2019
 output: html_document
 ---
@@ -14,14 +14,6 @@ library(dplyr)
 library(purrr)
 library(stringr)
 source("Data modelling functions.2019-03-28.R")
-
-#debugSource('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Data modelling functions.2019-03-21.Test.R')
-# Remove hashtag to install packages
-#install.packages("tidyr")
-#install.packages("tidyverse")
-#install.packages("ggplot2")
-#install.packages("RODBC")
-#install.packages("stringr")
 ```
 
 ## Example: Load Data into SQL Server
@@ -31,15 +23,16 @@ source("Data modelling functions.2019-03-28.R")
 ```
 
 
-*Import Education Data
+## Import Education Data
 ```{r}
 schoolRodbc <-odbcConnect("SQLDNS")
 schoolCap <- sqlFetch(schoolRodbc, "cap.EDU_School_Cap")
 schoolForecast <- sqlFetch(schoolRodbc, "cap.EDU_Forecast_Ext")
 SchoolAssets <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDU")
 schoolAssetsPortables <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDUPortableNew")
-schoolPost <- read.csv('C:/Users/azk/Documents/Working away files/EDU_enrol_SCH_PCode_WSP_Temp.csv', stringsAsFactors = FALSE)
-pccf <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/PCCF_ONT_2018.csv', stringsAsFactors = FALSE) #postal code conversion file --> postal codes to lat/long
+schoolPost <- read.csv('input/EDU_enrol_SCH_PCode_WSP_Temp.csv', stringsAsFactors = FALSE)
+# postal code to lat/long conversion file
+pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 households <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/6. Maps/households_2011.csv.gz')
 
 #officeSpace <- sqlFetch(schoolRodbc, "cap.IOAnnualSpaceBaselineBuilding")
@@ -52,7 +45,10 @@ households <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/
 
 ```
 
-*Forecast Demand by School Board
+## Education Data cleaning
+
+First, clean the school forecast data.
+
 ```{r}
 schoolForecastSlim <- schoolForecast %>%
   rename(projectionYear = `Projection Year`) %>%
@@ -63,7 +59,7 @@ schoolForecastSlim <- schoolForecast %>%
   arrange(DSBINDEX, SCH_YR)
 ```
 
-*Cleaning School Capacity and Historical Demand Data
+Then, cleaning school capacity and historical demand data
 ```{r}
 schoolCapSlim <- schoolCap %>%
   select(Sch_yr, DSB_Index, BoardName, Panel, SFIS_ID, FacilityName, ADE, OTG, Latitude, longitude, Status, dataSetID) %>%
@@ -72,10 +68,10 @@ schoolCapSlim <- schoolCap %>%
   arrange(desc(utilization), Sch_yr, SFIS_ID)
 
 #schoolCapSlim %>%
-  #write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/SchoolData.csv', row.names = FALSE)
+  #write.csv('output/school_data.csv', row.names = FALSE)
 ```
 
-*Calculate School Catchment Areas
+## Calculate School Catchment Areas
 ```{r}
 #Step 1: Student Postal Code Data Cleanup
 schoolPostSlim <- schoolPost %>%
@@ -92,7 +88,6 @@ schoolBSID <- schoolForecast %>%
 
 #Step 2: Join postal code centroids to school data
 pccfSlim <- pccf %>%
-  rename(postalCode = ï..PostalCode) %>%
   filter(SLI == 1)
 
 schoolCatchment <- schoolBSID %>%
@@ -127,7 +122,7 @@ studentTravel <- schoolCatchmentDist %>%
   
 ```
 
-*Clean and Simplify Portables Data
+## Clean and Simplify Portables Data
 ```{r}
 #Select most recent Portable Data year for each school
 #schoolPortableYears <- schoolAssetsPortables %>%
@@ -150,7 +145,7 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
 
 ```
 
-*Join Portables Data to School Cap/ADE Data
+Join Portables Data to School Cap/ADE Data
 ```{r}
 #BID is unique field in AssetInventoryEDU when using only DataSetID = 2 and BID is not null
 schoolCapSlim %>%
@@ -159,7 +154,7 @@ schoolCapSlim %>%
   #write.csv(.,file = "P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/schoolCapPortables.csv")
 ```
 
-*Plot School Data
+Plot School Data
 ```{r}
 options(scipen=999) # turn off scientific notation like 1e+06
 g <- ggplot(schoolCapSlim, aes(x=SFIS_ID, y=utilization)) +

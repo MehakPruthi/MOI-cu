@@ -5,27 +5,130 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyr)
 library(tidyverse)
-library(ggplot2)
-library(RODBC)
-library(dplyr)
-library(purrr)
-library(stringr)
+library(data.table)
 library(rgeos)
+library(rgdal)
+library(sp)
 source("Data modelling functions.2019-03-28.R")
-
 ```
 
 
-## Import TRESO shapefiles for TAZs
-```{r}
+## Import relavent files
+```{r Import files}
+# Treso shapefiles
+treso_shp <- readOGR(dsn = "input",
+                     layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 
+# 2011 hhld and population data by treso zone
+hhld_df <- data.table::fread("input/households_2011.csv.gz")
+pop_df <- data.table::fread("input/persons_2011.csv.gz")
+
+# Students within 90th percentile
+student_travel <- read.csv("output/student_travel.csv")
+```
+
+## Shapefile cleaning
+
+- Get the database from the TRESO shapefile
+- Get the xy coordinates for schools and students
+- Transform the xy coordinates to use the same projection system as TRESO shapefile
+```{r Shapefile cleaning}
+# Convert the student dataframe into SpatialPointsDataframe
+student_df <- select(student_travel, c(X, studentLat, studentLong, dist)) %>%
+  rename(
+    id = X,
+    lat = studentLat,
+    long = studentLong,
+    euclidean_dist = dist
+    )
+
+coordinates(student_df) <- c('long', 'lat')
+
+# Convert the school dataframe into SpatialPointsDataframe
+school_df <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, BSID, percDist)) %>%
+  group_by(schoolName.x) %>%
+  summarise(schoolLat = first(schoolLat.x), schoolLong = first(schoolLong.x), bsid = first(BSID), percDist = first(percDist)) %>%
+  transform(id = 1:nrow(.)) %>%
+  rename(
+    lat = schoolLat,
+    long = schoolLong,
+    school_name = schoolName.x,
+    catchment_dist = percDist
+  )
+coordinates(school_df) <- c('long', 'lat')
+
+# Project the student and school points from lat/long to TRESO's LCC specification
+proj4string(student_df) <- CRS("+proj=longlat +datum=WGS84")
+proj4string(school_df) <- CRS("+proj=longlat +datum=WGS84")
+treso_projarg = treso_shp@proj4string@projargs
+
+student_xy <- spTransform(student_df, CRS(treso_projarg))
+school_xy <- spTransform(school_df, CRS(treso_projarg))
+```
+
+## Plot TRESO zones, with school and student 
+```{r plotting shapefiles}
+treso_shp_df <- fortify(treso_shp) %>%
+  rename(
+    x = long,
+    y = lat
+  )
+
+school_xy_df <- data.frame(school_xy) %>%
+  rename(
+    x = long,
+    y = lat
+  )
+
+student_xy_df <- data.frame(student_xy) %>%
+  rename(
+    x = long,
+    y = lat
+  )
+
+
+treso_plot <- ggplot() +
+  geom_polygon(data = treso_shp_df, mapping = (aes(x = x, y = y, group = group)), 
+               fill = 'grey40', color = 'grey90', alpha = 1, size = 0.1) +
+  labs(x = "", y = "", title = "Students and schools in Ontario") +
+  theme(axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.x = element_blank(), axis.text.x = element_blank(),
+        plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
+  geom_point(data = student_xy_df, mapping = (aes(x = x, y = y)), color = "red", alpha = 0.1, size = 0.01) +
+  geom_point(data = school_xy_df, mapping = (aes(x = x, y = y)), color = "blue", alpha = 0.1, size = 0.01, shape = 2) +
+  coord_equal(ratio = 1)
+ggsave(treso_plot, file = "output/treso_with_points.png", width = 10, height = 10)
 
 ```
 
-## Import Student Travel distances within 90th percentile
-```{r}
-student_travel <- read.csv('output/student_travel.csv')
+## Spatial gymnastics
+- Using over() to determine the treso zone number for each student/school point
+- Using treso travel time skims (need to obtain), plot the observed TLFD of students and their destination.
+- Using gbuffer() to determine the treso zones which the 90th percentile distance touches for each school
+```{r spatial gymnastics}
+student_overlay <- over(student_xy, treso_shp, returnList = FALSE) %>%
+  cbind(euclidean_dist = student_xy@data$euclidean_dist,
+        student_id = student_xy@data$id)
+
+school_overlay = over(school_xy, treso_shp, returnList = FALSE) %>%
+  cbind(catchment_dist = school_xy@data$catchment_dist,
+        board_id = school_xy@data$bsid)
+```
+
+
+## Plot 90th percentile straight line distances
+```{r plotting straight line distance}
+student_tlfd <- select(student_travel, c(X, dist)) %>%
+  transform(km_bins = cut(student_travel$dist, 100)) %>%
+  group_by(km_bins) %>%
+  summarise(count = sum(as.numeric(X))) %>%
+  as.data.frame()
+  
+ggplot(student_tlfd, mapping = aes(x = km_bins, y = count, group = 1)) +
+  geom_point() + 
+  geom_line(size = 1) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
 ```
 

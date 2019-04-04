@@ -34,14 +34,12 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
 
 ##### Gravity model function
 
-furness <- function(cmat){
+furness <- function(cmat, observed_matrix){
   
   "
   This function conducts furnessing or two dimensional balancing
   
-  Inputs: observed truck matrix
-  
-  Arguments: cost function
+  Arguments: cost function, observed matrix
   
   Results: balanced matrix
   "
@@ -49,12 +47,12 @@ furness <- function(cmat){
   #' row sum of cost function matrix
   skim_trow <- as.data.frame(rowSums(cmat))
   #' row sum of observed matrix
-  obs_tatt <- as.data.frame(rowSums(proflinkages_zero_cars1))
+  obs_tatt <- as.data.frame(rowSums(observed_matrix))
   
   #' row balancing factors
   rowbal <- obs_tatt/skim_trow
   colnames(rowbal) <- "ratio"
-  # rowbal1 <- do.call("cbind", replicate(ncol(proflinkages_zero_cars1), rowbal, 
+  # rowbal1 <- do.call("cbind", replicate(ncol(observed_matrix), rowbal, 
   #                                       simplify = FALSE))
   
   #first iteration
@@ -63,12 +61,12 @@ furness <- function(cmat){
   #' col sum of cost function matrix
   skim_tcol <- as.data.frame(colSums(cfunc1))
   #' col sum of observed matrix
-  obs_tprod <- as.data.frame(colSums(proflinkages_zero_cars1))
+  obs_tprod <- as.data.frame(colSums(observed_matrix))
   
   #' column balancing factors
   colbal <- obs_tprod/skim_tcol
   colnames(colbal) <- "ratio"
-  # colbal1 <- do.call("rbind", replicate(nrow(proflinkages_zero_cars1), colbal, 
+  # colbal1 <- do.call("rbind", replicate(nrow(observed_matrix), colbal, 
   #                                       simplify = FALSE))
   
   # next iteration. Transpose the matrix to allow multiplying by the column ratios.
@@ -81,16 +79,36 @@ furness <- function(cmat){
 
 ##### Plot TLFD function
 
-plot_tlfd <- function(observed_trips, simulated_trips, dist_matrix) {
+generate_tlfd <- function(observed_trips, simulated_trips, dist_matrix) {
   
-  # Assumes distance matrix is in wide format, convert into long
+  # Cuts the the length into 50 bins
   dist_matrix <- transform(dist_matrix, km_bin = cut(dist_matrix$value, 50))
   
-  # Plot the observed trips
+  # Merge with dsitance matrix
   obs_tlfd <- merge(observed_trips, dist_matrix, by = c("orig", "dest")) %>%
     group_by(km_bin) %>%
     summarise(trips = sum(trips)) %>%
     transform(flag = "obs")
+  
+  # Prepare the simulated trips to merge with distance
+  sim_tlfd <- as.data.frame(simulated_trips) %>%
+    transform(orig = rownames()) %>%
+    # collapse the dataframe
+    melt(id.vars = c("orig")) %>%
+    transform(variable = substring(.$variable, 2)) %>%
+    filter(value > 0)
+  colnames(sim_tlfd) <- c("orig", "dest", "trips")
+  
+  # Merge with distance matrix
+  sim_tlfd <- merge(sim_tlfd, dist_matrix, by = c("orig", "dest")) %>%
+    group_by(km_bin) %>%
+    summarise(trips = sum(trips)) %>%
+    transform(flag = "model")
+  
+  # Combine the observed and simulated tlfd into one datframe
+  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
+  
+  return(combined_tlfd)
 }
 
 ##### Importing Schools Data into SQL Server
