@@ -22,14 +22,12 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   earthRadius <- 6378.1 #in km
   lat1Rad <- convertDegrees(lat1)
   lat2Rad <- convertDegrees(lat2)
-  long1Rad <- convertDegrees(long1)
-  long2Rad <- convertDegrees(long2)
+  lon1Rad <- convertDegrees(lon1)
+  lon2Rad <- convertDegrees(lon2)
   dLat <- lat2Rad - lat1Rad
-  dLong <- long2Rad - long1Rad
-  var1 <- 7
-    
+  dLon <- lon2Rad - lon1Rad
   
-  bracketCalc <- sin(dLat/2)^2 + cos(lat1Rad) * cos(lat2Rad) * (sin(dLong/2))^2
+  bracketCalc <- sin(dLat/2)^2 + cos(lat1Rad) * cos(lat2Rad) * (sin(dLon/2))^2
   d <- 2 * earthRadius * asin(bracketCalc^0.5)
   return(d)
 }
@@ -80,6 +78,20 @@ furness <- function(cmat){
   
   return(cfunc1)
 } 
+
+##### Plot TLFD function
+
+plot_tlfd <- function(observed_trips, simulated_trips, dist_matrix) {
+  
+  # Assumes distance matrix is in wide format, convert into long
+  dist_matrix <- transform(dist_matrix, km_bin = cut(dist_matrix$value, 50))
+  
+  # Plot the observed trips
+  obs_tlfd <- merge(observed_trips, dist_matrix, by = c("orig", "dest")) %>%
+    group_by(km_bin) %>%
+    summarise(trips = sum(trips)) %>%
+    transform(flag = "obs")
+}
 
 ##### Importing Schools Data into SQL Server
 
