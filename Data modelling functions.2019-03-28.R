@@ -26,6 +26,7 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   long2Rad <- convertDegrees(long2)
   dLat <- lat2Rad - lat1Rad
   dLong <- long2Rad - long1Rad
+  var1 <- 7
     
   
   bracketCalc <- sin(dLat/2)^2 + cos(lat1Rad) * cos(lat2Rad) * (sin(dLong/2))^2

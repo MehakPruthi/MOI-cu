@@ -13,7 +13,7 @@ library(RODBC)
 library(dplyr)
 library(purrr)
 library(stringr)
-source("P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Data modelling functions.2019-03-28.R")
+source("Data modelling functions.2019-03-28.R")
 
 #debugSource('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Data modelling functions.2019-03-21.Test.R')
 # Remove hashtag to install packages
@@ -38,8 +38,8 @@ schoolCap <- sqlFetch(schoolRodbc, "cap.EDU_School_Cap")
 schoolForecast <- sqlFetch(schoolRodbc, "cap.EDU_Forecast_Ext")
 SchoolAssets <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDU")
 schoolAssetsPortables <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDUPortableNew")
-schoolPost <- read.csv('C:/Users/azk/Documents/Working away files/EDU_enrol_SCH_PCode_WSP_Temp.csv')
-pccf <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/PCCF_ONT_2018.csv') #postal code conversion file --> postal codes to lat/long
+schoolPost <- read.csv('C:/Users/azk/Documents/Working away files/EDU_enrol_SCH_PCode_WSP_Temp.csv', stringsAsFactors = FALSE)
+pccf <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/PCCF_ONT_2018.csv', stringsAsFactors = FALSE) #postal code conversion file --> postal codes to lat/long
 households <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/6. Maps/households_2011.csv.gz')
 
 #officeSpace <- sqlFetch(schoolRodbc, "cap.IOAnnualSpaceBaselineBuilding")
@@ -77,21 +77,27 @@ schoolCapSlim <- schoolCap %>%
 
 *Calculate School Catchment Areas
 ```{r}
+#Step 1: Student Postal Code Data Cleanup
+schoolPostSlim <- schoolPost %>%
+  filter(Sch_YR == 2015) %>%
+  filter(str_length(Student.Postal.Code) <= 6)
+
 #Step 1: Join School forecast data to Postal Code data to match SFIS_ID to BSID
+names(schoolForecast)
 schoolBSID <- schoolForecast %>%
   filter(SCH_YR == 2017) %>%
-  select(BSID, schoolName = `School Name`, SFIS, schoolLat = latitude, schoolLong = longitude) %>%
+  select(BSID, schoolName = `School Name`, SFIS, schoolLat = latitude, schoolLong = longitude, DSBINDEX) %>%
   group_by(BSID, schoolName, SFIS, schoolLat, schoolLong) %>%
   arrange(schoolName)
 
-#Step 2: Join postal code centroids to school data 
+#Step 2: Join postal code centroids to school data
 pccfSlim <- pccf %>%
-  rename(postalCode = ï..PostalCode) %>%
+  rename(postalCode = Ã¯..PostalCode) %>%
   filter(SLI == 1)
 
 schoolCatchment <- schoolBSID %>%
-  select(BSID, SFIS, schoolName, schoolLat, schoolLong) %>%
-  left_join(select(schoolPost, BSID, Student.Postal.Code, Enrolment), by = c('BSID' = 'BSID')) %>%
+  select(BSID, SFIS, schoolName, schoolLat, schoolLong, DSBINDEX) %>%
+  left_join(select(schoolPostSlim, BSID, Student.Postal.Code, Enrolment), by = c('BSID' = 'BSID')) %>%
   left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, postalCode), by = c('Student.Postal.Code' = 'postalCode')) %>%
   drop_na(studentLat, studentLong)
 
@@ -102,17 +108,23 @@ schoolCatchmentDist <- schoolCatchment %>%
   #mutate(dist = pmap(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
 
 #Step 4: Calculate percentile straight-line home-to-school distances by BSID
-percentileList <- c(0.5, 0.9)
+percentileList <- c(0.9)
 schoolCatchmentDistPercent <- schoolCatchmentDist %>%
-  group_by(BSID) %>%
+  group_by(BSID, schoolName, schoolLat, schoolLong, DSBINDEX) %>%
   summarise(list(enframe(quantile(dist, probs=percentileList)))) %>%
   unnest %>%
   rename(perc = name, percDist = value)
 
-#Step 5: Export to CSV for use in ArcGIS
-schoolCatchmentDistPercent
-  #write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/School Percentile Distances.csv')
+#Step 5: Determine 0-90th percentile student travel distances
+studentTravel <- schoolCatchmentDist %>%
+  left_join(select(schoolCatchmentDistPercent, BSID, schoolName, schoolLat, percDist, DSBINDEX), by = c('BSID' = 'BSID')) %>%
+  filter(dist <= percDist) %>%
+  write.csv('C:/Users/azk/Documents/Working away files/student_travel.csv')
+  #group_by(BSID) %>%
+  #summarise(count = n()) %>%
+  #arrange(BSID)
 
+  
 ```
 
 *Clean and Simplify Portables Data

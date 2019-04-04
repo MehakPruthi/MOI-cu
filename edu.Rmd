@@ -1,0 +1,31 @@
+---
+title: "edu"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(RODBC)
+library(dplyr)
+library(purrr)
+library(stringr)
+library(rgeos)
+source("Data modelling functions.2019-03-28.R")
+
+```
+
+
+## Import TRESO shapefiles for TAZs
+```{r}
+
+
+```
+
+## Import Student Travel distances within 90th percentile
+```{r}
+student_travel <- read.csv('output/student_travel.csv')
+```
+
