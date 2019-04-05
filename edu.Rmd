@@ -10,6 +10,9 @@ library(data.table)
 library(rgeos)
 library(rgdal)
 library(sp)
+library(foreach)
+library(doParallel)
+library(tictoc)
 source("Data modelling functions.2019-03-28.R")
 ```
 
@@ -25,7 +28,10 @@ hhld_df <- data.table::fread("input/households_2011.csv.gz")
 pop_df <- data.table::fread("input/persons_2011.csv.gz")
 
 # Students within 90th percentile
-student_travel <- read.csv("output/student_travel.csv")
+student_travel <- read.csv("output/student_travel.csv", stringsAsFactors = FALSE)
+
+# School board definition
+school_board_def <- read.csv("input/school_board_types.csv", stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 ```
 
 ## Shapefile cleaning
@@ -35,12 +41,13 @@ student_travel <- read.csv("output/student_travel.csv")
 - Transform the xy coordinates to use the same projection system as TRESO shapefile
 ```{r Shapefile cleaning}
 # Convert the student dataframe into SpatialPointsDataframe
-student_df <- select(student_travel, c(X, studentLat, studentLong, dist)) %>%
+student_df <- select(student_travel, c(X, studentLat, studentLong, dist, schoolName.x)) %>%
   rename(
     id = X,
     lat = studentLat,
     long = studentLong,
-    euclidean_dist = dist
+    euclidean_dist = dist,
+    school_name = schoolName.x
     )
 
 coordinates(student_df) <- c('long', 'lat')
@@ -67,8 +74,11 @@ student_xy <- spTransform(student_df, CRS(treso_projarg))
 school_xy <- spTransform(school_df, CRS(treso_projarg))
 ```
 
-## Plot TRESO zones, with school and student 
+### Plot TRESO zones, with school and student 
+
 ```{r plotting shapefiles}
+
+# Convert the SpatialDataframe to normal Dataframe for ggplot()
 treso_shp_df <- fortify(treso_shp) %>%
   rename(
     x = long,
@@ -104,31 +114,109 @@ ggsave(treso_plot, file = "output/treso_with_points.png", width = 10, height = 1
 
 ## Spatial gymnastics
 - Using over() to determine the treso zone number for each student/school point
-- Using treso travel time skims (need to obtain), plot the observed TLFD of students and their destination.
-- Using gbuffer() to determine the treso zones which the 90th percentile distance touches for each school
+- Using treso travel time skims (*need to obtain*), plot the observed TLFD of students and their destination.
+
 ```{r spatial gymnastics}
+
+# Find the treso zones which the student points layover
 student_overlay <- over(student_xy, treso_shp, returnList = FALSE) %>%
   cbind(euclidean_dist = student_xy@data$euclidean_dist,
-        student_id = student_xy@data$id)
+        student_id = student_xy@data$id,
+        school_name = student_xy@data$school_name) %>%
+  as.tibble() %>%
+  select(Treso_ID, euclidean_dist, student_id, school_name) %>%
+  rename(
+    treso_id_por = Treso_ID
+  )
 
-school_overlay = over(school_xy, treso_shp, returnList = FALSE) %>%
+# Find the treso zones which the school points layover
+school_overlay <- over(school_xy, treso_shp, returnList = FALSE) %>%
   cbind(catchment_dist = school_xy@data$catchment_dist,
-        board_id = school_xy@data$bsid)
+        board_id = school_xy@data$bsid,
+        school_name = school_xy@data$school_name) %>%
+  as.tibble() %>%
+  select(Treso_ID, catchment_dist, board_id, school_name) %>%
+  rename(
+    treso_id_pos = Treso_ID
+  )
+
+# Join the POR and POS together for distance matrix
+observed_por_pos <- left_join(student_overlay, school_overlay, by = "school_name")
 ```
+
+- Using gbuffer() to determine the treso zones that the 90th percentile distance touches for each school
+- Setting up the multi-core to do `foreac()` loop is worth it once you are doing more than 100 fields
+  - 100 fields: 29s compared to 19s
+  - 1000 fields: 252s compared to 116s
+
+``` {r buffer treso zones to schools}
+buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment_dist, byid = TRUE)
+
+ggplot() +
+  geom_polygon(data = fortify(buffered_points), mapping = aes(x = long, y = lat, group = group)) +
+  geom_point(data = school_xy_df, mapping = aes(x = x, y = y))
+
+tic("Multi-Core Buffering")
+# Start multi-core clustering for performance
+cores = parallel::detectCores()
+cl <- parallel::makeCluster(cores[1] - 1)
+registerDoParallel(cl)
+
+datalist = list()
+
+# foreach() loop to find the TRESO zones touching the school buffers
+datalist <- foreach(i = 1:nrow(buffered_points@data), .packages=c("sp", "tidyverse", "rgeos")) %dopar% {
+  
+  # Select the buffer
+  buffer <- buffered_points[buffered_points@data$id == i, ]
+
+  # Get all TRESO zones that touches the buffer with over(), gIntersect() could be another solution
+  treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
+    mutate(id = row_number()) %>%
+    rename(
+      treso_id = id
+    ) %>%
+    drop_na()
+  
+  # Save each tibble in a list of tibbles
+  datalist[[i]] <- treso_overlay
+}
+
+stopCluster(cl)
+toc()
+
+# Write the datalist to csv
+datalist_df <- rbindlist(datalist) %>%
+  write.csv("output/school_catchment_treso_zones.csv", row.names = FALSE)
+```
+
 
 
 ## Plot 90th percentile straight line distances
 ```{r plotting straight line distance}
-student_tlfd <- select(student_travel, c(X, dist)) %>%
+student_tlfd <- as.tibble(student_travel) %>%
+  select(X, dist) %>%
   transform(km_bins = cut(student_travel$dist, 100)) %>%
   group_by(km_bins) %>%
-  summarise(count = sum(as.numeric(X))) %>%
-  as.data.frame()
-  
+  summarise(count = sum(as.numeric(X)))
+
 ggplot(student_tlfd, mapping = aes(x = km_bins, y = count, group = 1)) +
   geom_point() + 
   geom_line(size = 1) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+# Try histogram plots using freqplot
+student_tlfd_2 <- student_travel %>% 
+  select(BSID, DSBINDEX.x, dist) %>%
+  rename(DSB_Index = DSBINDEX.x) %>%
+  left_join(select(school_board_def, DSB_Index, board_type_name), by = "DSB_Index") %>%
+  filter(board_type_name == 'French Catholic')
+
+ggplot(student_tlfd_2, aes(dist, color = as.factor(DSB_Index), linetype = as.factor(DSB_Index))) +
+  geom_freqpoly(binwidth = 50) + 
+  scale_color_brewer(palette = "RdBu") +
+  theme_minimal()
+  facet_wrap(vars(board_type_name)) +
+  coord_cartesian(xlim = c(0, 100))
 ```
 
