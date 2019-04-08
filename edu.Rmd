@@ -32,14 +32,17 @@ student_travel <- read.csv("output/student_travel.csv", stringsAsFactors = FALSE
 
 # School board definition
 school_board_def <- read.csv("input/school_board_types.csv", stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+
+# TRESO zone definition
+treso_zone_def <- read.csv("input/treso_zone_system.csv", stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 ```
 
-## Shapefile cleaning
+## Data cleaning
 
-- Get the database from the TRESO shapefile
-- Get the xy coordinates for schools and students
-- Transform the xy coordinates to use the same projection system as TRESO shapefile
-```{r Shapefile cleaning}
+- Get the coordinates for schools and students
+- Get the projection from the TRESO shapefile
+- Transform the coordinates to use the same projection system as TRESO shapefile
+```{r data cleaning}
 # Convert the student dataframe into SpatialPointsDataframe
 student_df <- select(student_travel, c(X, studentLat, studentLong, dist, schoolName.x)) %>%
   rename(
@@ -48,14 +51,16 @@ student_df <- select(student_travel, c(X, studentLat, studentLong, dist, schoolN
     long = studentLong,
     euclidean_dist = dist,
     school_name = schoolName.x
+    # add temporary enrollment of 1
     )
 
 coordinates(student_df) <- c('long', 'lat')
 
 # Convert the school dataframe into SpatialPointsDataframe
-school_df <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, BSID, percDist)) %>%
+school_df <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, DSBINDEX.x, percDist)) %>%
   group_by(schoolName.x) %>%
-  summarise(schoolLat = first(schoolLat.x), schoolLong = first(schoolLong.x), bsid = first(BSID), percDist = first(percDist)) %>%
+  summarise(schoolLat = first(schoolLat.x), schoolLong = first(schoolLong.x), 
+            dsb = first(DSBINDEX.x), percDist = first(percDist)) %>%
   transform(id = 1:nrow(.)) %>%
   rename(
     lat = schoolLat,
@@ -72,6 +77,52 @@ treso_projarg = treso_shp@proj4string@projargs
 
 student_xy <- spTransform(student_df, CRS(treso_projarg))
 school_xy <- spTransform(school_df, CRS(treso_projarg))
+```
+
+- Combine the population, household information
+- Summarize by TRESO zones
+```{r combine socio-economic data}
+head(pop_df)
+head(hhld_df)
+
+# Clean hhld_df
+hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
+  as.tibble()
+
+# Clean pop_df and join with hhld
+pop_tb <- select(pop_df, hhid, treso_zone, hdgree, nocs_11, work_status, school_status) %>%
+  as.tibble() %>%
+  left_join(hhld_tb, by = c("hhid" , "treso_zone"))
+
+# Summarize into TRESO Zones
+treso_tb <- pop_tb %>%
+  group_by(treso_zone) %>%
+  summarize(
+    n_pop = n(),
+    n_hhlds = length(unique(hhid)),
+    n_ft = length(treso_zone[work_status == "full_time"]),
+    n_pt = length(treso_zone[work_status == "part_time"]),
+    n_unemp = length(treso_zone[work_status == "unemployed"]),
+    mean_income = mean(income, na.rm = TRUE),
+    occu_management = length(treso_zone[nocs_11 == 1]),
+    occu_business = length(treso_zone[nocs_11 == 2]),
+    occu_science = length(treso_zone[nocs_11 == 3]),
+    occu_health = length(treso_zone[nocs_11 == 4]),
+    occu_public = length(treso_zone[nocs_11 == 5]),
+    occu_recreation = length(treso_zone[nocs_11 == 6]),
+    occu_sales = length(treso_zone[nocs_11 == 7]),
+    occu_trades = length(treso_zone[nocs_11 == 8]),
+    occu_production = length(treso_zone[nocs_11 == 9]),
+    occu_manufacturing = length(treso_zone[nocs_11 == 10]),
+    occu_notapplicable = length(treso_zone[nocs_11 == 99])
+  )
+
+pop_tb %>%
+  filter(treso_zone == 301) %>%
+  group_by(nocs_11) %>%
+  summarise(count = n())
+
+(pop_df$school_status == 0)
 ```
 
 ### Plot TRESO zones, with school and student 
@@ -99,14 +150,14 @@ student_xy_df <- data.frame(student_xy) %>%
 
 
 treso_plot <- ggplot() +
-  geom_polygon(data = treso_shp_df, mapping = (aes(x = x, y = y, group = group)), 
+  geom_polygon(data = treso_shp_df, mapping = aes(x = x, y = y, group = group), 
                fill = 'grey40', color = 'grey90', alpha = 1, size = 0.1) +
+  geom_point(data = student_xy_df, mapping = aes(x = x, y = y), color = "red", alpha = 0.1, size = 0.01) +
+  geom_point(data = school_xy_df, mapping = aes(x = x, y = y), color = "blue", alpha = 0.1, size = 0.01, shape = 2) +
   labs(x = "", y = "", title = "Students and schools in Ontario") +
   theme(axis.ticks.y = element_blank(), axis.text.y = element_blank(),
         axis.ticks.x = element_blank(), axis.text.x = element_blank(),
         plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
-  geom_point(data = student_xy_df, mapping = (aes(x = x, y = y)), color = "red", alpha = 0.1, size = 0.01) +
-  geom_point(data = school_xy_df, mapping = (aes(x = x, y = y)), color = "blue", alpha = 0.1, size = 0.01, shape = 2) +
   coord_equal(ratio = 1)
 ggsave(treso_plot, file = "output/treso_with_points.png", width = 10, height = 10)
 
@@ -132,7 +183,7 @@ student_overlay <- over(student_xy, treso_shp, returnList = FALSE) %>%
 # Find the treso zones which the school points layover
 school_overlay <- over(school_xy, treso_shp, returnList = FALSE) %>%
   cbind(catchment_dist = school_xy@data$catchment_dist,
-        board_id = school_xy@data$bsid,
+        dsb = school_xy@data$dsb,
         school_name = school_xy@data$school_name) %>%
   as.tibble() %>%
   select(Treso_ID, catchment_dist, board_id, school_name) %>%
@@ -140,21 +191,18 @@ school_overlay <- over(school_xy, treso_shp, returnList = FALSE) %>%
     treso_id_pos = Treso_ID
   )
 
+
 # Join the POR and POS together for distance matrix
 observed_por_pos <- left_join(student_overlay, school_overlay, by = "school_name")
 ```
 
 - Using gbuffer() to determine the treso zones that the 90th percentile distance touches for each school
-- Setting up the multi-core to do `foreac()` loop is worth it once you are doing more than 100 fields
+- Setting up the multi-core to do `foreach()` loop is worth it once you are doing more than 100 fields
   - 100 fields: 29s compared to 19s
   - 1000 fields: 252s compared to 116s
 
 ``` {r buffer treso zones to schools}
-buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment_dist, byid = TRUE)
-
-ggplot() +
-  geom_polygon(data = fortify(buffered_points), mapping = aes(x = long, y = lat, group = group)) +
-  geom_point(data = school_xy_df, mapping = aes(x = x, y = y))
+buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment_dist * 1000, byid = TRUE)
 
 tic("Multi-Core Buffering")
 # Start multi-core clustering for performance
@@ -162,9 +210,8 @@ cores = parallel::detectCores()
 cl <- parallel::makeCluster(cores[1] - 1)
 registerDoParallel(cl)
 
-datalist = list()
-
 # foreach() loop to find the TRESO zones touching the school buffers
+datalist <- list()
 datalist <- foreach(i = 1:nrow(buffered_points@data), .packages=c("sp", "tidyverse", "rgeos")) %dopar% {
   
   # Select the buffer
@@ -172,12 +219,13 @@ datalist <- foreach(i = 1:nrow(buffered_points@data), .packages=c("sp", "tidyver
 
   # Get all TRESO zones that touches the buffer with over(), gIntersect() could be another solution
   treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
-    mutate(id = row_number()) %>%
-    rename(
-      treso_id = id
-    ) %>%
+    cbind(treso_id = treso_shp@data$Treso_ID,
+          households = treso_shp@data$TotHH,
+          persons = treso_shp@data$TotPers) %>%
+    as.tibble() %>%
+    select(school_name, dsb, catchment_dist, treso_id, households, persons) %>%
     drop_na()
-  
+
   # Save each tibble in a list of tibbles
   datalist[[i]] <- treso_overlay
 }
@@ -186,37 +234,87 @@ stopCluster(cl)
 toc()
 
 # Write the datalist to csv
-datalist_df <- rbindlist(datalist) %>%
-  write.csv("output/school_catchment_treso_zones.csv", row.names = FALSE)
+datalist_df <- rbindlist(datalist)
+write.csv(datalist_df, "output/school_catchment_treso_zones.csv", row.names = FALSE)
+```
+
+### Test buffer
+
+- Test that `gBuffer()` is returning intended results.
+
+```{r test buffer}
+# Select a specific buffer
+school_of_interest <- "Marc Garneau CI"
+buffer <- buffered_points[buffered_points@data$school_name == school_of_interest, ]
+
+# Get all TRESO zones that touches the buffer with over(), gIntersect() could be another solution
+treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
+  cbind(treso_id = treso_shp@data$Treso_ID,
+        households = treso_shp@data$TotHH,
+        persons = treso_shp@data$TotPers) %>%
+  as.tibble() %>%
+  select(school_name, dsb, catchment_dist, treso_id, households, persons) %>%
+  drop_na()
+
+# Select the TRESO zones of interest
+treso_zones_interest <- treso_shp[is.element(treso_shp@data$Treso_ID, treso_overlay$treso_id), ] %>%
+  fortify() %>%
+  rename(
+    x = long, 
+    y = lat
+  )
+
+# Convert buffer into df
+buffer_df <- fortify(buffer) %>%
+  rename(
+    x = long, 
+    y = lat
+  )
+
+# Plot the school, buffer and the selected TRESO zones
+ggplot() +
+  geom_polygon(data = treso_zones_interest, mapping = aes(x = x, y = y, group = group), 
+               fill = 'grey40', color = 'grey90', alpha = 1, size = 0.1) +
+  geom_polygon(data = buffer_df, mapping = aes(x = x, y = y, group = group),
+               fill = 'red', color = 'red', alpha = 0.5) +
+  geom_point(data = filter(school_xy_df, school_name == school_of_interest), mapping = aes(x = x, y = y), 
+               fill = "blue", alpha = 0.5, size = 10) +
+  labs(x = "", y = "", title = "Test") +
+  theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
+  coord_equal(ratio = 1)
+
 ```
 
 
+## Plot 90th percentile with straight line distances
 
-## Plot 90th percentile straight line distances
-```{r plotting straight line distance}
-student_tlfd <- as.tibble(student_travel) %>%
-  select(X, dist) %>%
-  transform(km_bins = cut(student_travel$dist, 100)) %>%
-  group_by(km_bins) %>%
-  summarise(count = sum(as.numeric(X)))
+- Convert this to use the TRESO distance once we obtain the skims.
 
-ggplot(student_tlfd, mapping = aes(x = km_bins, y = count, group = 1)) +
-  geom_point() + 
-  geom_line(size = 1) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```{r tlfd plots by boards, fig.width = 10, fig.height = 7, echo = FALSE}
+student_tlfd <- student_travel %>% 
+  select(DSBINDEX.x, dist) %>%
+  rename(dsb = DSBINDEX.x) %>%
+  mutate(student_id = row_number()) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
+  left_join(select(student_overlay, student_id, treso_id_por), by = "student_id") %>%
+  rename(treso_id = treso_id_por) %>%
+  left_join(select(treso_zone_def, treso_id, area), by = "treso_id")
 
-# Try histogram plots using freqplot
-student_tlfd_2 <- student_travel %>% 
-  select(BSID, DSBINDEX.x, dist) %>%
-  rename(DSB_Index = DSBINDEX.x) %>%
-  left_join(select(school_board_def, DSB_Index, board_type_name), by = "DSB_Index") %>%
-  filter(board_type_name == 'French Catholic')
-
-ggplot(student_tlfd_2, aes(dist, color = as.factor(DSB_Index), linetype = as.factor(DSB_Index))) +
-  geom_freqpoly(binwidth = 50) + 
-  scale_color_brewer(palette = "RdBu") +
-  theme_minimal()
-  facet_wrap(vars(board_type_name)) +
-  coord_cartesian(xlim = c(0, 100))
+ggplot(student_tlfd, aes(dist, color = as.factor(board_type_name), fill = as.factor(board_type_name))) +
+  # geom_area(stat = "bin", binwidth = 0.1) +
+  geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
+  facet_wrap(vars(board_type_name), scales = "free_y") +
+  labs(title = "Euclidean Distance", x = "distance (km)", color = "Board Type") +
+  theme_grey() +
+  coord_cartesian(xlim = c(-1, 10))
 ```
 
+```{r tlfd plots by regional areas, fig.width = 10, fig.height = 7, echo = FALSE}
+ggplot(student_tlfd, aes(dist, color = as.factor(area), fill = as.factor(area))) +
+  # geom_area(stat = "bin", binwidth = 0.1) +
+  geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
+  facet_wrap(vars(board_type_name), scales = "free_y") +
+  labs(title = "Euclidean Distance", x = "distance (km)", color = "Geographic Location") +
+  theme_grey() +
+  coord_cartesian(xlim = c(-1, 10))
+```
