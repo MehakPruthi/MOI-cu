@@ -27,14 +27,17 @@ treso_shp <- readOGR(dsn = "input",
 hhld_df <- data.table::fread("input/households_2011.csv.gz")
 pop_df <- data.table::fread("input/persons_2011.csv.gz")
 
+# Definition files
+school_board_def <- read_csv("input/school_board_types.csv")
+treso_zone_def <- read_csv("input/treso_zone_system.csv")
+
 # Students within 90th percentile
-student_travel <- read.csv("output/student_travel.csv", stringsAsFactors = FALSE)
+student_travel <- read_csv("output/student_travel.csv")
 
-# School board definition
-school_board_def <- read.csv("input/school_board_types.csv", stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+# School's historical ADE
+school_ade <- read_csv("output/school_historical_ade.csv")
 
-# TRESO zone definition
-treso_zone_def <- read.csv("input/treso_zone_system.csv", stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+
 ```
 
 ## Data cleaning
@@ -44,23 +47,23 @@ treso_zone_def <- read.csv("input/treso_zone_system.csv", stringsAsFactors = FAL
 - Transform the coordinates to use the same projection system as TRESO shapefile
 ```{r data cleaning}
 # Convert the student dataframe into SpatialPointsDataframe
-student_df <- select(student_travel, c(X, studentLat, studentLong, dist, schoolName.x)) %>%
+student_spdf <- select(student_travel, c(X1, studentLat, studentLong, dist, schoolName.x, Enrolment)) %>%
   rename(
-    id = X,
+    id = X1,
     lat = studentLat,
     long = studentLong,
     euclidean_dist = dist,
-    school_name = schoolName.x
-    # add temporary enrollment of 1
+    school_name = schoolName.x,
+    enrolment = Enrolment
     )
 
-coordinates(student_df) <- c('long', 'lat')
+coordinates(student_spdf) <- c('long', 'lat')
 
 # Convert the school dataframe into SpatialPointsDataframe
-school_df <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, DSBINDEX.x, percDist)) %>%
+school_spdf <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, DSBINDEX.x, SFIS, percDist)) %>%
   group_by(schoolName.x) %>%
   summarise(schoolLat = first(schoolLat.x), schoolLong = first(schoolLong.x), 
-            dsb = first(DSBINDEX.x), percDist = first(percDist)) %>%
+            dsb = first(DSBINDEX.x), percDist = first(percDist), sfis = first(SFIS)) %>%
   transform(id = 1:nrow(.)) %>%
   rename(
     lat = schoolLat,
@@ -68,34 +71,32 @@ school_df <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, D
     school_name = schoolName.x,
     catchment_dist = percDist
   )
-coordinates(school_df) <- c('long', 'lat')
+coordinates(school_spdf) <- c('long', 'lat')
 
 # Project the student and school points from lat/long to TRESO's LCC specification
-proj4string(student_df) <- CRS("+proj=longlat +datum=WGS84")
-proj4string(school_df) <- CRS("+proj=longlat +datum=WGS84")
+proj4string(student_spdf) <- CRS("+proj=longlat +datum=WGS84")
+proj4string(school_spdf) <- CRS("+proj=longlat +datum=WGS84")
 treso_projarg = treso_shp@proj4string@projargs
 
-student_xy <- spTransform(student_df, CRS(treso_projarg))
-school_xy <- spTransform(school_df, CRS(treso_projarg))
+student_xy <- spTransform(student_spdf, CRS(treso_projarg))
+school_xy <- spTransform(school_spdf, CRS(treso_projarg))
 ```
 
 - Combine the population, household information
 - Summarize by TRESO zones
 ```{r combine socio-economic data}
-head(pop_df)
-head(hhld_df)
 
 # Clean hhld_df
 hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
   as.tibble()
 
 # Clean pop_df and join with hhld
-pop_tb <- select(pop_df, hhid, treso_zone, hdgree, nocs_11, work_status, school_status) %>%
+socio_economic_tb <- select(pop_df, hhid, treso_zone, hdgree, nocs_11, work_status, school_status) %>%
   as.tibble() %>%
   left_join(hhld_tb, by = c("hhid" , "treso_zone"))
 
 # Summarize into TRESO Zones
-treso_tb <- pop_tb %>%
+treso_tb <- socio_economic_tb %>%
   group_by(treso_zone) %>%
   summarize(
     n_pop = n(),
@@ -114,15 +115,21 @@ treso_tb <- pop_tb %>%
     occu_trades = length(treso_zone[nocs_11 == 8]),
     occu_production = length(treso_zone[nocs_11 == 9]),
     occu_manufacturing = length(treso_zone[nocs_11 == 10]),
-    occu_notapplicable = length(treso_zone[nocs_11 == 99])
+    occu_notapplicable = length(treso_zone[nocs_11 == 99]),
+    attend_school = length(treso_zone[school_status == 2]),
+    deg_none = length(treso_zone[hdgree == 1]),
+    deg_hs = length(treso_zone[hdgree == 2]),
+    deg_trades = length(treso_zone[hdgree == 3]),
+    deg_ra = length(treso_zone[hdgree == 4]),
+    deg_col = length(treso_zone[hdgree == 5]),
+    deg_uni = length(treso_zone[hdgree == 6]),
+    deg_ugrad = length(treso_zone[hdgree == 7]),
+    deg_grad = length(treso_zone[hdgree == 8]),
+    deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
   )
 
-pop_tb %>%
-  filter(treso_zone == 301) %>%
-  group_by(nocs_11) %>%
-  summarise(count = n())
-
-(pop_df$school_status == 0)
+# Clean global variables
+rm(hhld_tb, socio_economic_tb)
 ```
 
 ### Plot TRESO zones, with school and student 
@@ -161,6 +168,8 @@ treso_plot <- ggplot() +
   coord_equal(ratio = 1)
 ggsave(treso_plot, file = "output/treso_with_points.png", width = 10, height = 10)
 
+# Clean up the global environments
+rm(school_xy_df, treso_shp_df, student_xy_df)
 ```
 
 ## Spatial gymnastics
@@ -184,9 +193,10 @@ student_overlay <- over(student_xy, treso_shp, returnList = FALSE) %>%
 school_overlay <- over(school_xy, treso_shp, returnList = FALSE) %>%
   cbind(catchment_dist = school_xy@data$catchment_dist,
         dsb = school_xy@data$dsb,
-        school_name = school_xy@data$school_name) %>%
+        school_name = school_xy@data$school_name,
+        sfis = school_xy@data$sfis) %>%
   as.tibble() %>%
-  select(Treso_ID, catchment_dist, board_id, school_name) %>%
+  select(Treso_ID, catchment_dist, dsb, school_name) %>%
   rename(
     treso_id_pos = Treso_ID
   )
@@ -223,7 +233,7 @@ datalist <- foreach(i = 1:nrow(buffered_points@data), .packages=c("sp", "tidyver
           households = treso_shp@data$TotHH,
           persons = treso_shp@data$TotPers) %>%
     as.tibble() %>%
-    select(school_name, dsb, catchment_dist, treso_id, households, persons) %>%
+    select(school_name, sfis, dsb, catchment_dist, treso_id, households, persons) %>%
     drop_na()
 
   # Save each tibble in a list of tibbles
@@ -238,8 +248,6 @@ datalist_df <- rbindlist(datalist)
 write.csv(datalist_df, "output/school_catchment_treso_zones.csv", row.names = FALSE)
 ```
 
-### Test buffer
-
 - Test that `gBuffer()` is returning intended results.
 
 ```{r test buffer}
@@ -253,7 +261,7 @@ treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
         households = treso_shp@data$TotHH,
         persons = treso_shp@data$TotPers) %>%
   as.tibble() %>%
-  select(school_name, dsb, catchment_dist, treso_id, households, persons) %>%
+  select(school_name, sfis, dsb, catchment_dist, treso_id, households, persons) %>%
   drop_na()
 
 # Select the TRESO zones of interest
@@ -271,6 +279,12 @@ buffer_df <- fortify(buffer) %>%
     y = lat
   )
 
+school_xy_df <- data.frame(school_xy) %>%
+  rename(
+    x = long,
+    y = lat
+  )
+
 # Plot the school, buffer and the selected TRESO zones
 ggplot() +
   geom_polygon(data = treso_zones_interest, mapping = aes(x = x, y = y, group = group), 
@@ -283,25 +297,132 @@ ggplot() +
   theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
   coord_equal(ratio = 1)
 
+# Clean up global environment variables
+rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, school_xy_df)
+```
+
+## Linear Regression
+
+- Combine the the datalist of buffered TRESO zones with the tibble containing socio-economic data
+- Combine with the historical ADE and utilization data by school
+
+```{r prepare data for linear regression}
+# Combine the school's buffered TRESO zones with socio-economic info and group_by school name
+# First summarise data that is calculated with mean
+# I think using purr, one could summarise different columns with different functions
+school_tb_temp <- as.tibble(datalist_df) %>%
+  left_join(select(treso_tb, treso_zone, mean_income), by = c("treso_id" = "treso_zone")) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb")) %>%
+  replace(is.na(.), 0) %>%
+  group_by(school_name) %>%
+  summarise(
+    mean_income = mean(mean_income),
+    dsb = first(dsb),
+    sfis = first(sfis),
+    catchment_dist = first(catchment_dist),
+    board_type_name = first(board_type_name)
+  )
+
+# Then, combine with data that is calculated with sum
+school_tb <- as.tibble(datalist_df) %>%
+  left_join(treso_tb, by = c("treso_id" = "treso_zone")) %>%
+  replace(is.na(.), 0) %>%
+  group_by(school_name) %>%
+  summarise_at(
+    .vars = vars(starts_with("n_"), starts_with("occu_"), starts_with("deg_"), "attend_school"),
+    .funs = c(sum = "sum")
+  ) %>%
+  left_join(school_tb_temp, by = "school_name")
+
+# Summarize to obtain with the utility info by year
+# Using reshape2, one could combine these two steps into one, but I wanted to keep the requirements down. 
+school_util_tb <- school_ade %>%
+  filter(Status == "Open") %>%
+  select(Sch_yr, SFIS_ID, FacilityName, utilization) %>%
+  rename(
+    year = Sch_yr,
+    sfis = SFIS_ID,
+    school_name = FacilityName
+  ) %>%
+  spread(year, utilization) %>%
+  rename_at(vars(starts_with("20")), ~ paste0("util_", .))
+
+# Summarize to obtain with the ADE info by year
+school_ade_tb <- school_ade %>%
+  filter(Status == "Open") %>%
+  select(Sch_yr, Panel, SFIS_ID, FacilityName, ADE) %>%
+  rename(
+    year = Sch_yr,
+    panel = Panel,
+    sfis = SFIS_ID,
+    school_name = FacilityName,
+    ade = ADE
+  ) %>%
+  spread(year, ade) %>%
+  rename_at(vars(starts_with("20")), ~ paste0("ade_", .)) %>%
+  left_join(school_util_tb, by = c("sfis", "school_name")) %>%
+  replace(is.na(.), 0)
+
+# Combine School's ADE and utilization info with School's buffered zones
+school_tb <- school_tb %>%
+  left_join(school_ade_tb, by = c("sfis", "school_name"))
+
+# Clean up the global environments
+rm(school_tb_temp, school_util_tb)
+```
+
+- Segment the schools by board (at least)
+- Build linear regression 
+- Explore other segmentations
+
+```{r linear regression}
+
+# Select schools with:
+# - 2017 ADE value
+# - Elementary
+# - English Public
+school_tb_filtered <- filter(school_tb, ade_2017 > 0, panel == "Elementary", board_type_name == "English Public")
+
+# Build linear regression data base with various transformed x, y variables
+linreg <- school_tb_filtered %>%
+  select(ade_2017, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, 
+         mean_income) %>%
+  mutate_all(
+    funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
+  ) %>%
+  cbind(select(school_tb_filtered, sfis, school_name))
+
+# Exploring the data relationships
+ggplot(linreg, aes(y = ade_2017_ln, x = occu_sales_sum_sqrt)) +
+  geom_point(alpha = 0.5, color = "#F8766D") +
+  geom_smooth(method = "lm", se = FALSE)
+
+# Attemp a fit
+fit_base <- lm(ade_2017_ln ~ occu_sales_sum_sqrt, data = linreg)
+summary(fit_base)
+plot(fit_base)
 ```
 
 
 ## Plot 90th percentile with straight line distances
 
+
 - Convert this to use the TRESO distance once we obtain the skims.
+- The code also use `uncount()` to convert the enrollment number to individual entries in the tibble
 
 ```{r tlfd plots by boards, fig.width = 10, fig.height = 7, echo = FALSE}
 student_tlfd <- student_travel %>% 
-  select(DSBINDEX.x, dist) %>%
+  select(DSBINDEX.x, dist, Enrolment) %>%
   rename(dsb = DSBINDEX.x) %>%
   mutate(student_id = row_number()) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
   left_join(select(student_overlay, student_id, treso_id_por), by = "student_id") %>%
   rename(treso_id = treso_id_por) %>%
-  left_join(select(treso_zone_def, treso_id, area), by = "treso_id")
+  left_join(select(treso_zone_def, treso_id, area), by = "treso_id") %>%
+  # expand the rows based on enrollment number
+  uncount(Enrolment)
 
-ggplot(student_tlfd, aes(dist, color = as.factor(board_type_name), fill = as.factor(board_type_name))) +
-  # geom_area(stat = "bin", binwidth = 0.1) +
+ggplot(student_tlfd, aes(x = dist, color = as.factor(board_type_name), fill = as.factor(board_type_name))) +
   geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
   facet_wrap(vars(board_type_name), scales = "free_y") +
   labs(title = "Euclidean Distance", x = "distance (km)", color = "Board Type") +
