@@ -91,7 +91,7 @@ hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
   as.tibble()
 
 # Clean pop_df and join with hhld
-socio_economic_tb <- select(pop_df, hhid, treso_zone, hdgree, nocs_11, work_status, school_status) %>%
+socio_economic_tb <- select(pop_df, hhid, treso_zone, age, hdgree, nocs_11, work_status, school_status) %>%
   as.tibble() %>%
   left_join(hhld_tb, by = c("hhid" , "treso_zone"))
 
@@ -104,7 +104,13 @@ treso_tb <- socio_economic_tb %>%
     n_ft = length(treso_zone[work_status == "full_time"]),
     n_pt = length(treso_zone[work_status == "part_time"]),
     n_unemp = length(treso_zone[work_status == "unemployed"]),
+    n_sec_pop = length(treso_zone[age <= 18 & age >= 14]),
+    n_ele_pop = length(treso_zone[age <= 13 & age >= 6]),
+    n_pre_pop = length(treso_zone[age <= 5]),
+    
     mean_income = mean(income, na.rm = TRUE),
+    mean_age = mean(age, na.rm = TRUE),
+    
     occu_management = length(treso_zone[nocs_11 == 1]),
     occu_business = length(treso_zone[nocs_11 == 2]),
     occu_science = length(treso_zone[nocs_11 == 3]),
@@ -127,6 +133,9 @@ treso_tb <- socio_economic_tb %>%
     deg_grad = length(treso_zone[hdgree == 8]),
     deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
   )
+
+ggplot(pop_df, aes(age, fill = school_status)) +
+  geom_histogram(binwidth = 3)
 
 # Clean global variables
 rm(hhld_tb, socio_economic_tb)
@@ -252,7 +261,7 @@ write.csv(datalist_df, "output/school_catchment_treso_zones.csv", row.names = FA
 
 ```{r test buffer}
 # Select a specific buffer
-school_of_interest <- "Marc Garneau CI"
+school_of_interest <- "A Y Jackson SS"
 buffer <- buffered_points[buffered_points@data$school_name == school_of_interest, ]
 
 # Get all TRESO zones that touches the buffer with over(), gIntersect() could be another solution
@@ -271,6 +280,8 @@ treso_zones_interest <- treso_shp[is.element(treso_shp@data$Treso_ID, treso_over
     x = long, 
     y = lat
   )
+
+interst_zones <- treso_overlay
 
 # Convert buffer into df
 buffer_df <- fortify(buffer) %>%
@@ -293,7 +304,7 @@ ggplot() +
                fill = 'red', color = 'red', alpha = 0.5) +
   geom_point(data = filter(school_xy_df, school_name == school_of_interest), mapping = aes(x = x, y = y), 
                fill = "blue", alpha = 0.5, size = 10) +
-  labs(x = "", y = "", title = "Test") +
+  labs(x = "", y = "", title = "Test Buffer") +
   theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
   coord_equal(ratio = 1)
 
@@ -308,19 +319,22 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
 
 ```{r prepare data for linear regression}
 # Combine the school's buffered TRESO zones with socio-economic info and group_by school name
-# First summarise data that is calculated with mean
-# I think using purr, one could summarise different columns with different functions
+# First summarise data that is calculated with `mean()` or `first()`
+# I think using purr, one could summarise different columns with different functions in one go
 school_tb_temp <- as.tibble(datalist_df) %>%
-  left_join(select(treso_tb, treso_zone, mean_income), by = c("treso_id" = "treso_zone")) %>%
+  left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c("treso_id" = "treso_zone")) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb")) %>%
+  left_join(select(treso_zone_def, treso_id, area), by = c("treso_id")) %>%
   replace(is.na(.), 0) %>%
   group_by(school_name) %>%
   summarise(
     mean_income = mean(mean_income),
+    mean_age = mean(mean_age),
     dsb = first(dsb),
     sfis = first(sfis),
     catchment_dist = first(catchment_dist),
-    board_type_name = first(board_type_name)
+    board_type_name = first(board_type_name),
+    area = first(area)
   )
 
 # Then, combine with data that is calculated with sum
@@ -377,30 +391,33 @@ rm(school_tb_temp, school_util_tb)
 
 ```{r linear regression}
 
-# Select schools with:
-# - 2017 ADE value
-# - Elementary
-# - English Public
-school_tb_filtered <- filter(school_tb, ade_2017 > 0, panel == "Elementary", board_type_name == "English Public")
+# Filter the school database down
+school_tb_filtered <- filter(school_tb, ade_2011 > 0, panel == "Elementary", board_type_name == "English Public", 
+                             area == "york")
 
 # Build linear regression data base with various transformed x, y variables
+# Consider standardizing the data here.
 linreg <- school_tb_filtered %>%
-  select(ade_2017, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, 
-         mean_income) %>%
+  select(ade_2011, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, mean_income, mean_age) %>%
   mutate_all(
     funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
   ) %>%
   cbind(select(school_tb_filtered, sfis, school_name))
 
+
 # Exploring the data relationships
-ggplot(linreg, aes(y = ade_2017_ln, x = occu_sales_sum_sqrt)) +
+ggplot(linreg, aes(y = ade_2011, x = n_ele_pop_sum_sqrt)) +
   geom_point(alpha = 0.5, color = "#F8766D") +
   geom_smooth(method = "lm", se = FALSE)
 
-# Attemp a fit
-fit_base <- lm(ade_2017_ln ~ occu_sales_sum_sqrt, data = linreg)
-summary(fit_base)
-plot(fit_base)
+# Build models
+mod.base <- lm(ade_2011 ~ n_ele_pop_sum_sqrt, data = linreg)
+mod.expand <- lm(ade_2011 ~ n_ele_pop_sum_sqrt + n_pre_pop_sum_sqrt, data = linreg)
+anova(mod.base, mod.expand)
+
+summary(mod.base)
+summary(mod.expand)
+plot(mod.expand)
 ```
 
 

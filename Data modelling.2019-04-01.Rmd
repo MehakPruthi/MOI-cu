@@ -6,13 +6,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyr)
 library(tidyverse)
-library(ggplot2)
-library(RODBC)
-library(dplyr)
-library(purrr)
-library(stringr)
+library(weights)
 source("Data modelling functions.2019-03-28.R")
 ```
 
@@ -25,11 +20,10 @@ source("Data modelling functions.2019-03-28.R")
 
 ## Import Education Data
 ```{r}
-schoolRodbc <-odbcConnect("SQLDNS")
-schoolCap <- sqlFetch(schoolRodbc, "cap.EDU_School_Cap")
-schoolForecast <- sqlFetch(schoolRodbc, "cap.EDU_Forecast_Ext")
-SchoolAssets <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDU")
-schoolAssetsPortables <- sqlFetch(schoolRodbc, "dbo.AssetInventoryEDUPortableNew")
+schoolCap <- read.csv("input/school_capacity.csv", stringsAsFactors = FALSE)
+schoolForecast <- read.csv("input/school_forecast.csv", stringsAsFactors = FALSE)
+SchoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
+schoolAssetsPortables <- read.csv("input/school_assets_portables.csv", stringsAsFactors = FALSE)
 schoolPost <- read.csv('input/EDU_enrol_SCH_PCode_WSP_Temp.csv', stringsAsFactors = FALSE)
 # postal code to lat/long conversion file
 pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
@@ -51,10 +45,11 @@ First, clean the school forecast data.
 
 ```{r}
 schoolForecastSlim <- schoolForecast %>%
-  rename(projectionYear = `Projection Year`) %>%
+  rename(projectionYear = `Projection.Year`) %>%
   # select(projectionYear, SCH_YR, DSBINDEX, PANEL, ADE_JKSK, ADE_G1G3, ADE_G4G8, ADE_SEC, ADE)
   group_by(SCH_YR, DSBINDEX) %>%
-  mutate(boardADE = sum(ADE), boardADEsec = sum(ADE_SEC), boardADEelem = sum(ADE_ELEM), boardADEjksk = sum(ADE_JKSK), boardADEg1g3 = sum(ADE_G1G3), boardADEg4g8 = sum(ADE_G4G8)) %>%
+  mutate(boardADE = sum(ADE), boardADEsec = sum(ADE_SEC), boardADEelem = sum(ADE_ELEM), boardADEjksk = sum(ADE_JKSK), 
+         boardADEg1g3 = sum(ADE_G1G3), boardADEg4g8 = sum(ADE_G4G8)) %>%
   distinct(projectionYear, SCH_YR, DSBINDEX, boardADE, boardADEsec, boardADEelem, boardADEjksk, boardADEg1g3, boardADEg4g8) %>%
   arrange(DSBINDEX, SCH_YR)
 ```
@@ -67,8 +62,6 @@ schoolCapSlim <- schoolCap %>%
   filter(Status == "Open", dataSetID == 2) %>%
   arrange(desc(utilization), Sch_yr, SFIS_ID)
 
-#schoolCapSlim %>%
-  #write.csv('output/school_data.csv', row.names = FALSE)
 ```
 
 ## Calculate School Catchment Areas
@@ -76,50 +69,54 @@ schoolCapSlim <- schoolCap %>%
 #Step 1: Student Postal Code Data Cleanup
 schoolPostSlim <- schoolPost %>%
   filter(Sch_YR == 2015) %>%
-  filter(str_length(Student.Postal.Code) <= 6)
+  filter(str_length(Student.Postal.Code) <= 6) %>%
+  mutate(Enrolment = as.integer(Enrolment))
 
-#Step 1: Join School forecast data to Postal Code data to match SFIS_ID to BSID
-names(schoolForecast)
+#Step 2: Join School forecast data to Postal Code data to match SFIS_ID to BSID
 schoolBSID <- schoolForecast %>%
   filter(SCH_YR == 2017) %>%
-  select(BSID, schoolName = `School Name`, SFIS, schoolLat = latitude, schoolLong = longitude, DSBINDEX) %>%
+  select(BSID, schoolName = `School.Name`, SFIS, schoolLat = latitude, schoolLong = longitude, DSBINDEX) %>%
   group_by(BSID, schoolName, SFIS, schoolLat, schoolLong) %>%
   arrange(schoolName)
 
-#Step 2: Join postal code centroids to school data
+#Step 3: Join postal code centroids to school data
 pccfSlim <- pccf %>%
   filter(SLI == 1)
 
 schoolCatchment <- schoolBSID %>%
   select(BSID, SFIS, schoolName, schoolLat, schoolLong, DSBINDEX) %>%
   left_join(select(schoolPostSlim, BSID, Student.Postal.Code, Enrolment), by = c('BSID' = 'BSID')) %>%
-  left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, postalCode), by = c('Student.Postal.Code' = 'postalCode')) %>%
+  left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, PostalCode), by = c('Student.Postal.Code' = 'PostalCode')) %>%
   drop_na(studentLat, studentLong)
 
-#Step 3: Calculate Distance Between Coordinates (Haversine Function)
+#Step 4: Calculate straight-line home-to-school distances by BSID
 schoolCatchmentDist <- schoolCatchment %>%
   mutate(dist = haverFunction(schoolLat, schoolLong, studentLat, studentLong))
   #mutate(dist = mapply(function(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
   #mutate(dist = pmap(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
 
-#Step 4: Calculate percentile straight-line home-to-school distances by BSID
+#Step 5: Calculate the catchment distance by a specified quantile weight by enrolment of the school
 percentileList <- c(0.9)
 schoolCatchmentDistPercent <- schoolCatchmentDist %>%
+  arrange(schoolName, dist) %>%
   group_by(BSID, schoolName, schoolLat, schoolLong, DSBINDEX) %>%
-  summarise(list(enframe(quantile(dist, probs=percentileList)))) %>%
+  # use a weighted quantile function to select the distance by enrolment
+  summarise(
+    list(
+      enframe(
+        wtd.quantile(dist, probs = percentileList, na.rm = FALSE, weight = Enrolment)
+        )
+      )
+    ) %>%
   unnest %>%
+  ungroup() %>%
   rename(perc = name, percDist = value)
 
-#Step 5: Determine 0-90th percentile student travel distances
+#Step 6: Select students within the catchment distance and export it
 studentTravel <- schoolCatchmentDist %>%
-  left_join(select(schoolCatchmentDistPercent, BSID, schoolName, schoolLat, percDist, DSBINDEX), by = c('BSID' = 'BSID')) %>%
+  left_join(select(schoolCatchmentDistPercent, BSID, percDist), by = c('BSID' = 'BSID')) %>%
   filter(dist <= percDist) %>%
-  write.csv('C:/Users/azk/Documents/Working away files/student_travel.csv')
-  #group_by(BSID) %>%
-  #summarise(count = n()) %>%
-  #arrange(BSID)
-
-  
+  write.csv('output/student_travel.csv', row.names = FALSE)
 ```
 
 ## Clean and Simplify Portables Data
