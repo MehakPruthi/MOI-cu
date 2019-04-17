@@ -13,7 +13,7 @@ library(sp)
 library(foreach)
 library(doParallel)
 library(tictoc)
-source("Data modelling functions.2019-03-28.R")
+source("helpers.R")
 ```
 
 
@@ -45,30 +45,32 @@ school_ade <- read_csv("output/school_historical_ade.csv")
 - Get the coordinates for schools and students
 - Get the projection from the TRESO shapefile
 - Transform the coordinates to use the same projection system as TRESO shapefile
+
+- *TODO* get rid of Quebec zones
 ```{r data cleaning}
 # Convert the student dataframe into SpatialPointsDataframe
-student_spdf <- select(student_travel, c(X1, studentLat, studentLong, dist, schoolName.x, Enrolment)) %>%
+student_spdf <- select(student_travel, c(studentLat, studentLong, dist, schoolName, Enrolment)) %>%
   rename(
-    id = X1,
     lat = studentLat,
     long = studentLong,
     euclidean_dist = dist,
-    school_name = schoolName.x,
+    school_name = schoolName,
     enrolment = Enrolment
-    )
+    ) %>%
+  mutate(id = row_number())
 
 coordinates(student_spdf) <- c('long', 'lat')
 
 # Convert the school dataframe into SpatialPointsDataframe
-school_spdf <- select(student_travel, c(schoolName.x, schoolLat.x, schoolLong.x, DSBINDEX.x, SFIS, percDist)) %>%
-  group_by(schoolName.x) %>%
-  summarise(schoolLat = first(schoolLat.x), schoolLong = first(schoolLong.x), 
-            dsb = first(DSBINDEX.x), percDist = first(percDist), sfis = first(SFIS)) %>%
+school_spdf <- select(student_travel, c(schoolName, schoolLat, schoolLong, DSBINDEX, SFIS, percDist)) %>%
+  group_by(schoolName) %>%
+  summarise(schoolLat = first(schoolLat), schoolLong = first(schoolLong), 
+            dsb = first(DSBINDEX), percDist = first(percDist), sfis = first(SFIS)) %>%
   transform(id = 1:nrow(.)) %>%
   rename(
     lat = schoolLat,
     long = schoolLong,
-    school_name = schoolName.x,
+    school_name = schoolName,
     catchment_dist = percDist
   )
 coordinates(school_spdf) <- c('long', 'lat')
@@ -98,15 +100,15 @@ socio_economic_tb <- select(pop_df, hhid, treso_zone, age, hdgree, nocs_11, work
 # Summarize into TRESO Zones
 treso_tb <- socio_economic_tb %>%
   group_by(treso_zone) %>%
-  summarize(
+  summarise(
     n_pop = n(),
     n_hhlds = length(unique(hhid)),
     n_ft = length(treso_zone[work_status == "full_time"]),
     n_pt = length(treso_zone[work_status == "part_time"]),
     n_unemp = length(treso_zone[work_status == "unemployed"]),
-    n_sec_pop = length(treso_zone[age <= 18 & age >= 14]),
-    n_ele_pop = length(treso_zone[age <= 13 & age >= 6]),
-    n_pre_pop = length(treso_zone[age <= 5]),
+    n_sec_pop = length(treso_zone[age <= 18 & age >= 13]),
+    n_ele_pop = length(treso_zone[age <= 12 & age >= 3]),
+    n_pre_pop = length(treso_zone[age <= 2]),
     
     mean_income = mean(income, na.rm = TRUE),
     mean_age = mean(age, na.rm = TRUE),
@@ -261,7 +263,7 @@ write.csv(datalist_df, "output/school_catchment_treso_zones.csv", row.names = FA
 
 ```{r test buffer}
 # Select a specific buffer
-school_of_interest <- "A Y Jackson SS"
+school_of_interest <- "Marc Garneau CI"
 buffer <- buffered_points[buffered_points@data$school_name == school_of_interest, ]
 
 # Get all TRESO zones that touches the buffer with over(), gIntersect() could be another solution
@@ -324,7 +326,7 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
 school_tb_temp <- as.tibble(datalist_df) %>%
   left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c("treso_id" = "treso_zone")) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, area), by = c("treso_id")) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso_id")) %>%
   replace(is.na(.), 0) %>%
   group_by(school_name) %>%
   summarise(
@@ -334,7 +336,8 @@ school_tb_temp <- as.tibble(datalist_df) %>%
     sfis = first(sfis),
     catchment_dist = first(catchment_dist),
     board_type_name = first(board_type_name),
-    area = first(area)
+    area = first(area),
+    mof_region = first(mof_region)
   )
 
 # Then, combine with data that is calculated with sum
@@ -389,16 +392,20 @@ rm(school_tb_temp, school_util_tb)
 - Build linear regression 
 - Explore other segmentations
 
+- *TODO:* split Toronto from GTA MOF Region definition
+- *TODO:* check the 0 matched MOF region
+- *TODO:* 10%, 50%, 80%, 90%
+
 ```{r linear regression}
 
 # Filter the school database down
-school_tb_filtered <- filter(school_tb, ade_2011 > 0, panel == "Elementary", board_type_name == "English Public", 
-                             area == "york")
+school_tb_filtered <- filter(school_tb, ade_2012 > 0, panel == "Secondary", board_type_name == "English Public", 
+                             mof_region == "East")
 
 # Build linear regression data base with various transformed x, y variables
 # Consider standardizing the data here.
 linreg <- school_tb_filtered %>%
-  select(ade_2011, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, mean_income, mean_age) %>%
+  select(ade_2012, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, mean_income, mean_age) %>%
   mutate_all(
     funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
   ) %>%
@@ -406,13 +413,13 @@ linreg <- school_tb_filtered %>%
 
 
 # Exploring the data relationships
-ggplot(linreg, aes(y = ade_2011, x = n_ele_pop_sum_sqrt)) +
+ggplot(linreg, aes(y = ade_2012, x = n_sec_pop_sum)) +
   geom_point(alpha = 0.5, color = "#F8766D") +
   geom_smooth(method = "lm", se = FALSE)
 
 # Build models
-mod.base <- lm(ade_2011 ~ n_ele_pop_sum_sqrt, data = linreg)
-mod.expand <- lm(ade_2011 ~ n_ele_pop_sum_sqrt + n_pre_pop_sum_sqrt, data = linreg)
+mod.base <- lm(ade_2012 ~ n_sec_pop_sum_sqrt, data = linreg)
+mod.expand <- lm(ade_2012 ~ n_sec_pop_sum_sqrt + n_pre_pop_sum_sqrt, data = linreg)
 anova(mod.base, mod.expand)
 
 summary(mod.base)
@@ -429,13 +436,15 @@ plot(mod.expand)
 
 ```{r tlfd plots by boards, fig.width = 10, fig.height = 7, echo = FALSE}
 student_tlfd <- student_travel %>% 
-  select(DSBINDEX.x, dist, Enrolment) %>%
-  rename(dsb = DSBINDEX.x) %>%
+  select(DSBINDEX, dist, Enrolment, PANEL) %>%
+  rename(dsb = DSBINDEX) %>%
   mutate(student_id = row_number()) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
   left_join(select(student_overlay, student_id, treso_id_por), by = "student_id") %>%
   rename(treso_id = treso_id_por) %>%
-  left_join(select(treso_zone_def, treso_id, area), by = "treso_id") %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = "treso_id") %>%
+  # MOF Region of NA are Quebec Zones
+  filter(mof_region != "NA") %>%
   # expand the rows based on enrollment number
   uncount(Enrolment)
 
@@ -447,12 +456,36 @@ ggplot(student_tlfd, aes(x = dist, color = as.factor(board_type_name), fill = as
   coord_cartesian(xlim = c(-1, 10))
 ```
 
-```{r tlfd plots by regional areas, fig.width = 10, fig.height = 7, echo = FALSE}
-ggplot(student_tlfd, aes(dist, color = as.factor(area), fill = as.factor(area))) +
+```{r tlfd plots by MOF regions, fig.width = 10, fig.height = 7, echo = FALSE}
+ggplot(student_tlfd, aes(dist, color = as.factor(mof_region), fill = as.factor(mof_region))) +
   # geom_area(stat = "bin", binwidth = 0.1) +
   geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
   facet_wrap(vars(board_type_name), scales = "free_y") +
   labs(title = "Euclidean Distance", x = "distance (km)", color = "Geographic Location") +
   theme_grey() +
   coord_cartesian(xlim = c(-1, 10))
+```
+
+```{r tlfd plots with English Boards, fig.width = 10, fig.height = 7}
+student_tlfd %>%
+  filter(startsWith(board_type_name, "English")) %>%
+  ggplot(aes(dist, color = as.factor(mof_region))) +
+    # geom_area(stat = "bin", binwidth = 0.1) +
+    geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
+    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(PANEL)), scales = "free_y") +
+    labs(title = "Euclidean Distance", x = "distance (km)", color = "Geographic Location") +
+    theme_grey() +
+    coord_cartesian(xlim = c(-1, 10))
+```
+
+```{r tlfd plots with French Boards, fig.width = 10, fig.height = 7}
+student_tlfd %>%
+  filter(startsWith(board_type_name, "French")) %>%
+  ggplot(aes(dist, color = as.factor(mof_region))) +
+    # geom_area(stat = "bin", binwidth = 0.1) +
+    geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
+    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(PANEL)), scales = "free_y") +
+    labs(title = "Euclidean Distance", x = "distance (km)", color = "Geographic Location") +
+    theme_grey() +
+    coord_cartesian(xlim = c(-1, 10))
 ```
