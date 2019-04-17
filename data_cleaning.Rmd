@@ -61,9 +61,9 @@ schoolCapSlim <- schoolCap %>%
 ```{r}
 #Step 1: Student Postal Code Data Cleanup
 schoolPostSlim <- schoolPost %>%
-  filter(Sch_YR == 2015) %>%
-  filter(str_length(Student.Postal.Code) <= 6) %>%
-  mutate(Enrolment = as.integer(Enrolment))
+  filter(Sch_YR == 2017) %>%
+  filter(str_length(Student.Postal.Code) == 6) %>%
+  mutate(Enrolment = as.integer(Enrolment), student_postal_id = row_number())
 
 #Step 2: Join School forecast data to Postal Code data to match SFIS_ID to BSID
 schoolBSID <- schoolForecast %>%
@@ -78,7 +78,7 @@ pccfSlim <- pccf %>%
 
 schoolCatchment <- schoolBSID %>%
   select(BSID, SFIS, schoolName, schoolLat, schoolLong, DSBINDEX, PANEL) %>%
-  left_join(select(schoolPostSlim, BSID, Student.Postal.Code, Enrolment), by = c('BSID' = 'BSID')) %>%
+  left_join(select(schoolPostSlim, BSID, Student.Postal.Code, Enrolment, student_postal_id), by = c('BSID' = 'BSID')) %>%
   left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, PostalCode), by = c('Student.Postal.Code' = 'PostalCode')) %>%
   drop_na(studentLat, studentLong)
 
@@ -89,7 +89,7 @@ schoolCatchmentDist <- schoolCatchment %>%
   #mutate(dist = pmap(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
 
 #Step 5: Calculate the catchment distance by a specified quantile weight by enrolment of the school
-percentileList <- c(0.9)
+percentileList <- c(0.9, 0.8, 0.7, 0.5, 0.1)
 schoolCatchmentDistPercent <- schoolCatchmentDist %>%
   arrange(schoolName, dist) %>%
   group_by(BSID, schoolName, schoolLat, schoolLong, DSBINDEX) %>%
@@ -104,13 +104,19 @@ schoolCatchmentDistPercent <- schoolCatchmentDist %>%
     ) %>%
   unnest %>%
   ungroup() %>%
-  rename(perc = name, percDist = value)
+  rename(perc_name = name, percDist = value) %>%
+  mutate(perc_value = as.numeric(sub("%","",perc_name))/100)
+
 
 #Step 6: Select students within the catchment distance and export it
-studentTravel <- schoolCatchmentDist %>%
-  left_join(select(schoolCatchmentDistPercent, BSID, percDist), by = c('BSID' = 'BSID')) %>%
-  filter(dist <= percDist) %>%
-  write.csv('output/student_travel_90.csv', row.names = FALSE)
+for (catchment_dist in percentileList){
+  schoolCatchmentDist %>%
+    left_join(select(schoolCatchmentDistPercent, BSID, percDist, perc_value), by = c('BSID' = 'BSID')) %>%
+    filter(perc_value == catchment_dist) %>%
+    filter(dist <= percDist) %>%
+    write.csv(paste0('output/student_travel_',as.character(catchment_dist),'.csv'), row.names = FALSE)
+}
+
 ```
 
 ## Clean and Simplify Portables Data
