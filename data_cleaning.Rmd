@@ -12,8 +12,14 @@ source("helpers.R")
 ```
 
 
-## Imort data
+# Import data
 ```{r}
+
+# TRESO data
+hhld_df <- data.table::fread("input/households_2011.csv.gz")
+pop_df <- data.table::fread("input/persons_2011.csv.gz")
+
+# School Data
 schoolCap <- read.csv("input/school_capacity.csv", stringsAsFactors = FALSE)
 schoolForecast <- read.csv("input/school_forecast.csv", stringsAsFactors = FALSE)
 SchoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
@@ -22,6 +28,7 @@ schoolPost <- read.csv('input/sch_enr_pcode.txt', sep = "|", stringsAsFactors = 
 # postal code to lat/long conversion file
 pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 
+# Office Data
 #officeSpace <- sqlFetch(schoolRodbc, "cap.IOAnnualSpaceBaselineBuilding")
 #officeSpace %>%
 #  write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/OfficeSpaceData.csv', row.names = FALSE)
@@ -31,6 +38,66 @@ pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncodi
 #  write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/OfficeSpaceAssetData.csv', row.names = FALSE)
 
 ```
+
+## TRESO Data cleaning 
+
+- Combine the population, household information
+- Summarize by TRESO zones
+
+```{r treso data cleaning}
+# Clean hhld_df
+hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
+  as.tibble()
+
+# Clean pop_df and join with hhld
+socio_economic_tb <- select(pop_df, hhid, treso_zone, age, hdgree, nocs_11, work_status, school_status) %>%
+  as.tibble() %>%
+  left_join(hhld_tb, by = c("hhid" , "treso_zone"))
+
+# Summarize into TRESO Zones
+treso_tb <- socio_economic_tb %>%
+  group_by(treso_zone) %>%
+  summarise(
+    n_pop = n(),
+    n_hhlds = length(unique(hhid)),
+    n_ft = length(treso_zone[work_status == "full_time"]),
+    n_pt = length(treso_zone[work_status == "part_time"]),
+    n_unemp = length(treso_zone[work_status == "unemployed"]),
+    n_sec_pop = length(treso_zone[age <= 18 & age >= 13]),
+    n_ele_pop = length(treso_zone[age <= 12 & age >= 3]),
+    n_pre_pop = length(treso_zone[age <= 2]),
+    
+    mean_income = mean(income, na.rm = TRUE),
+    mean_age = mean(age, na.rm = TRUE),
+    
+    occu_management = length(treso_zone[nocs_11 == 1]),
+    occu_business = length(treso_zone[nocs_11 == 2]),
+    occu_science = length(treso_zone[nocs_11 == 3]),
+    occu_health = length(treso_zone[nocs_11 == 4]),
+    occu_public = length(treso_zone[nocs_11 == 5]),
+    occu_recreation = length(treso_zone[nocs_11 == 6]),
+    occu_sales = length(treso_zone[nocs_11 == 7]),
+    occu_trades = length(treso_zone[nocs_11 == 8]),
+    occu_production = length(treso_zone[nocs_11 == 9]),
+    occu_manufacturing = length(treso_zone[nocs_11 == 10]),
+    occu_notapplicable = length(treso_zone[nocs_11 == 99]),
+    attend_school = length(treso_zone[school_status == 2]),
+    deg_none = length(treso_zone[hdgree == 1]),
+    deg_hs = length(treso_zone[hdgree == 2]),
+    deg_trades = length(treso_zone[hdgree == 3]),
+    deg_ra = length(treso_zone[hdgree == 4]),
+    deg_col = length(treso_zone[hdgree == 5]),
+    deg_uni = length(treso_zone[hdgree == 6]),
+    deg_ugrad = length(treso_zone[hdgree == 7]),
+    deg_grad = length(treso_zone[hdgree == 8]),
+    deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
+  ) %>%
+  saveRDS("output/treso_tb.rds")
+
+# Clean global variables
+rm(hhld_tb, socio_economic_tb)
+```
+
 
 ## Education Data cleaning
 
@@ -107,14 +174,13 @@ schoolCatchmentDistPercent <- schoolCatchmentDist %>%
   rename(perc_name = name, percDist = value) %>%
   mutate(perc_value = as.numeric(sub("%","",perc_name))/100)
 
-
 #Step 6: Select students within the catchment distance and export it
 for (catchment_dist in percentileList){
   schoolCatchmentDist %>%
     left_join(select(schoolCatchmentDistPercent, BSID, percDist, perc_value), by = c('BSID' = 'BSID')) %>%
     filter(perc_value == catchment_dist) %>%
     filter(dist <= percDist) %>%
-    write.csv(paste0('output/student_travel_',as.character(catchment_dist),'.csv'), row.names = FALSE)
+    saveRDS(file = paste0('output/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
 ```
