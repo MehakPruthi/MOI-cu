@@ -14,7 +14,6 @@ source("helpers.R")
 
 # Import data
 ```{r}
-
 # TRESO data
 hhld_df <- data.table::fread("input/households_2011.csv.gz")
 pop_df <- data.table::fread("input/persons_2011.csv.gz")
@@ -25,6 +24,7 @@ schoolForecast <- read.csv("input/school_forecast.csv", stringsAsFactors = FALSE
 SchoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
 schoolAssetsPortables <- read.csv("input/school_assets_portables.csv", stringsAsFactors = FALSE)
 schoolPost <- read.csv('input/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
+
 # postal code to lat/long conversion file
 pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 
@@ -52,7 +52,36 @@ hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
 # Clean pop_df and join with hhld
 socio_economic_tb <- select(pop_df, hhid, treso_zone, age, hdgree, nocs_11, work_status, school_status) %>%
   as.tibble() %>%
-  left_join(hhld_tb, by = c("hhid" , "treso_zone"))
+  left_join(hhld_tb, by = c("hhid" , "treso_zone")) %>%
+  mutate(adult = ifelse(age >= 21, 1, 0)) %>%
+  mutate(child = ifelse(age < 21, 1, 0))
+
+hhld_structure <- socio_economic_tb %>%
+  group_by(hhid) %>%
+  summarise(
+    hhld_adult = sum(adult),
+    hhld_child = sum(child),
+    treso_zone = unique(treso_zone)
+  ) %>%
+  mutate(n_zero_adult = ifelse(hhld_adult == 0, 1, 0)) %>%
+  mutate(n_one_adult_zero_child = ifelse(hhld_adult == 1 & hhld_child == 0, 1, 0)) %>%
+  mutate(n_one_adult_one_child = ifelse(hhld_adult == 1 & hhld_child == 1, 1, 0)) %>%
+  mutate(n_one_adult_two_child = ifelse(hhld_adult == 1 & hhld_child == 2, 1, 0)) %>%
+  mutate(n_one_adult_twoplus_child = ifelse(hhld_adult == 1 & hhld_child > 2, 1, 0)) %>%
+  mutate(n_two_adult_zero_child = ifelse(hhld_adult == 2 & hhld_child == 0, 1, 0)) %>%
+  mutate(n_two_adult_one_child = ifelse(hhld_adult == 2 & hhld_child == 1, 1, 0)) %>%
+  mutate(n_two_adult_two_child = ifelse(hhld_adult == 2 & hhld_child == 2, 1, 0)) %>%
+  mutate(n_two_adult_twoplus_child = ifelse(hhld_adult == 2 & hhld_child > 2, 1, 0)) %>%
+  mutate(n_twoplus_adult_zero_child = ifelse(hhld_adult > 2 & hhld_child == 0, 1, 0)) %>%
+  mutate(n_twoplus_adult_one_child = ifelse(hhld_adult > 2 & hhld_child == 1, 1, 0)) %>%
+  mutate(n_twoplus_adult_two_child = ifelse(hhld_adult > 2 & hhld_child == 2, 1, 0)) %>%
+  mutate(n_twoplus_adult_twoplus_child = ifelse(hhld_adult > 2 & hhld_child > 2, 1, 0)) %>%
+  # Group into treso ID
+  select(treso_zone, n_zero_adult:n_twoplus_adult_twoplus_child) %>%
+  group_by(treso_zone) %>%
+  summarise_all(
+    funs(sum)
+  )
 
 # Summarize into TRESO Zones
 treso_tb <- socio_economic_tb %>%
@@ -92,17 +121,19 @@ treso_tb <- socio_economic_tb %>%
     deg_grad = length(treso_zone[hdgree == 8]),
     deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
   ) %>%
+  left_join(hhld_structure, by = "treso_zone") %>%
   saveRDS("output/treso_tb.rds")
 
 # Clean global variables
-rm(hhld_tb, socio_economic_tb)
+rm(hhld_tb, socio_economic_tb, hhld_structure)
 ```
 
 
 ## Education Data cleaning
-
-First, clean the school forecast data.
-
+ 
+- clean the school forecast data.
+- Then, clean school capacity and historical demand data
+- Combine together 
 ```{r}
 schoolForecastSlim <- schoolForecast %>%
   rename(projectionYear = `Projection.Year`) %>%
@@ -112,57 +143,61 @@ schoolForecastSlim <- schoolForecast %>%
          boardADEg1g3 = sum(ADE_G1G3), boardADEg4g8 = sum(ADE_G4G8)) %>%
   distinct(projectionYear, SCH_YR, DSBINDEX, boardADE, boardADEsec, boardADEelem, boardADEjksk, boardADEg1g3, boardADEg4g8) %>%
   arrange(DSBINDEX, SCH_YR)
-```
 
-Then, cleaning school capacity and historical demand data
-```{r}
 schoolCapSlim <- schoolCap %>%
-  select(Sch_yr, DSB_Index, BoardName, Panel, SFIS_ID, FacilityName, ADE, OTG, Latitude, longitude, Status, dataSetID) %>%
+  select(Sch_yr, DSB_Index, BoardName, Panel, SFIS = `SFIS_ID`, schoolName = `FacilityName`, ADE, OTG, 
+         schoolLat = `Latitude`, schoolLong = `longitude`, Status, dataSetID) %>%
   mutate(utilization = ADE / OTG) %>%
-  filter(Status == "Open", dataSetID == 2) %>%
-  arrange(desc(utilization), Sch_yr, SFIS_ID)
+  filter(Status == "Open", dataSetID == 2, Sch_yr == 2011) %>%
+  arrange(desc(utilization), Sch_yr, SFIS)
 
+# Combine with the forecast data
+schoolForecastSlim <- schoolForecast %>%
+  select(Sch_yr = `SCH_YR`, SFIS, BSID, DSB_Index = `DSBINDEX`, schoolName = `School.Name`, ADE_Forecast = `ADE`, BSID) %>%
+  filter(Sch_yr == 2017)
 ```
+
 
 ## Calculate School Catchment Areas
 ```{r}
 #Step 1: Student Postal Code Data Cleanup
 schoolPostSlim <- schoolPost %>%
-  filter(Sch_YR == 2017) %>%
-  filter(str_length(Student.Postal.Code) == 6) %>%
+  select(Sch_YR, BSID, DSB_INDEX = `dsbindex`, schoolName = `School.Name`, studentPostalCode = `Student.Postal.Code`, Enrolment) %>%
+  filter(Sch_YR == 2011) %>%
+  filter(str_length(studentPostalCode) == 6) %>%
   mutate(Enrolment = as.integer(Enrolment), student_postal_id = row_number())
 
-#Step 2: Join School forecast data to Postal Code data to match SFIS_ID to BSID
-schoolBSID <- schoolForecast %>%
-  filter(SCH_YR == 2017) %>%
-  select(BSID, schoolName = `School.Name`, SFIS, schoolLat = latitude, schoolLong = longitude, DSBINDEX, PANEL) %>%
-  group_by(BSID, schoolName, SFIS, schoolLat, schoolLong) %>%
-  arrange(schoolName)
+#Step 2: Obtain school long and lat
+schoolSFIS <- left_join(schoolCapSlim, schoolForecastSlim, by = c('SFIS')) %>%
+  group_by(SFIS) %>%
+  summarise_all(
+    funs(first)
+  ) %>%
+  rename(schoolName = schoolName.x, DSB_Index = DSB_Index.x) %>%
+  arrange(SFIS)
 
 #Step 3: Join postal code centroids to school data
 pccfSlim <- pccf %>%
   filter(SLI == 1)
 
-schoolCatchment <- schoolBSID %>%
-  select(BSID, SFIS, schoolName, schoolLat, schoolLong, DSBINDEX, PANEL) %>%
-  left_join(select(schoolPostSlim, BSID, Student.Postal.Code, Enrolment, student_postal_id), by = c('BSID' = 'BSID')) %>%
-  left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, PostalCode), by = c('Student.Postal.Code' = 'PostalCode')) %>%
-  drop_na(studentLat, studentLong)
+schoolCatchment <- schoolSFIS %>%
+  select(SFIS, BSID, schoolName, schoolLat, schoolLong, DSB_Index, Panel) %>%
+  left_join(select(schoolPostSlim, BSID, studentPostalCode, Enrolment, student_postal_id), by = c('BSID' = 'BSID')) %>%
+  left_join(select(pccfSlim, studentLat = LAT, studentLong = LONG, PostalCode), by = c('studentPostalCode' = 'PostalCode')) %>%
+  drop_na(studentLat, studentLong, schoolLat, schoolLong)
 
-#Step 4: Calculate straight-line home-to-school distances by BSID
+#Step 4: Calculate straight-line home-to-school distances by SFIS
 schoolCatchmentDist <- schoolCatchment %>%
   mutate(dist = haverFunction(schoolLat, schoolLong, studentLat, studentLong))
-  #mutate(dist = mapply(function(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
-  #mutate(dist = pmap(haverFunction(lat1, long1, lat2, long2), schoolLat, schoolLong, studentLat, studentLong))
 
 #Step 5: Calculate the catchment distance by a specified quantile weight by enrolment of the school
 percentileList <- c(0.9, 0.8, 0.7, 0.5, 0.1)
 schoolCatchmentDistPercent <- schoolCatchmentDist %>%
   arrange(schoolName, dist) %>%
-  group_by(BSID, schoolName, schoolLat, schoolLong, DSBINDEX) %>%
+  group_by(SFIS, schoolName, schoolLat, schoolLong) %>%
   # use a weighted quantile function to select the distance by enrolment
   summarise(
-    PANEL = first(PANEL),
+    PANEL = first(Panel),
     list(
       enframe(
         wtd.quantile(dist, probs = percentileList, na.rm = FALSE, weight = Enrolment)
@@ -177,11 +212,26 @@ schoolCatchmentDistPercent <- schoolCatchmentDist %>%
 #Step 6: Select students within the catchment distance and export it
 for (catchment_dist in percentileList){
   schoolCatchmentDist %>%
-    left_join(select(schoolCatchmentDistPercent, BSID, percDist, perc_value), by = c('BSID' = 'BSID')) %>%
+    left_join(select(schoolCatchmentDistPercent, SFIS, percDist, perc_value), by = c('SFIS' = 'SFIS')) %>%
     filter(perc_value == catchment_dist) %>%
     filter(dist <= percDist) %>%
     saveRDS(file = paste0('output/student_travel_', as.character(catchment_dist), '.rds'))
 }
+
+```
+
+## Visualization of percentile travel distance
+
+```{r}
+student_travel <- readRDS(file = 'output/student_travel_0.9.rds') %>%
+  as.tibble() %>%
+  group_by(schoolName) %>%
+  summarise(distance = first(percDist),
+            schoolLat = first(schoolLat),
+            schoolLong = first(schoolLong))
+
+ggplot(data = student_travel, aes(distance)) +
+  geom_freqpoly(stat = "bin", binwidth = 5, size = 1)
 
 ```
 

@@ -102,9 +102,10 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 - Combine the the datalist of buffered TRESO zones with the tibble containing socio-economic data
 - Combine with the historical ADE and utilization data by school
 
-```{r spatial gymnastics, eval = FALSE, echo = FALSE}
-cathcment_dist = c('90', '80', '70', '50')
-for (dist in cathcment_dist) {
+```{r spatial gymnastics, eval = TRUE, echo = FALSE}
+#catchment_dist = c('90', '80', '70', '50')
+catchment_dist = c('80')
+for (dist in catchment_dist) {
   # Loop through the different catchment areas by retriving the
   # proper variable.
   student_travel <- get(paste0("student_travel_",dist))
@@ -115,6 +116,7 @@ for (dist in cathcment_dist) {
   
   # Create the overlays to get the TRESO zone each XY coordinate falls on
   student_overlay <- create_overlay(student_xy, treso_shp, "student")
+  saveRDS(student_overlay, paste0("output/student_overlay_", dist, ".rds"))
   school_overlay <- create_overlay(school_xy, treso_shp, "school")
   
   # Join the POR and POS together for distance matrix
@@ -135,7 +137,7 @@ for (dist in cathcment_dist) {
 
 ```{r test buffer, eval = FALSE, echo = FALSE}
 # Select a specific buffer
-school_of_interest <- "Marc Garneau CI"
+school_of_interest <- "Crolancia Public School"
 buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment_dist * 1000, byid = TRUE)
 buffer <- buffered_points[buffered_points@data$school_name == school_of_interest, ]
 
@@ -192,16 +194,19 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
 - Convert this to use the TRESO distance once we obtain the skims. (*need to obtain*)
 - Using `uncount()` to convert the enrollment number to individual entries in the tibble
 
-```{r extract the 90th catchment for plot, echo = FALSE}
+```{r read in the student overlay RDS, echo = FALSE}
 # Create overlays for the 90th catchment distance
-student_overlay_90 <- create_overlay(student_xy_90, treso_shp, "student")
+student_overlay_90 <- readRDS("output/student_overlay_90.rds")
+student_overlay_80 <- readRDS("output/student_overlay_80.rds")
+student_overlay_70 <- readRDS("output/student_overlay_70.rds")
+student_overlay_50 <- readRDS("output/student_overlay_50.rds")
 ```
 
 ### 90th Percentile plots
 ```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
 student_tlfd_90 <- student_travel_90 %>% 
-  select(DSBINDEX, dist, Enrolment, PANEL, student_postal_id) %>%
-  rename(dsb = DSBINDEX) %>%
+  select(DSB_Index, dist, Enrolment, Panel, student_postal_id) %>%
+  rename(dsb = DSB_Index) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
   left_join(select(student_overlay_90, student_postal_id, treso_id_por), by = "student_postal_id") %>%
   rename(treso_id = treso_id_por) %>%
@@ -217,8 +222,8 @@ plot_straight_line_tlfd(student_tlfd_90)
 ### 80th Percentile plots
 ```{r tlfd plots for 80th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
 student_tlfd_80 <- student_travel_80 %>% 
-  select(DSBINDEX, dist, Enrolment, PANEL, student_postal_id) %>%
-  rename(dsb = DSBINDEX) %>%
+  select(DSB_Index, dist, Enrolment, Panel, student_postal_id) %>%
+  rename(dsb = DSB_Index) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
   left_join(select(student_overlay_80, student_postal_id, treso_id_por), by = "student_postal_id") %>%
   rename(treso_id = treso_id_por) %>%
@@ -234,8 +239,8 @@ plot_straight_line_tlfd(student_tlfd_80)
 ### 70th Percentile plots
 ```{r tlfd plots for 70th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
 student_tlfd_70 <- student_travel_70 %>% 
-  select(DSBINDEX, dist, Enrolment, PANEL, student_postal_id) %>%
-  rename(dsb = DSBINDEX) %>%
+  select(DSB_Index, dist, Enrolment, Panel, student_postal_id) %>%
+  rename(dsb = DSB_Index) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
   left_join(select(student_overlay_70, student_postal_id, treso_id_por), by = "student_postal_id") %>%
   rename(treso_id = treso_id_por) %>%
@@ -251,8 +256,8 @@ plot_straight_line_tlfd(student_tlfd_70)
 ### 50th Percentile plots
 ```{r tlfd plots for 50th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
 student_tlfd_50 <- student_travel_50 %>% 
-  select(DSBINDEX, dist, Enrolment, PANEL, student_postal_id) %>%
-  rename(dsb = DSBINDEX) %>%
+  select(DSB_Index, dist, Enrolment, Panel, student_postal_id) %>%
+  rename(dsb = DSB_Index) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = "dsb") %>%
   left_join(select(student_overlay_50, student_postal_id, treso_id_por), by = "student_postal_id") %>%
   rename(treso_id = treso_id_por) %>%
@@ -290,22 +295,39 @@ linreg <- school_tb_filtered %>%
   mutate_all(
     funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
   ) %>%
+  mutate(dummy_large_pop = ifelse(n_pop_sum >= 1e+5, 1, 0)) %>%
   cbind(select(school_tb_filtered, sfis, school_name))
 
-
 # Exploring the data relationships
-ggplot(linreg, aes(y = ade_2011, x = n_sec_pop_sum)) +
-  geom_point(alpha = 0.5, color = "#F8766D") +
-  geom_smooth(method = "lm", se = FALSE)
+ggplot(linreg, aes(y = ade_2011, x = n_pop_sum)) +
+  geom_point(alpha = 0.5, color = "#F8766D")
+  #geom_smooth(method = "lm", se = FALSE)
+
+# Fully segment the data
+linreg_small <- linreg %>%
+  filter(n_pop_sum < 1e+5)
+
+linreg_large <- linreg %>%
+  filter(n_pop_sum >= 1e+5)
 
 # Build models
-mod.base <- lm(ade_2011 ~ n_sec_pop_sum_sqrt, data = linreg)
-mod.expand <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_ele_pop_sum_sqrt, data = linreg)
-anova(mod.base, mod.expand)
+mod.small <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_pt_sum_sqrt + n_two_adult_one_child_sum, data = linreg_small)
+summary(mod.small)
+plot(mod.small)
+mod.large <- lm(ade_2011 ~ n_pop_sum_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child_sum +
+                  n_zero_adult_sum, data = linreg_large)
+summary(mod.large)
 
-summary(mod.base)
-summary(mod.expand)
-plot(mod.expand)
+mod.partial <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_pop_sum_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child_sum +
+                  n_zero_adult_sum + dummy_large_pop, data = linreg)
+summary(mod.partial)
+# mod.base <- lm(ade_2011 ~ n_sec_pop_sum_sqrt, data = linreg)
+# mod.expand <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_ele_pop_sum_sqrt, data = linreg)
+# anova(mod.base, mod.expand)
+# 
+# summary(mod.base)
+# summary(mod.expand)
+# plot(mod.expand)
 ```
 
 

@@ -188,10 +188,10 @@ create_school_xy <- function(student_travel) {
   # Convert the school dataframe into SpatialPointsDataframe
   school_spdf <- student_travel %>%
     ungroup() %>%
-    select(schoolName, schoolLat, schoolLong, DSBINDEX, BSID, SFIS, percDist) %>%
+    select(schoolName, schoolLat, schoolLong, DSB_Index, BSID, SFIS, percDist) %>%
     group_by(schoolName) %>%
     summarise(schoolLat = first(schoolLat), schoolLong = first(schoolLong), 
-              dsb = first(DSBINDEX), percDist = first(percDist), sfis = first(SFIS),
+              dsb = first(DSB_Index), percDist = first(percDist), sfis = first(SFIS),
               bsid = first(BSID)) %>%
     rename(
       lat = schoolLat,
@@ -364,7 +364,7 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   
   # Combine School's ADE and utilization info with School's buffered zones
   school_tb <- school_tb %>%
-    left_join(school_ade_tb, by = c("sfis", "school_name"))
+    left_join(school_ade_tb, by = c("sfis"))
   
   # Clean up the global environments
   rm(school_tb_temp, school_util_tb)
