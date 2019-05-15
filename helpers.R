@@ -127,7 +127,7 @@ plot_straight_line_tlfd <- function(tlfd) {
     ggplot(aes(dist, color = as.factor(mof_region))) +
     # geom_area(stat = "bin", binwidth = 0.1) +
     geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
-    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(PANEL)), scales = "free_y") +
+    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(Panel)), scales = "free_y") +
     labs(title = "Euclidean Distance", x = "distance (km)", color = "Geographic Location") +
     theme_grey() +
     coord_cartesian(xlim = c(-1, 10))
@@ -137,7 +137,7 @@ plot_straight_line_tlfd <- function(tlfd) {
     ggplot(aes(dist, color = as.factor(mof_region))) +
     # geom_area(stat = "bin", binwidth = 0.1) +
     geom_freqpoly(stat = "bin", binwidth = 0.1, size = 1) + 
-    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(PANEL)), scales = "free_y") +
+    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(Panel)), scales = "free_y") +
     labs(title = "Euclidean Distance", x = "distance (km)", color = "Geographic Location") +
     theme_grey() +
     coord_cartesian(xlim = c(-1, 10))

@@ -103,8 +103,8 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 - Combine with the historical ADE and utilization data by school
 
 ```{r spatial gymnastics, eval = TRUE, echo = FALSE}
-#catchment_dist = c('90', '80', '70', '50')
-catchment_dist = c('80')
+catchment_dist = c('90', '80', '70', '50')
+#catchment_dist = c('80')
 for (dist in catchment_dist) {
   # Loop through the different catchment areas by retriving the
   # proper variable.
@@ -137,7 +137,10 @@ for (dist in catchment_dist) {
 
 ```{r test buffer, eval = FALSE, echo = FALSE}
 # Select a specific buffer
-school_of_interest <- "Crolancia Public School"
+school_of_interest <- "Thomas Merton (O) CSS"
+student_travel <- get("student_travel_90")
+student_xy <- create_student_xy(student_travel)
+school_xy <- create_school_xy(student_travel)
 buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment_dist * 1000, byid = TRUE)
 buffer <- buffered_points[buffered_points@data$school_name == school_of_interest, ]
 
@@ -278,15 +281,21 @@ plot_straight_line_tlfd(student_tlfd_50)
 - Explore other segmentations
 
 - *TODO:* check the 0 matched MOF region
+- *TOOD:* there are duplicated schools in the school_tb, check where that is coming from
 
 ```{r linear regression, eval = FALSE, echo = FALSE}
 
 # Choose the catchment area to explore
-school_tb <- readRDS("output/school_tb_80.rds")
+school_tb <- readRDS("output/school_tb_50.rds")
 
 # Filter the school database down
 school_tb_filtered <- filter(school_tb, ade_2011 > 0, panel == "Secondary", board_type_name == "English Public", 
                              mof_region == "GTA")
+
+# Display schools that has captured a large area and their 2011 ADE
+school_tb_filtered %>%
+  arrange(desc(n_pop_sum)) %>%
+  select(school_name.x, n_pop_sum, ade_2011)
 
 # Build linear regression data base with various transformed x, y variables
 # Consider standardizing the data here.
@@ -296,7 +305,7 @@ linreg <- school_tb_filtered %>%
     funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
   ) %>%
   mutate(dummy_large_pop = ifelse(n_pop_sum >= 1e+5, 1, 0)) %>%
-  cbind(select(school_tb_filtered, sfis, school_name))
+  cbind(select(school_tb_filtered, sfis, school_name.x))
 
 # Exploring the data relationships
 ggplot(linreg, aes(y = ade_2011, x = n_pop_sum)) +
@@ -305,10 +314,10 @@ ggplot(linreg, aes(y = ade_2011, x = n_pop_sum)) +
 
 # Fully segment the data
 linreg_small <- linreg %>%
-  filter(n_pop_sum < 1e+5)
+  filter(n_pop_sum < 10e+4)
 
 linreg_large <- linreg %>%
-  filter(n_pop_sum >= 1e+5)
+  filter(n_pop_sum >= 10e+4)
 
 # Build models
 mod.small <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_pt_sum_sqrt + n_two_adult_one_child_sum, data = linreg_small)
