@@ -153,9 +153,10 @@ schoolCapSlim <- schoolCap %>%
          status = Status, 
          dataset.id = dataSetID) %>%
   mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
-  filter(status == "Open", dataset.id == 2, !is.na(school.lat), !is.na(school.long)) %>%
+  filter(year == 2017, status == "Open", dataset.id == 2, !is.na(school.lat), !is.na(school.long)) %>%
   group_by(sfis) %>%
   summarise(
+    year = first(year),
     dsb.index = first(dsb.index),
     board.name = first(board.name), 
     panel = first(panel), 
@@ -168,6 +169,8 @@ schoolCapSlim <- schoolCap %>%
     status = first(status), 
     dataset.id = first(dataset.id)
   )
+
+saveRDS(schoolCapSlim, file = 'output/school_capacity_2017.rds')
 
 # The school forecast dataset contains BSID which is needed to merge student postal code
 # From inspection, there are same amount of school in each forecast year.
@@ -230,19 +233,27 @@ rm(num_schools_from_student_post, num_schools_from_school_sfis)
 - Calculate the straight line travel distance between student to school based on lat/long information and `haverFunction()`
 - Validate the distances are reasonable for each school, establish a threshold to remove extremely long travel distances
 
-```{r}
+- *TODO* Filter out Adult Con ED schools, check with name
+- *TODO* High level finding of proportion of students going to nearest school by board, region. Summary of 2017 school utilization.
+- *TODO* Utilization vs travel time
+
+```{r, fig.width=20}
 # Join postal code centroids to student's postal code data
 pccfSlim <- pccf %>%
   filter(SLI == 1) %>%
   select(postal.code = PostalCode,
          lat = LAT,
-         long = LONG)
-
-# TODO ask ALEC regarding postal codes with two SLI == 1
-pccfSlim %>%
+         long = LONG,
+         retirement.date = Ret_Date) %>%
   group_by(postal.code) %>%
+  filter(retirement.date == max(retirement.date))
+
+# Create a list of postal codes with SLI == 1 but different lat/long
+pccfSlim[duplicated(pccfSlim$postal.code) | duplicated(pccfSlim$postal.code, fromLast = TRUE), ] %>%
+  arrange(postal.code) %>%
+  group_by(postal.code, lat, long, retirement.date) %>%
   summarise(n = n()) %>%
-  filter(n > 1)
+  filter(n == 1)
 
 schoolCatchment <- schoolSFIS %>%
   select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel) %>%
@@ -259,8 +270,9 @@ schoolCatchment <- schoolCatchment %>%
   drop_na(enrolment) %>%
   left_join(select(pccfSlim, student.lat = lat, student.long = long, postal.code), by = c('student.postal.code' = 'postal.code'))
 
-num_unmatched_students <- sum(is.na(schoolCatchment$student.lat))
-print(paste0('There are ', num_unmatched_students, ' students without a match between postal code and lat/long'))
+temp_tb <- filter(schoolCatchment, is.na(student.lat))
+num_unmatched_students <- length(unique(temp_tb$student.postal.code))
+print(paste0('There are ', num_unmatched_students, ' unique postal codes that were not match between postal code and lat/long'))
 
 schoolCatchment <- schoolCatchment %>%
   drop_na(student.lat, student.long)
@@ -271,10 +283,15 @@ schoolCatchment <- schoolCatchment %>%
 
 # Plot boxplots of travel distances to find any huge outliers
 temp_dist <- schoolCatchment %>%
-  filter(panel == 'Elementary', dsb.index == 1)
+  filter(panel == 'Secondary', dsb.index == 14)
 
 ggplot(temp_dist, aes(x = school.name, y = dist)) +
   geom_boxplot(outlier.colour = 'red')
+
+temp <- schoolCatchment %>%
+  filter(panel == 'Secondary', dsb.index == 14)
+
+summary(temp$dist)
 
 # TODO: create a threshold for the outliers, maybe one for secondary one for elementary?
 
@@ -300,7 +317,7 @@ schoolCatchmentDistPercent %>%
   group_by(perc.value, panel) %>%
   summarise(average.distance = mean(perc.dist)) %>%
   ggplot(aes(x = perc.value, y = average.distance, fill = panel)) +
-  geom_bar(stat = 'identity') +
+  geom_bar(stat = 'identity', position = 'dodge') +
   labs(x = "Quantile", y = "Distance (KM)", title = "Average Catchment Distance of Schools") +
   theme_minimal()
 
@@ -313,11 +330,11 @@ for (catchment_dist in percentileList){
     saveRDS(file = paste0('output/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
-rm(schoolCatchment, schoolCatchmentDistPercent, percentileList)
+rm(schoolCatchment, schoolCatchmentDistPercent, percentileList, temp_tb)
 ```
 
 ### Quick Check of ADE vs Enrollment
-```{r quick check}
+```{r quick check, fig.height = 50, fig.width = 10}
 # Check the enrollment total vs ADE numbers
 temp1 <- schoolSFIS %>%
   select(bsid, school.name, ade, ade.forecast) %>%
@@ -332,11 +349,15 @@ temp2 <- studentPostSlim %>%
   arrange(school.name)
 
 temp <- left_join(temp1, temp2, by = "bsid") %>%
+  drop_na(enrolment) %>%
   gather(key = 'key', value = 'value', ade, enrolment) %>%
-  select(-school.name.y)
+  select(-school.name.y) %>%
+  arrange(school.name.x) %>%
+  mutate(facet_index = factor(row_number() %/% 100))
 
 ggplot(data = temp, aes(fill = key, x = school.name.x, y = value)) +
-  geom_bar(stat = "identity")
+  geom_bar(stat = "identity", position = 'dodge') +
+  facet_wrap(~facet_index, ncol = 5, scales = 'free_x')
 ```
 
 
