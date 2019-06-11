@@ -1,6 +1,5 @@
 ---
 title: "MOI Data Clean-up"
-Feb-Apr 2019
 output: html_document
 ---
 
@@ -21,11 +20,11 @@ pop_df <- data.table::fread("input/persons_2011.csv.gz")
 # School Data
 schoolCap <- read.csv("input/school_capacity.csv", stringsAsFactors = FALSE)
 schoolForecast <- read.csv("input/school_forecast.csv", stringsAsFactors = FALSE)
-SchoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
+schoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
 schoolAssetsPortables <- read.csv("input/school_assets_portables.csv", stringsAsFactors = FALSE)
 studentPost <- read.csv('input/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
 
-# postal code to lat/long conversion file
+# Postal code to lat/long conversion file
 pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 
 # Office Data
@@ -39,7 +38,7 @@ pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncodi
 
 ```
 
-## TRESO Data cleaning 
+# TRESO Data cleaning 
 
 - Combine the population, household information
 - Summarize by TRESO zones
@@ -47,11 +46,11 @@ pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncodi
 ```{r treso data cleaning}
 # Clean hhld_df
 hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
-  as.tibble()
+  as_tibble()
 
 # Clean pop_df and join with hhld
 socio_economic_tb <- select(pop_df, hhid, treso_zone, age, hdgree, nocs_11, work_status, school_status) %>%
-  as.tibble() %>%
+  as_tibble() %>%
   left_join(hhld_tb, by = c("hhid" , "treso_zone")) %>%
   mutate(adult = ifelse(age >= 21, 1, 0)) %>%
   mutate(child = ifelse(age < 21, 1, 0))
@@ -129,15 +128,14 @@ rm(hhld_tb, socio_economic_tb, hhld_structure)
 ```
 
 
-## Education Data cleaning
+# Education Data cleaning
  
 - clean the school forecast data.
 - Then, clean school capacity and historical demand data
 - Combine together 
-
 - Clean the student postal code data
 
-```{r education cleaning}
+```{r education data cleaning}
 # The school capacity dataset contains the correct lat/long for schools
 schoolCapSlim <- schoolCap %>%
   select(year = Sch_yr, 
@@ -154,23 +152,10 @@ schoolCapSlim <- schoolCap %>%
          dataset.id = dataSetID) %>%
   mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
   filter(year == 2017, status == "Open", dataset.id == 2, !is.na(school.lat), !is.na(school.long)) %>%
-  group_by(sfis) %>%
-  summarise(
-    year = first(year),
-    dsb.index = first(dsb.index),
-    board.name = first(board.name), 
-    panel = first(panel), 
-    school.name = first(school.name), 
-    ade = mean(ade),
-    otg = mean(otg), 
-    utilization = mean(utilization),
-    school.lat = first(school.lat), 
-    school.long = first(school.long), 
-    status = first(status), 
-    dataset.id = first(dataset.id)
-  )
-
-saveRDS(schoolCapSlim, file = 'output/school_capacity_2017.rds')
+  # Remove schools with capacity of 0
+  filter(otg != 0, ade != 0) %>%
+  # Remove schools with ADE that is less than 50
+  filter(ade >= 50)
 
 # The school forecast dataset contains BSID which is needed to merge student postal code
 # From inspection, there are same amount of school in each forecast year.
@@ -189,7 +174,6 @@ schoolForecastSlim <- schoolForecast %>%
   filter(year == 2017, bsid != 0)
 
 # Combine the School capacity data with the forecast data on SFIS
-
 schoolSFIS <- left_join(schoolCapSlim, schoolForecastSlim, by = c('sfis')) %>%
   select(-school.name.y, -dsb.index.y) %>%
   rename(school.name = school.name.x, dsb.index = dsb.index.x) %>%
@@ -202,7 +186,7 @@ schoolSFIS <- schoolSFIS %>%
   drop_na(bsid)
 
 # The postal code and enrollment dataset is cleaned here
-# We are looking at 2011 data
+# We are looking at 2017 student data at this time.
 studentPostSlim <- studentPost %>%
   select(year = Sch_YR,
          bsid = BSID, 
@@ -210,7 +194,7 @@ studentPostSlim <- studentPost %>%
          school.name = School.Name, 
          student.postal.code = Student.Postal.Code,
          enrolment = Enrolment) %>%
-  filter(year == 2011) %>%
+  filter(year == 2017) %>%
   filter(str_length(student.postal.code) == 6) %>%
   mutate(enrolment = as.integer(enrolment))
 
@@ -223,21 +207,15 @@ print(paste0('A total of ', num_schools_from_school_sfis, ' unique schools are c
 rm(num_schools_from_student_post, num_schools_from_school_sfis)
 ```
 
-
-## Calculate School Catchment Areas
+## Calculate School Catchment Lengths
 
 - First, join the school and student's together into one table based on `bsid`
 - Then, join the postal code centroids with lat/long information to each student based on `postal.code`
 - Filter the unmatched records from the table
-
+- Find any schools with a ratio of ADE to enrolment below 0.8 and above 1.0 between the school and student data, remove these outliers
 - Calculate the straight line travel distance between student to school based on lat/long information and `haverFunction()`
-- Validate the distances are reasonable for each school, establish a threshold to remove extremely long travel distances
 
-- *TODO* Filter out Adult Con ED schools, check with name
-- *TODO* High level finding of proportion of students going to nearest school by board, region. Summary of 2017 school utilization.
-- *TODO* Utilization vs travel time
-
-```{r, fig.width=20}
+```{r join edu data}
 # Join postal code centroids to student's postal code data
 pccfSlim <- pccf %>%
   filter(SLI == 1) %>%
@@ -255,46 +233,104 @@ pccfSlim[duplicated(pccfSlim$postal.code) | duplicated(pccfSlim$postal.code, fro
   summarise(n = n()) %>%
   filter(n == 1)
 
+# Combine school, student and postal data together
 schoolCatchment <- schoolSFIS %>%
-  select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel) %>%
+  select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, ade) %>%
   left_join(select(studentPostSlim, bsid, student.postal.code, enrolment), by = c('bsid' = 'bsid'))
 
 unmatched_schools <- schoolCatchment %>%
   filter(is.na(enrolment)) %>%
   group_by(sfis) %>%
   summarise(school.name = first(school.name), unmatched.enrollment = n())
-num_unmatched_schools <- length(unique(unmatched_schools$sfis))
-print(paste0('There are ', num_unmatched_schools, ' unmatched schools'))
+
+unmatched_school_pct <- round(length(unique(unmatched_schools$sfis)) / length(unique(schoolSFIS$sfis)) * 100, 2)
+print(paste0(unmatched_school_pct, '% of shcools are unmatched, and ', sum(unmatched_schools$unmatched.enrollment),
+             ' students are unmatched after combining with student postal code'))
 
 schoolCatchment <- schoolCatchment %>%
   drop_na(enrolment) %>%
   left_join(select(pccfSlim, student.lat = lat, student.long = long, postal.code), by = c('student.postal.code' = 'postal.code'))
 
-temp_tb <- filter(schoolCatchment, is.na(student.lat))
-num_unmatched_students <- length(unique(temp_tb$student.postal.code))
-print(paste0('There are ', num_unmatched_students, ' unique postal codes that were not match between postal code and lat/long'))
+unmatched_students <- round((length(unique(filter(schoolCatchment, is.na(student.lat))$student.postal.code)) / 
+                             length(unique(filter(schoolCatchment, !is.na(student.lat))$student.postal.code))) * 100, 2)
+print(paste0(unmatched_students, '% of students did not have a match between postal code and lat/long'))
 
 schoolCatchment <- schoolCatchment %>%
   drop_na(student.lat, student.long)
 
+# Check very low or very high Enrolment/ADE ratios and remove these
+temp1 <- schoolSFIS %>%
+  select(bsid, school.name, ade)
+  
+temp2 <- studentPostSlim %>%
+  group_by(bsid) %>%
+  summarise(
+    enrolment = sum(enrolment)
+  )
+
+temp_tb <- left_join(temp1, temp2, by = 'bsid') %>%
+  mutate(ratio = ade / enrolment) %>%
+  arrange(ratio) %>%
+  filter(ratio <= 0.8 | ratio >= 1.02)
+
+num_outlier_matched <- round(length(temp_tb$bsid) / length(schoolSFIS$bsid) * 100, 2)
+print(paste0(num_outlier_matched, '% of all schools is flagged due to a large mismatch between ADE and enrolment'))
+
+schoolCatchment <- anti_join(schoolCatchment, temp_tb, by = 'bsid')
+
 # Calculate straight-line home-to-school distances
 schoolCatchment <- schoolCatchment %>%
   mutate(dist = haverFunction(school.lat, school.long, student.lat, student.long))
+```
 
-# Plot boxplots of travel distances to find any huge outliers
-temp_dist <- schoolCatchment %>%
-  filter(panel == 'Secondary', dsb.index == 14)
+### Remove outlier students
 
-ggplot(temp_dist, aes(x = school.name, y = dist)) +
-  geom_boxplot(outlier.colour = 'red')
+The data provided contains students travelling extremely far distances. This can be a source of error when calculating
+the catchment areas for schools. For each school, the students outside of the whiskers of a typical boxplot are removed. 
 
-temp <- schoolCatchment %>%
-  filter(panel == 'Secondary', dsb.index == 14)
+- The end of whiskers is defined as [Q_1 - 1.5*IQR, Q_3 + 1.5IQR], and IQR is the difference between Q_3 and Q_1. 
 
-summary(temp$dist)
+```{r distance threshold filtering, fig.width=15}
 
-# TODO: create a threshold for the outliers, maybe one for secondary one for elementary?
+schoolCatchmentThreshold <- schoolCatchment %>%
+  uncount(enrolment) %>%
+  group_by(school.name, school.lat, school.long) %>%
+  summarise(
+    lower_adj = boxplot.stats(dist)$stats[1],
+    upper_adj = boxplot.stats(dist)$stats[5]
+  )
 
+schoolCatchment <- left_join(schoolCatchment, schoolCatchmentThreshold, by = c('school.name', 'school.lat', 'school.long')) %>%
+  mutate(keep = as.factor(ifelse(dist <= upper_adj & dist >= lower_adj, 1, 0)))
+
+# Plot stacked barplots of students within vs outside of threshold
+schoolCatchment %>%
+  uncount(enrolment) %>%
+  ggplot(aes(x = panel, fill = keep)) +
+  geom_bar() +
+  facet_wrap(vars(dsb.index), scales = 'free_y')  +
+  theme_minimal() + 
+  labs(x = '', y = 'Enrolment', title = 'Threshold Analysis by DSB') +
+  scale_fill_discrete(name = '', labels = c('Dropped', 'Kept')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+num_outlier_students <- sum(filter(schoolCatchment, keep == '0')$enrolment)
+num_within_students <- sum(filter(schoolCatchment, keep == '1')$enrolment)
+print(paste0('Dropped ', num_outlier_students, ' students because they fall outside of acceptable threshold range.'))
+print(paste0('Kept ', num_within_students, ' students because they fall inside of acceptable threshold range.'))
+
+schoolCatchment <- schoolCatchment %>%
+  filter(keep == '1')
+
+# schoolCatchment %>%
+#   filter(panel == 'Secondary', dsb.index == 14) %>%
+#   uncount(enrolment) %>%
+#   ggplot(aes(x = school.name, y = dist)) +
+#   geom_boxplot(outlier.color = 'red')
+
+```
+
+``` {r students within catchment}
 # Calculate the catchment distance by a specified quantile weighted with the enrolment of the school
 percentileList <- c(0.9, 0.8, 0.7, 0.6, 0.5)
 schoolCatchmentDistPercent <- schoolCatchment %>%
@@ -330,10 +366,11 @@ for (catchment_dist in percentileList){
     saveRDS(file = paste0('output/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
-rm(schoolCatchment, schoolCatchmentDistPercent, percentileList, temp_tb)
+rm(schoolCatchment, schoolCatchmentDistPercent, schoolCatchmentThreshold, percentileList, temp_tb)
 ```
 
 ### Quick Check of ADE vs Enrollment
+
 ```{r quick check, fig.height = 50, fig.width = 10}
 # Check the enrollment total vs ADE numbers
 temp1 <- schoolSFIS %>%
@@ -357,85 +394,82 @@ temp <- left_join(temp1, temp2, by = "bsid") %>%
 
 ggplot(data = temp, aes(fill = key, x = school.name.x, y = value)) +
   geom_bar(stat = "identity", position = 'dodge') +
-  facet_wrap(~facet_index, ncol = 5, scales = 'free_x')
+  facet_wrap(~facet_index, ncol = 5, scales = 'free_x') +
+  labs(x = '')
+
+rm(temp1, temp2, temp)
 ```
 
 
-## Visualization of percentile travel distance
+### Visualization of percentile travel distance
 
 ```{r}
-student_travel <- readRDS(file = 'output/student_travel_0.6.rds') %>%
-  as.tibble() %>%
-  group_by(sfis) %>%
-  summarise(distance = first(perc.dist),
-            school.name = first(school.name),
-            school.lat = first(school.lat),
-            school.long = first(school.long))
+student_travel <- readRDS(file = 'output/student_travel_0.9.rds') %>%
+  as_tibble() %>%
+  group_by(sfis, school.name, school.lat, school.long) %>%
+  summarise(distance = first(perc.dist))
 
 ggplot(data = student_travel, aes(distance)) +
-  geom_freqpoly(stat = "bin", binwidth = 5, size = 1)
+  geom_freqpoly(stat = "bin", binwidth = 5, size = 1) +
+  labs(x = "Distance (KM)", y = "Count", title = "") +
+  theme_minimal()
 
 ```
 
 ## Clean and Simplify Portables Data
-```{r}
-#Select most recent Portable Data year for each school
-#schoolPortableYears <- schoolAssetsPortables %>%
-  #filter(DataSetID == 2, sch_yr = 2017) %>%
-  #select(SFIS_ID, Sch_yr) %>%
-  #group_by(SFIS_ID) %>%
-  #summarise(Sch_yr_max = max(Sch_yr))
 
-#Join most recent portable data to School Asset data, and sum total Ground Floor Area and Number of Portable Units by school
-filtList <- c('cafe|child care|administration|other|commercial|general|best start|staff')
+- Assume that portable units are rounded at 0.75. So a protable with 1.8 units is rounded 2 units and a portable with
+1.7 units is rounded to 1 unit
+- Assume that 23 elementary or 21 secondary students per unit of portable
+- Update the utilization of each school after adding in the portables
+```{r}
+# Sum total ground floor area and number of portable units by school
+filterList <- c('cafe|child care|administration|other|commercial|general|best start|staff')
+
+ELE_STUDENTS_UNIT_CLASS = 23
+SEC_STUDENTS_UNIT_CLASS = 21
+PORTABLE_UNIT_SIZE = 75
 
 schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
-  filter(DataSetID == 2, Sch_yr == 2017) %>%
-  #filter out non-classroom room types
-  filter(!grepl(filtList, CurrentUse, ignore.case = TRUE)) %>%
-  #inner_join(schoolPortableYears, by = c('SFIS_ID' = 'SFIS_ID', 'Sch_yr' = 'Sch_yr_max')) %>%
-  select(Sch_yr, Dsb_index, SFIS_ID, FacilityName, GFA_m2, NumberOfUnits) %>%
-  group_by(Sch_yr, Dsb_index, SFIS_ID, FacilityName) %>%
-  summarise(sum(GFA_m2), sum(NumberOfUnits))
+  select(sfis = SFIS_ID, year = Sch_yr, dsb.index = Dsb_index, facility.name = FacilityName, dataset.id = DataSetID,
+         current.use = CurrentUse, area.m2 = GFA_m2, num.units = NumberOfUnits) %>%
+  filter(dataset.id == 2, year == 2017, area.m2 > 0) %>%
+  select(-dataset.id) %>%
+  filter(!grepl(filterList, current.use, ignore.case = TRUE)) %>%
+  group_by(year, dsb.index, sfis, facility.name) %>%
+  summarise(
+    area.m2 = sum(area.m2),
+    num.units = sum(num.units)
+  ) %>%
+  ungroup() %>%
+  mutate(num.units.calculated = round(area.m2 / PORTABLE_UNIT_SIZE, 0))
 
+# schoolSFIS <- readRDS('output/school_sfis_2017.rds') %>%
+#   select(-area.m2, -num.units.calculated)
+
+# Join Portables Data to School Data and recalculate utilization based on the size of portable
+schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
+  replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
+  mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
+                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
+  mutate(capacity.total = otg + capacity.portable) %>%
+  mutate(utilization.total = ade / capacity.total)
+
+# Utilization above 1 at this point could be erroneous data
+# TODO check with Alec regarding this.
+print(paste0('There are ', length(filter(schoolSFIS, utilization.total > 1)$sfis), ' schools with utilization greater than 1.2.'))
+
+saveRDS(schoolSFIS, file = 'output/school_sfis_2017.rds')
 ```
 
-Join Portables Data to School Cap/ADE Data
 ```{r}
-#BID is unique field in AssetInventoryEDU when using only DataSetID = 2 and BID is not null
-schoolCapSlim %>%
-  left_join(schoolAssetsPortablesSlim, by = c('SFIS_ID' = 'SFIS_ID')) %>%
-  arrange(SFIS_ID)
-  #write.csv(.,file = "P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/schoolCapPortables.csv")
-```
+# TODO ask Alec what is this info used for.
+schoolAssetsSlim <- schoolAssets %>%
+  filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
+  select(bid = BID, lat = Latitude, long = Longitude, ade = ADE,
+         asset.name = AssetName) %>%
+  drop_na(bid, lat, long, ade)
 
-Plot School Data
-```{r}
-options(scipen=999) # turn off scientific notation like 1e+06
-g <- ggplot(schoolCapSlim, aes(x=SFIS_ID, y=utilization)) +
-  geom_bar(stat="identity") +
-  ggtitle("School Utilization") + 
-  theme_grey() +
-  ylim(c(0, 10))
-#max(SchoolCapSlim$utilization)))
-
-g
-```
-
-
-```{r}
-SchoolAssets %>%
-  filter(DataSetId == 2)
-  #filter(!is.na(BID)) %>%
-
-#schoolAssetsLatLong %>%
-  #select(`BUILDING ID`, X_COORD, Y_COORD) %>%
-  #drop_na(`BUILDING ID`) %>%
-  #mutate(X_COORD_round = round(X_COORD, 3), Y_COORD_round = round(Y_COORD, 3)) %>%
-  #distinct(`BUILDING ID`, X_COORD_round, Y_COORD_round) %>%
-  #Several BUILDING IDs are being repeated because coordinates are recorded differently for duplicate copies of the Building ID; this happens at all scales of precision; must choose acceptable level of precision and then choose mechanism for selecting "correct" lat/long
-  #summarise(n())
-schoolCap
 ```
 
 

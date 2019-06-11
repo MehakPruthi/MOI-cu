@@ -157,12 +157,13 @@ create_student_xy <- function(student_travel) {
   # Convert the student dataframe into SpatialPointsDataframe
   student_spdf <- student_travel %>%
     ungroup() %>%
-    select(student.lat, student.long, dist, school.name, enrolment, student.postal.code) %>%
+    select(student.lat, student.long, dist, school.name, sfis, dsb.index, panel, enrolment, student.postal.code) %>%
     rename(
       lat = student.lat,
       long = student.long,
       euclidean.dist = dist
-    )
+    ) %>%
+    mutate(id = row_number())
   
   coordinates(student_spdf) <- c('long', 'lat')
 
@@ -186,13 +187,41 @@ create_school_xy <- function(student_travel) {
   # Convert the school dataframe into SpatialPointsDataframe
   school_spdf <- student_travel %>%
     ungroup() %>%
-    select(school.name, school.lat, school.long, dsb.index, bsid, sfis, perc.dist) %>%
+    select(school.name, school.lat, school.long, dsb.index, bsid, sfis, panel, perc.dist) %>%
     group_by(sfis) %>%
     summarise_all(funs(first)) %>%
     rename(
       lat = school.lat,
       long = school.long,
       catchment.dist = perc.dist
+    ) %>%
+    mutate(id = row_number())
+  coordinates(school_spdf) <- c('long', 'lat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(school_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  school_xy <- spTransform(school_spdf, CRS(treso_projarg))
+  
+  return(school_xy)
+}
+
+create_school_xy_from_school <- function(school_sfis) {
+  '
+  This function differs fro `create_school_xy` in that this takes in the school dataframe
+  without the catchment distnace
+  
+  input: Dataframe of school with lat long
+  output: SpatialPointsDataFrame of each school
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  school_spdf <- school_sfis %>%
+    ungroup() %>%
+    select(school.name, school.lat, school.long, dsb.index, bsid, sfis) %>%
+    rename(
+      lat = school.lat,
+      long = school.long
     ) %>%
     mutate(id = row_number())
   coordinates(school_spdf) <- c('long', 'lat')

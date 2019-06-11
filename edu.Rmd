@@ -16,7 +16,12 @@ library(tictoc)
 library(gridExtra)
 source("helpers.R")
 ```
-
+- *TODO* get rid of Quebec zones
+- *TODO* school density should be included to help prediction, 
+- *TODO* test closest school hypothesis
+- *TODO* check where the decimals stem from.
+- *TODO* High level finding of proportion of students going to nearest school by board, region. 
+- *TODO* Utilization vs travel time
 
 ## Import relavent files
 ```{r Import files, include=FALSE}
@@ -35,31 +40,40 @@ student_travel_70 <- readRDS("output/student_travel_0.7.rds")
 student_travel_60 <- readRDS("output/student_travel_0.6.rds")
 student_travel_50 <- readRDS("output/student_travel_0.5.rds")
 
-# School's historical ADE
-# Before this was reading a file in input/school_historical_ade.csv
-# TODO not sure how that file is different from school_capacity.csv. Ask Alec
-
-school_ade_2017 <- readRDS("output/school_capacity_2017.rds")
+# School related data
+school_sfis_2017 <- readRDS("output/school_sfis_2017.rds") %>%
+  rename(year = year.x)
 ```
 
-## Data cleaning
+## Summary of School Utilization
+
+- Plot a chart showing the average utilization per DSB and board type.
+
+```{r school utilization}
+school_sfis_2017 %>%
+  left_join(school_board_def, by = c('dsb.index'='dsb')) %>%
+  group_by(dsb.index, panel) %>%
+  summarise(
+    utilization.total = mean(utilization.total),
+    board_type_name = first(board_type_name)
+  ) %>%
+  ggplot(aes(x = dsb.index, y = utilization.total, fill = board_type_name)) +
+  geom_col(position = 'dodge') +
+  labs(x = 'DSB', y = 'Average Utilization', fill = 'Board Type') +
+  theme_minimal()
+
+```
+
+
+## Find Closest School for each Student
 
 - Get the coordinates for schools and students
 - Get the projection from the TRESO shapefile
 - Transform the coordinates to use the same projection system as TRESO shapefile
-- *TODO* get rid of Quebec zones
-- *TODO* school density should be included to help prediction, 
-- *TODO* test closest school hypothesis
-- *TODO* check where the decimals stem from.
-
-```{r cleaning and selecting data}
-student_xy_90 <- create_student_xy(student_travel_90)
-school_xy_90 <- create_school_xy(student_travel_90)
-```
-
-- Plot TRESO zones, with school and student 
 
 ```{r plotting shapefiles, echo = FALSE}
+student_xy <- create_student_xy(student_travel_90)
+school_xy <- create_school_xy(student_travel_90)
 
 # Convert the SpatialDataframe to normal Dataframe for ggplot()
 treso_shp_df <- fortify(treso_shp) %>%
@@ -68,20 +82,20 @@ treso_shp_df <- fortify(treso_shp) %>%
     y = lat
   )
 
-school_xy_df <- data.frame(school_xy_90) %>%
+school_xy_df <- data.frame(school_xy) %>%
   rename(
     x = long,
     y = lat
   )
 
-student_xy_df <- data.frame(student_xy_90) %>%
+student_xy_df <- data.frame(student_xy) %>%
   rename(
     x = long,
     y = lat
   )
 
 ggplot() +
-  geom_polygon(data = treso_shp_df, mapping = aes(x = x, y = y, group = group), 
+  geom_polygon(data = treso_shp_df, mapping = aes(x = x, y = y, group = group),
                fill = 'grey40', color = 'grey90', alpha = 1, size = 0.1) +
   geom_point(data = student_xy_df, mapping = aes(x = x, y = y), color = "red", alpha = 0.1, size = 0.01) +
   geom_point(data = school_xy_df, mapping = aes(x = x, y = y), color = "blue", alpha = 0.1, size = 0.01, shape = 2) +
@@ -110,7 +124,7 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 
 ```{r spatial gymnastics, eval = TRUE, echo = FALSE}
 percentile_dist = c('90', '80', '70', '60', '50')
-#catchment_dist = c('80')
+
 for (dist in percentile_dist) {
   # Loop through the different catchment areas by retriving the
   # proper variable.
@@ -134,7 +148,7 @@ for (dist in percentile_dist) {
   saveRDS(buffered_df, paste0("output/school_catchment_treso_zones_", dist, ".rds"))
   
   # Combine the school's buffered TRESO zones with socio-economic info and group_by school name
-  school_tb <- summarize_buffered_zones(buffered_df, treso_tb, school_ade_2017, school_board_def, treso_zone_def) %>%
+  school_tb <- summarize_buffered_zones(buffered_df, treso_tb, school_sfis_2017, school_board_def, treso_zone_def) %>%
     saveRDS(paste0("output/school_tb_", dist, ".rds"))
 }
 ```
@@ -143,7 +157,7 @@ for (dist in percentile_dist) {
 
 ```{r test buffer, eval = FALSE, echo = FALSE}
 # Select a specific buffer
-school_of_interest <- "Thomas Merton (O) CSS"
+school_of_interest <- "A A Wright PS"
 student_travel <- get("student_travel_90")
 student_xy <- create_student_xy(student_travel)
 school_xy <- create_school_xy(student_travel)
@@ -196,6 +210,102 @@ ggplot() +
 
 # Clean up global environment variables
 rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, school_xy_df)
+```
+
+## Test closest school theory
+
+- From `student_travel_90`, obtain the travel distance to create a buffer for each student
+- Build a buffer with the travel distance and capture any school within that buffer
+- Make sure the school is from `school_sfis`
+- Calculate the distance to all the schools within its travel distance buffer
+  - if no school exist then this student is travelling to closest (labelled 1)
+  - if there are schools within this buffer, then the label a value equal in rank (2 - n)
+
+```{r closest school}
+student_xy_90 <- student_travel_90 %>%
+  select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, enrolment, student.postal.code, student.lat, student.long,
+         dist) %>%
+  create_student_xy()
+
+student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean.dist * 1000 + 25), byid = TRUE)
+
+tic('Multi-Core Buffering')
+# Start multi-core clustering for performance
+cores = parallel::detectCores()
+cl <- parallel::makeCluster(cores[1] - 2)
+registerDoParallel(cl)
+
+# foreach() loop to find the TRESO zones touching the school buffers
+datalist <- list()
+datalist <- foreach(i = 1:nrow(student_buffered@data), .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
+#datalist <- foreach(i = 1:10, .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
+  # Select the buffer
+  buffer <- student_buffered[student_buffered@data$id == i, ]
+  
+  # Get all schools that touches the buffer with over(), gIntersect() could be another solution
+  school_overlay <- over(school_xy, buffer, returnList = FALSE) %>%
+      cbind(overlay.school.name = school_xy@data$school.name,
+            overlay.dsb.index = school_xy@data$dsb.index,
+            overlay.sfis = school_xy@data$sfis,
+            overlay.panel = school_xy@data$panel,
+            overlay.coords = school_xy@coords) %>%
+      as.tibble() %>%
+      drop_na()
+  
+  # Save each tibble in a list of tibbles
+  datalist[[i]] <- school_overlay
+  
+  # Check the length of datalist, if it is over 4000 write to file
+  if(length(datalist) >= 4000) {
+    school_overlay_df <- rbindlist(datalist) %>%
+      saveRDS(paste0("output/closest_school_", i, ".rds"))
+    rm(datalist, school_overlay_df)
+  }
+}
+
+stopCluster(cl)
+toc()
+
+# Write the datalist to csv
+school_overlay_df <- rbindlist(datalist) 
+saveRDS(school_overlay_df, 'output/closest_school.rds')
+  
+# TODO check that the home school should be part of the buffered school set. It is not the case at the moment.
+TESTID = 5
+# Convert buffer into df
+buffer_df <- fortify(student_buffered[student_buffered@data$id == TESTID, ]) %>%
+  rename(
+    x = long, 
+    y = lat
+  )
+
+student_interest_df <- student_xy[is.element(student_xy@data$id, TESTID), ] %>%
+  data.frame() %>%
+  rename(
+    x = long,
+    y = lat
+  )
+
+# Select the schools of interest that exist in the 
+school_interest_df <- school_xy[is.element(school_xy@data$sfis, school_overlay_df$overlay.sfis), ] %>%
+  data.frame() %>%
+  rename(
+    x = long, 
+    y = lat
+  )
+
+ggplot() +
+  geom_point(data = filter(student_xy_df, id == TESTID), mapping = aes(x = x, y = y), 
+               color = 'blue', fill = "blue", alpha = 1, size = 3) +
+  geom_point(data = school_interest_df, mapping = aes(x = x, y = y), 
+               color = 'green', fill = "green", alpha = 1, size = 3) +
+  geom_text(data = school_interest_df, aes(x = x, y = y, label = school.name), size = 2) +
+  geom_polygon(data = buffer_df, mapping = aes(x = x, y = y, group = group),
+               fill = 'red', color = 'red', alpha = 0.01) +
+  labs(x = "", y = "", title = "Test Buffer") +
+  theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
+  coord_equal(ratio = 1)
+
 ```
 
 ## Straight Line TLFD plots {.tabset .tabset-fade}
@@ -286,7 +396,7 @@ plot_straight_line_tlfd(student_tlfd_50)
 ```{r linear regression, eval = FALSE, echo = FALSE}
 
 # Choose the catchment area to explore
-school_tb <- readRDS("output/school_tb_50.rds")
+school_tb <- readRDS("output/school_tb_80.rds")
 
 # Filter the school database down
 school_tb_filtered <- filter(school_tb, ade > 0, panel == "Secondary", board.type.name == "English Public", 
@@ -307,7 +417,6 @@ linreg <- school_tb_filtered %>%
   mutate(dummy_large_pop = ifelse(n_pop_sum >= 10e+4, 1, 0)) %>%
   bind_cols(select(school_tb_filtered, sfis, school.name.x))
 
-# TODO: explore ridiculously low values of enrolment and consider removing these schools
 # TODO: check why ADE at this point is decimals
 linreg %>%
   select(ade, school.name.x, sfis) %>%

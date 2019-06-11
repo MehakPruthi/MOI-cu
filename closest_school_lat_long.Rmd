@@ -1,0 +1,105 @@
+---
+title: "Closest School Theory - Lat/Long"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(data.table)
+library(rgeos)
+library(rgdal)
+library(sp)
+library(foreach)
+library(doParallel)
+library(tictoc)
+library(gridExtra)
+source("helpers.R")
+```
+
+## Import relavent files
+```{r Import files, include=FALSE}
+# TRESO
+treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+
+# Student travel data
+student_travel_90 <- readRDS("output/student_travel_0.9.rds")
+
+# School related data
+school_sfis_2017 <- readRDS("output/school_sfis_2017.rds") %>%
+  rename(year = year.x)
+```
+
+## Test closest school theory 
+
+```{r closest school}
+student_df <- student_travel_90 %>%
+  select(school.name, school.lat, school.long, dsb.index, panel, 
+         enrolment, student.postal.code, student.lat, student.long, dist) %>%
+  mutate(lat.diff = abs(abs(student.lat) - abs(school.lat)),
+         long.diff = abs(abs(student.long) - abs(school.long))) %>%
+  mutate(lat.max = student.lat + lat.diff, lat.min = student.lat - lat.diff, 
+         long.min = student.long - long.diff, long.max = student.long + long.diff) %>%
+  mutate(id.cumsum = cumsum(enrolment)) %>%
+  rename(std.school.name = school.name, std.school.long = school.long, std.school.lat = school.lat,
+         std.dsb.index = dsb.index, std.panel = panel)
+
+school_df <- school_sfis_2017 %>%
+  select(sfis, dsb.index, panel, school.name, school.lat, school.long) 
+
+# For loop through a sample of students
+sample_id = sample(1:1629276, 4000, replace=FALSE)
+datalist <- list()
+
+for (i in 1:length(sample_id)) {
+  student_interest <- student_df %>%
+    filter(id.cumsum <= sample_id[i]) %>%
+    filter(id.cumsum == max(id.cumsum)) %>%
+    mutate(loop.id = i)
+  
+  LATMAX = student_interest$lat.max
+  LATMIN = student_interest$lat.min
+  LONGMIN = student_interest$long.min
+  LONGMAX = student_interest$long.max
+
+  school_interest <- school_df %>%
+    filter(school.lat <= LATMAX, school.lat >= LATMIN, school.long <= LONGMAX, school.long >= LONGMIN) %>%
+    mutate(loop.id = i)
+  
+  closest_school_df <- left_join(school_interest, student_interest, by = "loop.id")
+  datalist[[i]] = closest_school_df
+}
+
+closest_school_df <- rbindlist(datalist)
+
+```
+
+```{r summarize results}
+closest_school_df %>%
+  filter(panel == std.panel) %>%
+  group_by(loop.id) %>%
+  summarise(n = n()) %>%
+  group_by(n) %>%
+  summarise(number.of.std = n()) %>%
+  mutate()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
