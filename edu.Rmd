@@ -7,9 +7,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(data.table)
+library(ggrepel)
+library(scales)
 library(rgeos)
 library(rgdal)
 library(sp)
+library(doSNOW)
 library(foreach)
 library(doParallel)
 library(tictoc)
@@ -18,7 +21,6 @@ source("helpers.R")
 ```
 - *TODO* get rid of Quebec zones
 - *TODO* school density should be included to help prediction, 
-- *TODO* test closest school hypothesis
 - *TODO* check where the decimals stem from.
 - *TODO* High level finding of proportion of students going to nearest school by board, region. 
 - *TODO* Utilization vs travel time
@@ -221,57 +223,61 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
   - if no school exist then this student is travelling to closest (labelled 1)
   - if there are schools within this buffer, then the label a value equal in rank (2 - n)
 
-```{r closest school}
+```{r calculate closest school, eval = FALSE, echo = FALSE}
 student_xy_90 <- student_travel_90 %>%
   select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, enrolment, student.postal.code, student.lat, student.long,
          dist) %>%
   create_student_xy()
+school_xy <- create_school_xy(student_travel_90)
 
 student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean.dist * 1000 + 25), byid = TRUE)
 
-tic('Multi-Core Buffering')
-# Start multi-core clustering for performance
-cores = parallel::detectCores()
-cl <- parallel::makeCluster(cores[1] - 2)
-registerDoParallel(cl)
-
-# foreach() loop to find the TRESO zones touching the school buffers
-datalist <- list()
-datalist <- foreach(i = 1:nrow(student_buffered@data), .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
-#datalist <- foreach(i = 1:10, .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
-  # Select the buffer
-  buffer <- student_buffered[student_buffered@data$id == i, ]
+  # Start multi-core clustering for performance
+  cores = parallel::detectCores()
+  cl <- parallel::makeCluster(cores[1] - 1)
+  registerDoParallel(cl)
   
-  # Get all schools that touches the buffer with over(), gIntersect() could be another solution
-  school_overlay <- over(school_xy, buffer, returnList = FALSE) %>%
-      cbind(overlay.school.name = school_xy@data$school.name,
-            overlay.dsb.index = school_xy@data$dsb.index,
-            overlay.sfis = school_xy@data$sfis,
-            overlay.panel = school_xy@data$panel,
-            overlay.coords = school_xy@coords) %>%
-      as.tibble() %>%
-      drop_na()
+  # Progress bar
+  registerDoSNOW(cl)
+  pb <- txtProgressBar(max = nrow(student_buffered@data), style = 3)
+  progress <- function(n) setTxtProgressBar(pb, n)
+  opts <- list(progress = progress)
   
-  # Save each tibble in a list of tibbles
-  datalist[[i]] <- school_overlay
-  
-  # Check the length of datalist, if it is over 4000 write to file
-  if(length(datalist) >= 4000) {
-    school_overlay_df <- rbindlist(datalist) %>%
-      saveRDS(paste0("output/closest_school_", i, ".rds"))
-    rm(datalist, school_overlay_df)
+  tic('testing sp::over')
+  # foreach() loop to find the TRESO zones touching the school buffers
+  datalist <- list()
+  datalist <- foreach(i = 1:nrow(student_buffered@data), .combine = rbind,
+                  .options.snow = opts, .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
+  # datalist <- foreach(i = 1:10, .combine = rbind, 
+  #                 .options.snow = opts, .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
+    # Select the buffer
+    buffer <- student_buffered[student_buffered@data$id == i, ]
+    
+    #Get all schools that touches the buffer with over()
+    school_overlay <- over(school_xy, buffer, returnList = FALSE) %>%
+        cbind(overlay.school.name = school_xy@data$school.name,
+              overlay.dsb.index = school_xy@data$dsb.index,
+              overlay.sfis = school_xy@data$sfis,
+              overlay.panel = school_xy@data$panel,
+              overlay.coords = school_xy@coords) %>%
+        as.tibble() %>%
+        drop_na()
+    
+    # Save each tibble in a list of tibbles
+    datalist[[i]] <- school_overlay
   }
-}
-
-stopCluster(cl)
-toc()
-
-# Write the datalist to csv
-school_overlay_df <- rbindlist(datalist) 
-saveRDS(school_overlay_df, 'output/closest_school.rds')
+  toc()
+  close(pb)
+  stopCluster(cl)
   
-# TODO check that the home school should be part of the buffered school set. It is not the case at the moment.
-TESTID = 5
+  # Write the datalist to csv
+  saveRDS(datalist, 'output/closest_school.rds')
+  rm(student_xy_90, student_buffered, datalist)
+```
+
+
+``` {r test closest school, echo = FALSE, eval = FALSE}
+TESTID = 200
 # Convert buffer into df
 buffer_df <- fortify(student_buffered[student_buffered@data$id == TESTID, ]) %>%
   rename(
@@ -279,7 +285,7 @@ buffer_df <- fortify(student_buffered[student_buffered@data$id == TESTID, ]) %>%
     y = lat
   )
 
-student_interest_df <- student_xy[is.element(student_xy@data$id, TESTID), ] %>%
+student_interest_df <- student_xy_90[is.element(student_xy_90@data$id, TESTID), ] %>%
   data.frame() %>%
   rename(
     x = long,
@@ -287,7 +293,7 @@ student_interest_df <- student_xy[is.element(student_xy@data$id, TESTID), ] %>%
   )
 
 # Select the schools of interest that exist in the 
-school_interest_df <- school_xy[is.element(school_xy@data$sfis, school_overlay_df$overlay.sfis), ] %>%
+school_interest_df <- school_xy[is.element(school_xy@data$sfis, filter(datalist, id == TESTID)$overlay.sfis), ] %>%
   data.frame() %>%
   rename(
     x = long, 
@@ -295,7 +301,7 @@ school_interest_df <- school_xy[is.element(school_xy@data$sfis, school_overlay_d
   )
 
 ggplot() +
-  geom_point(data = filter(student_xy_df, id == TESTID), mapping = aes(x = x, y = y), 
+  geom_point(data = filter(student_interest_df, id == TESTID), mapping = aes(x = x, y = y), 
                color = 'blue', fill = "blue", alpha = 1, size = 3) +
   geom_point(data = school_interest_df, mapping = aes(x = x, y = y), 
                color = 'green', fill = "green", alpha = 1, size = 3) +
@@ -305,6 +311,67 @@ ggplot() +
   labs(x = "", y = "", title = "Test Buffer") +
   theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
   coord_equal(ratio = 1)
+
+rm(buffer_df, student_interest_df, school_interest_df)
+
+```
+
+```{r closest school results, fig.height = 12, fig.width = 10, echo = FALSE}
+closest_school <- readRDS('output/closest_school.rds') %>%
+  left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  rename(
+    board.type = board_type,
+    board.type.name = board_type_name
+         ) %>%
+  left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('overlay.dsb.index' = 'dsb')) %>%
+  rename(
+    overlay.board.type = board_type,
+    overlay.board.type.name = board_type_name
+         ) %>%
+  filter(panel == as.character(overlay.panel), board.type == overlay.board.type)
+
+closest_school_summary <- closest_school %>%
+  group_by(id) %>%
+  summarise(
+    euclidean.dist = first(euclidean.dist),
+    school.name = first(school.name),
+    sfis = first(sfis),
+    dsb.index = first(dsb.index),
+    panel = first(panel),
+    enrolment = first(enrolment),
+    student.postal.code = first(student.postal.code),
+    board.type = first(board.type),
+    board.type.name = first(board.type.name),
+    num.closer.schools = n()
+    )
+
+closest_school_subtotal <- closest_school_summary %>%
+  group_by(board.type.name, panel) %>%
+  summarise(
+    total.students = sum(enrolment)
+  )
+
+closest_school_summary %>%
+  mutate(num.closer.schools.cuts = cut(num.closer.schools, c(0, 1, 2, 3, 4, Inf), labels = c('1', '2', '3', '4', '5+'))) %>%
+  group_by(num.closer.schools.cuts, board.type.name, panel) %>%
+  summarise(
+    num.students = sum(enrolment)
+  ) %>%
+  left_join(closest_school_subtotal, by = c('board.type.name', 'panel')) %>%
+  mutate(percentage = num.students/total.students) %>%
+  mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), '')) %>%
+  ggplot(aes(x = '', y = percentage, fill = num.closer.schools.cuts)) +
+  geom_bar(width = 1, stat = 'identity') +
+  coord_polar('y', start = 0) +
+  geom_text_repel(aes(label = percentage.lable), size = 2) +
+  facet_grid(rows = vars(board.type.name), cols = vars(panel)) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank()) +
+  scale_fill_brewer(palette = 'Dark2') +
+  xlab('') +
+  ylab('') +
+  labs(fill = 'Schools within travel distance') +
+  ggsave('output/closest_school_pie.png')
 
 ```
 
