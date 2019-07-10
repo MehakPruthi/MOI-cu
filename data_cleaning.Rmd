@@ -38,6 +38,23 @@ pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncodi
 
 ```
 
+
+```{r}
+
+ontario <- read_csv('input/ontario.csv') %>%
+  select(treso_zone, cduid)
+cduid_definition <- read_csv('input/treso_zone_system.csv') %>%
+  group_by(cduid) %>%
+  summarise(
+    cdname = first(cdname),
+    area = first(area),
+    mof_region = first(mof_region))
+
+ontario <- left_join(ontario, cduid_definition, by='cduid') %>%
+  rename(treso_id = treso_zone) %>%
+  write_csv('input/treso_zone_system2.csv')
+```
+
 # TRESO Data cleaning 
 
 - Combine the population, household information

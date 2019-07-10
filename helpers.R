@@ -250,7 +250,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
       cbind(euclidean.dist = xy_location@data$euclidean.dist,
             student.postal.code = xy_location@data$student.postal.code,
             school.name = xy_location@data$school.name) %>%
-      as.tibble() %>%
+      as_tibble() %>%
       select(Treso_ID, euclidean.dist, student.postal.code, school.name) %>%
       rename(
         treso.id.por = Treso_ID
@@ -264,7 +264,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
             school.name = xy_location@data$school.name,
             sfis = xy_location@data$sfis,
             bsid = xy_location@data$bsid) %>%
-      as.tibble() %>%
+      as_tibble() %>%
       select(Treso_ID, catchment.dist, dsb.index, school.name, sfis, bsid) %>%
       rename(
         treso.id.pos = Treso_ID
@@ -300,9 +300,10 @@ buffer_zones <- function(school_xy, treso_shp) {
     treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
       cbind(treso.id = treso_shp@data$Treso_ID,
             households = treso_shp@data$TotHH,
-            persons = treso_shp@data$TotPers) %>%
-      as.tibble() %>%
-      select(school.name, sfis, dsb.index, catchment.dist, treso.id, households, persons) %>%
+            persons = treso_shp@data$TotPers,
+            shape.area = treso_shp@data$Area) %>%
+      as_tibble() %>%
+      select(school.name, sfis, dsb.index, catchment.dist, treso.id, households, persons, shape.area) %>%
       drop_na()
     
     # Save each tibble in a list of tibbles
@@ -329,7 +330,7 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   # First summarise data that is calculated with `mean()` or `first()`
   # I think using purr, one could summarise different columns with different functions in one go
 
-  school_tb_temp <- as.tibble(buffered_df) %>%
+  school_tb_temp <- as_tibble(buffered_df) %>%
     left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c('treso.id' = 'treso_zone')) %>%
     left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
     left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
@@ -342,17 +343,17 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
       school.name = first(school.name),
       catchment.dist = first(catchment.dist),
       board.type.name = first(board_type_name),
-      area = first(area),
-      mof.region = first(mof_region)
+      area = names(which.max(table(area))),
+      mof.region = names(which.max(table(mof_region)))
     )
   
   # Then, combine with data that is calculated with sum
-  school_tb <- as.tibble(buffered_df) %>%
+  school_tb <- as_tibble(buffered_df) %>%
     left_join(treso_tb, by = c('treso.id' = 'treso_zone')) %>%
     replace(is.na(.), 0) %>%
     group_by(sfis) %>%
     summarise_at(
-      .vars = vars(starts_with('n_'), starts_with('occu_'), starts_with('deg_'), 'attend_school'),
+      .vars = vars(starts_with('n_'), starts_with('occu_'), starts_with('deg_'), 'attend_school', 'shape.area'),
       .funs = c(sum = 'sum')
     ) %>%
     left_join(school_tb_temp, by = 'sfis')

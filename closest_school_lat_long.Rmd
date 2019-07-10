@@ -7,21 +7,11 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(data.table)
-library(rgeos)
-library(rgdal)
-library(sp)
-library(foreach)
-library(doParallel)
-library(tictoc)
-library(gridExtra)
 source("helpers.R")
 ```
 
 ## Import relavent files
 ```{r Import files, include=FALSE}
-# TRESO
-treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
-
 # Student travel data
 student_travel_90 <- readRDS("output/student_travel_0.9.rds")
 
@@ -48,7 +38,7 @@ school_df <- school_sfis_2017 %>%
   select(sfis, dsb.index, panel, school.name, school.lat, school.long) 
 
 # For loop through a sample of students
-sample_id = sample(1:1629276, 4000, replace=FALSE)
+sample_id = sample(1:1629276, 5000, replace=FALSE)
 datalist <- list()
 
 for (i in 1:length(sample_id)) {
@@ -71,25 +61,130 @@ for (i in 1:length(sample_id)) {
 }
 
 closest_school_df <- rbindlist(datalist)
-
+write_rds(closest_school_df, 'output/closest_school.rds')
 ```
 
 ```{r summarize results}
 closest_school_df %>%
   filter(panel == std.panel) %>%
   group_by(loop.id) %>%
-  summarise(n = n()) %>%
-  group_by(n) %>%
-  summarise(number.of.std = n()) %>%
-  mutate()
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.std = n())
+
+
+closest_elemschool_df <- closest_school_df %>%
+  filter(panel == 'Elementary', std.panel == 'Elementary') %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.std = n())
+
+
+closest_secschool_df <- closest_school_df %>%
+  filter(panel == 'Secondary', std.panel == 'Secondary') %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.std = n())
+
+closest_elemschool_df
+closest_secschool_df
+
+```
+
+```{r}
+#Board Join
+
+dsbindex <- read_csv('input/school_board_types.csv')
+
+closest_school_df <- closest_school_df %>% 
+  left_join(dsbindex, by = c('dsb.index' = 'dsb'))
+```
+
+
+```{r}
+#Elementary by Board
+closest_elemEP_df <- closest_school_df %>%
+  filter(panel == 'Elementary', std.panel == 'Elementary', board_type == 1) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.EPstd = n()) %>% 
+
+closest_elemEC_df <- closest_school_df %>%
+  filter(panel == 'Elementary', std.panel == 'Elementary', board_type == 2) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.ECstd = n())
+
+closest_elemFP_df <- closest_school_df %>%
+  filter(panel == 'Elementary', std.panel == 'Elementary', board_type == 3) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.FPstd = n())
+
+closest_elemFC_df <- closest_school_df %>%
+  filter(panel == 'Elementary', std.panel == 'Elementary', board_type == 4) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.FCstd = n())
+
+#Join Tables
+closest.english.elem_df <- full_join(closest_elemEP_df, closest_elemEC_df, by=c("n.schools"))
+closest.french.elem_df <- full_join(closest_elemFP_df, closest_elemFC_df, by=c("n.schools"))
+closest.allelem_df <- full_join(closest.english.elem_df, closest.french.elem_df, by=c("n.schools"))
+
+```
+
+```{r}
+#Secondary by Board
+
+closest_secEP_df <- closest_school_df %>%
+  filter(panel == 'Secondary', std.panel == 'Secondary', board_type == 1) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.EPstd = n())
+  
+
+closest_secEC_df <- closest_school_df %>%
+  filter(panel == 'Secondary', std.panel == 'Secondary', board_type == 2) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.ECstd = n())
+
+closest_secFP_df <- closest_school_df %>%
+  filter(panel == 'Secondary', std.panel == 'Secondary', board_type == 3) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.FPstd = n())
+
+closest_secFC_df <- closest_school_df %>%
+  filter(panel == 'Secondary', std.panel == 'Secondary', board_type == 4) %>%
+  group_by(loop.id) %>%
+  summarise(n.schools = n()) %>%
+  group_by(n.schools) %>%
+  summarise(number.of.FCstd = n())
+
+#Join Tables
+closest.english.sec_df <- full_join(closest_secEP_df, closest_secEC_df, by=c("n.schools"))
+closest.french.sec_df <- full_join(closest_secFP_df, closest_secFC_df, by=c("n.schools"))
+closest.allsec_df <- full_join(closest.english.sec_df, closest.french.sec_df, by=c("n.schools"))
 
 ```
 
 
+```{r}
+ggplot(closest_elemEC_df, aes(x=n.schools, y=number.of.std)) + geom_bar(stat = "identity")
 
 
-
-
+```
 
 
 

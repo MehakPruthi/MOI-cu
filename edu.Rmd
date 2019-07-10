@@ -1,5 +1,5 @@
 ---
-title: "edu"
+title: "Education"
 output: html_document
 ---
 
@@ -7,8 +7,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(data.table)
-library(ggrepel)
 library(scales)
+library(plotly)
 library(rgeos)
 library(rgdal)
 library(sp)
@@ -19,10 +19,6 @@ library(tictoc)
 library(gridExtra)
 source("helpers.R")
 ```
-- *TODO* get rid of Quebec zones
-- *TODO* school density should be included to help prediction, 
-- *TODO* check where the decimals stem from.
-- *TODO* High level finding of proportion of students going to nearest school by board, region. 
 - *TODO* Utilization vs travel time
 
 ## Import relavent files
@@ -52,7 +48,7 @@ school_sfis_2017 <- readRDS("output/school_sfis_2017.rds") %>%
 - Plot a chart showing the average utilization per DSB and board type.
 
 ```{r school utilization}
-school_sfis_2017 %>%
+g <- school_sfis_2017 %>%
   left_join(school_board_def, by = c('dsb.index'='dsb')) %>%
   group_by(dsb.index, panel) %>%
   summarise(
@@ -64,6 +60,8 @@ school_sfis_2017 %>%
   labs(x = 'DSB', y = 'Average Utilization', fill = 'Board Type') +
   theme_minimal()
 
+g <- ggplotly(g)
+g
 ```
 
 
@@ -124,12 +122,13 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 - Combine the the datalist of buffered TRESO zones with the tibble containing socio-economic data
 - Combine with the historical ADE and utilization data by school
 
-```{r spatial gymnastics, eval = TRUE, echo = FALSE}
+```{r spatial gymnastics, eval = FALSE}
+#percentile_dist = c('90')
 percentile_dist = c('90', '80', '70', '60', '50')
 
 for (dist in percentile_dist) {
-  # Loop through the different catchment areas by retriving the
-  # proper variable.
+  
+  # Loop through the different catchment areas by retriving the proper variable.
   student_travel <- get(paste0("student_travel_",dist))
   
   # Spatial transformation to XY
@@ -159,7 +158,7 @@ for (dist in percentile_dist) {
 
 ```{r test buffer, eval = FALSE, echo = FALSE}
 # Select a specific buffer
-school_of_interest <- "A A Wright PS"
+school_of_interest <- "Burleigh Hill PS"
 student_travel <- get("student_travel_90")
 student_xy <- create_student_xy(student_travel)
 school_xy <- create_school_xy(student_travel)
@@ -214,7 +213,26 @@ ggplot() +
 rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, school_xy_df)
 ```
 
-## Test closest school theory
+```{r}
+as_tibble(interst_zones) %>%
+  left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c('treso.id' = 'treso_zone')) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
+  replace(is.na(.), 0) %>%
+  group_by(sfis) %>%
+  summarise(
+    mean.income = mean(mean_income),
+    mean.age = mean(mean_age),
+    dsb.index = first(dsb.index),
+    school.name = first(school.name),
+    catchment.dist = first(catchment.dist),
+    board.type.name = first(board_type_name),
+    area = names(which.max(table(area))),
+    mof.region = names(which.max(table(mof_region)))
+  )
+```
+
+## Closest School Theory
 
 - From `student_travel_90`, obtain the travel distance to create a buffer for each student
 - Build a buffer with the travel distance and capture any school within that buffer
@@ -317,7 +335,7 @@ rm(buffer_df, student_interest_df, school_interest_df)
 ```
 
 ```{r closest school results, fig.height = 12, fig.width = 10, echo = FALSE}
-closest_school <- readRDS('output/closest_school.rds') %>%
+closest_school <- readRDS('output/closest_school_full.rds') %>%
   left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('dsb.index' = 'dsb')) %>%
   rename(
     board.type = board_type,
@@ -360,19 +378,18 @@ closest_school_summary %>%
   left_join(closest_school_subtotal, by = c('board.type.name', 'panel')) %>%
   mutate(percentage = num.students/total.students) %>%
   mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), '')) %>%
+  saveRDS('output/closest_school_summary.rds')
+
+g <- readRDS('output/closest_school_summary.rds') %>%
   ggplot(aes(x = '', y = percentage, fill = num.closer.schools.cuts)) +
-  geom_bar(width = 1, stat = 'identity') +
-  coord_polar('y', start = 0) +
-  geom_text_repel(aes(label = percentage.lable), size = 2) +
-  facet_grid(rows = vars(board.type.name), cols = vars(panel)) +
+  geom_bar(width = 1, stat = 'identity', position = 'dodge') +
+  facet_grid(rows = vars(board.type.name), cols = vars(panel), scales = 'free_y') +
   theme_minimal() + 
   theme(axis.text.x = element_blank()) +
-  scale_fill_brewer(palette = 'Dark2') +
-  xlab('') +
-  ylab('') +
-  labs(fill = 'Schools within travel distance') +
-  ggsave('output/closest_school_pie.png')
+  labs(x = '', y = '', fill = 'Schools within travel distance') +
+  ggsave('output/closest_school_summary.png')
 
+ggplotly(g)
 ```
 
 ## Straight Line TLFD plots {.tabset .tabset-fade}
@@ -460,39 +477,81 @@ plot_straight_line_tlfd(student_tlfd_50)
 - Build linear regression 
 - Explore other segmentations
 
+```{r data exploration}
+# Choose the catchment area to explore
+school_tb <- readRDS("output/school_tb_90.rds") %>%
+  mutate(shape.area_sum = shape.area_sum / 1e6) %>%
+  mutate(n_pop_density = n_pop_sum / shape.area_sum) %>%
+  mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
+  mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum)
+
+summary(school_tb$ade)
+
+g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x=ade)) +
+  geom_histogram(bins = 50) +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  theme_minimal() +
+  labs(x = 'ADE', y = 'Count')
+
+g2 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = catchment.dist, y = ade, label=school.name.x)) +
+  geom_point(alpha = 0.5) +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  theme_minimal() +
+  labs(x = 'Catchment Distance', y = 'ADE')
+
+g3 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "GTA"), aes(x = n_sec_pop_density, y = ade, label=school.name.x)) +
+  geom_point(alpha = 0.5) +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  theme_minimal() +
+  labs(x = 'Secondary Population Density', y = 'ADE')
+
+g4 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = attend_school_sum, y = ade, label=school.name.x)) +
+  geom_point(alpha = 0.5) +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  theme_minimal() +
+  labs(x = 'Attend School', y = 'ADE')
+
+ggplotly(g1)
+ggplotly(g2)
+ggplotly(g3)
+ggplotly(g4)
+
+filter(school_tb, mof.region == '0')
+
+```
+
 ```{r linear regression, eval = FALSE, echo = FALSE}
 
 # Choose the catchment area to explore
 school_tb <- readRDS("output/school_tb_80.rds")
 
 # Filter the school database down
-school_tb_filtered <- filter(school_tb, ade > 0, panel == "Secondary", board.type.name == "English Public", 
-                             mof.region == "GTA")
+school_tb_filtered <- filter(school_tb, panel == "Secondary", board.type.name == "English Public", 
+                             mof.region == "Central")
 
 # Display schools that has captured a large area and their 2011 ADE
 school_tb_filtered %>%
   arrange(desc(n_pop_sum)) %>%
   select(school.name.x, n_pop_sum, ade)
 
-# Build linear regression data base with various transformed x, y variables
-# Consider standardizing the data here.
+# Build linear regression dataset with various transformed x, y variables
 linreg <- school_tb_filtered %>%
-  select(ade, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, mean.income, mean.age) %>%
+  select(ade, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age) %>%
+  mutate(shape.area_sum = shape.area_sum / 1e6) %>%  
+  mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
   mutate_all(
     funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
   ) %>%
   mutate(dummy_large_pop = ifelse(n_pop_sum >= 10e+4, 1, 0)) %>%
   bind_cols(select(school_tb_filtered, sfis, school.name.x))
 
-# TODO: check why ADE at this point is decimals
 linreg %>%
   select(ade, school.name.x, sfis) %>%
   filter(ade < 100)
 
 # Exploring the data relationships
-ggplot(linreg, aes(y = ade, x = n_pop_sum)) +
+ggplot(linreg, aes(y = ade, x = n_sec_pop_density)) +
   geom_point(alpha = 0.5, color = "#F8766D")
-  #geom_smooth(method = "lm", se = FALSE)
 
 # Fully segment the data
 linreg_small <- linreg %>%
@@ -509,8 +568,7 @@ mod.large <- lm(ade ~ n_pop_sum_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child
                   n_zero_adult_sum, data = linreg_large)
 summary(mod.large)
 
-mod.partial <- lm(ade ~ n_sec_pop_sum_sqrt + n_pop_sum_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child_sum +
-                  n_zero_adult_sum + dummy_large_pop, data = linreg)
+mod.partial <- lm(ade ~ n_sec_pop_density_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child_sum + dummy_large_pop, data = linreg)
 summary(mod.partial)
 # mod.base <- lm(ade_2011 ~ n_sec_pop_sum_sqrt, data = linreg)
 # mod.expand <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_ele_pop_sum_sqrt, data = linreg)
