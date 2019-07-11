@@ -12,7 +12,7 @@ source("helpers.R")
 
 
 # Import data
-```{r import}
+```{r import, include=FALSE}
 # TRESO data
 hhld_df <- data.table::fread("input/households_2011.csv.gz")
 pop_df <- data.table::fread("input/persons_2011.csv.gz")
@@ -23,36 +23,10 @@ schoolForecast <- read.csv("input/school_forecast.csv", stringsAsFactors = FALSE
 schoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
 schoolAssetsPortables <- read.csv("input/school_assets_portables.csv", stringsAsFactors = FALSE)
 studentPost <- read.csv('input/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
+eqao <- read.csv('input/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
 # Postal code to lat/long conversion file
 pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
-
-# Office Data
-#officeSpace <- sqlFetch(schoolRodbc, "cap.IOAnnualSpaceBaselineBuilding")
-#officeSpace %>%
-#  write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/OfficeSpaceData.csv', row.names = FALSE)
-
-#officeSpaceAssets <- sqlFetch(schoolRodbc, "dbo.AssetInventoryIO")
-#officeSpaceAssets %>%
-#  write.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/OfficeSpaceAssetData.csv', row.names = FALSE)
-
-```
-
-
-```{r}
-
-ontario <- read_csv('input/ontario.csv') %>%
-  select(treso_zone, cduid)
-cduid_definition <- read_csv('input/treso_zone_system.csv') %>%
-  group_by(cduid) %>%
-  summarise(
-    cdname = first(cdname),
-    area = first(area),
-    mof_region = first(mof_region))
-
-ontario <- left_join(ontario, cduid_definition, by='cduid') %>%
-  rename(treso_id = treso_zone) %>%
-  write_csv('input/treso_zone_system2.csv')
 ```
 
 # TRESO Data cleaning 
@@ -60,7 +34,7 @@ ontario <- left_join(ontario, cduid_definition, by='cduid') %>%
 - Combine the population, household information
 - Summarize by TRESO zones
 
-```{r treso data cleaning}
+```{r treso data cleaning, echo=FALSE}
 # Clean hhld_df
 hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
   as_tibble()
@@ -152,7 +126,7 @@ rm(hhld_tb, socio_economic_tb, hhld_structure)
 - Combine together 
 - Clean the student postal code data
 
-```{r education data cleaning}
+```{r education data cleaning, echo=FALSE}
 # The school capacity dataset contains the correct lat/long for schools
 schoolCapSlim <- schoolCap %>%
   select(year = Sch_yr, 
@@ -232,7 +206,7 @@ rm(num_schools_from_student_post, num_schools_from_school_sfis)
 - Find any schools with a ratio of ADE to enrolment below 0.8 and above 1.0 between the school and student data, remove these outliers
 - Calculate the straight line travel distance between student to school based on lat/long information and `haverFunction()`
 
-```{r join edu data}
+```{r join edu data, echo=FALSE}
 # Join postal code centroids to student's postal code data
 pccfSlim <- pccf %>%
   filter(SLI == 1) %>%
@@ -300,7 +274,7 @@ schoolCatchment <- schoolCatchment %>%
   mutate(dist = haverFunction(school.lat, school.long, student.lat, student.long))
 ```
 
-### Remove outlier students
+## Remove outlier students
 
 The data provided contains students travelling extremely far distances. This can be a source of error when calculating
 the catchment areas for schools. For each school, the students outside of the whiskers of a typical boxplot are removed. 
@@ -347,7 +321,7 @@ schoolCatchment <- schoolCatchment %>%
 
 ```
 
-``` {r students within catchment}
+``` {r students within catchment, echo=FALSE}
 # Calculate the catchment distance by a specified quantile weighted with the enrolment of the school
 percentileList <- c(0.9, 0.8, 0.7, 0.6, 0.5)
 schoolCatchmentDistPercent <- schoolCatchment %>%
@@ -420,7 +394,7 @@ rm(temp1, temp2, temp)
 
 ### Visualization of percentile travel distance
 
-```{r}
+```{r visualize travel distance}
 student_travel <- readRDS(file = 'output/student_travel_0.9.rds') %>%
   as_tibble() %>%
   group_by(sfis, school.name, school.lat, school.long) %>%
@@ -439,7 +413,8 @@ ggplot(data = student_travel, aes(distance)) +
 1.7 units is rounded to 1 unit
 - Assume that 23 elementary or 21 secondary students per unit of portable
 - Update the utilization of each school after adding in the portables
-```{r}
+
+```{r clean portables, echo=FALSE}
 # Sum total ground floor area and number of portable units by school
 filterList <- c('cafe|child care|administration|other|commercial|general|best start|staff')
 
@@ -479,84 +454,27 @@ print(paste0('There are ', length(filter(schoolSFIS, utilization.total > 1)$sfis
 saveRDS(schoolSFIS, file = 'output/school_sfis_2017.rds')
 ```
 
-```{r}
+```{r clean school assets, echo=FALSE}
 # TODO ask Alec what is this info used for.
 schoolAssetsSlim <- schoolAssets %>%
   filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
   select(bid = BID, lat = Latitude, long = Longitude, ade = ADE,
          asset.name = AssetName) %>%
   drop_na(bid, lat, long, ade)
-
 ```
 
+## Clean EQAO Data
 
-*Push Health Data into SQL Server
-```{r}
-#Loading Health Bed Census Summary data into SQL Server
-#healthBedsSummary <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/Received files/Data received 2019-03-01/MOH_DailyBedCensus_Summary.txt')
-#sqlSave(healthRodbc,healthBedsSummary,"cap.MOH_DailyBedCensus_Summary",safer=FALSE, fast=TRUE)
-```
-
-
-
-*Import Health Data
-```{r}
-healthRodbc <-odbcConnect("SQLDNS")
-
-healthDailyBedHistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
-healthDailyBedCensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
-healthDischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
-
-healthHBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIS")
-healthHBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_Proj")
-
-healthLHINfacilityList <- sqlFetch(healthRodbc, "cap.MOH_LHIN_Hosp_Fac_List")
-healthHospitalLocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
-
-healthPopulationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
-healthBedDays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
-
-healthWaitTime <- sqlFetch(healthRodbc, "cap.HospitalWaitTime")
-
-#ALC Data
-healthALCAge <- sqlFetch(healthRodbc, "cap.ALCAge")
-healthALCAnnualVolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
-healthALCCases <- sqlFetch(healthRodbc, "cap.ALCCases")
-healthALCDesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
-healthALCDischarge <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
-healthALCInpatientBedType <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
-healthALCMonthlyRatebySite <- sqlFetch(healthRodbc, "cap.ALCMonthlyRateByProvinceLHINFacilitySite")
-healthALCMonthlyVolume <- sqlFetch(healthRodbc, "cap.ALCMonthlyVolumeAndTotalDays")
-
-#CIHI Data
-healthCIHIFacilityNameID <- sqlFetch(healthRodbc, "cap.CIHI_FacilityName_FacilityID")
-healthCIHIFacilityNumberOld <- sqlFetch(healthRodbc, "cap.CIHI_FacilityNumber_OLD")
-healthCIHIHospitalBeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
-healthCIHIWaitTimesRegion <- sqlFetch(healthRodbc, "cap.CIHI_Wait Times by Region")
-healthCIHIWaitTimesProvince <- sqlFetch(healthRodbc, "cap.CIHI_Wait_Time_Data_by_Province")
-
-#Health Asset Inventory
-healthInventoryMOHLTC <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC")
-healthInventoryMOHLTCfid <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC_FID_Map")
-
-#Lookup Tables
-healthHospitalSiteLookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
-healthLHINLookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
-
-healthPopulationLHIN %>%
-  filter(LHIN=='South West') %>%
-  arrange(Year, Gender, Age)
-
-healthHBAMprojected %>%
-  distinct(Care_Type)
+```{r eqao, eval=FALSE}
+eqaoSlim <- eqao %>%
+  select(School.Number, School.Name, School.Type, School.Level, School.Language, Enrolment, Latitude, Longitude,
+         Percentage.of.Students.Whose.First.Language.Is.Not.English:Percentage.of.Students.Whose.Parents.Have.Some.University.Education) %>%
+  mutate_at(vars(matches("Percentage|Change")), list(~gsub(" *%", "", .))) %>%
+  # Remove N/R (not-reported) and N/D (no-data)
+  mutate_at(vars(matches("Percentage|Change")), list(~gsub("[A-z]\\/[A-z]", NA, .))) %>%
+  # Remove SP (suppressed)
+  mutate_at(vars(matches("Percentage|Change")), list(~gsub("[A-z][A-z]", NA, .))) %>%
+  mutate_at(vars(matches("Percentage|Change")), list(~as.numeric(.)))
 
 ```
-
-*Import MAG Data
-```{r}
-
-```
-
-
-
 

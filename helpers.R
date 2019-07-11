@@ -145,6 +145,45 @@ plot_straight_line_tlfd <- function(tlfd) {
   grid.arrange(g1, g2, g3, g4, nrow = 4)
 }
 
+# Plot TLFD with segmentation
+plot_travel_time_tlfd <- function(tlfd) {
+  g1 <- ggplot(tlfd, aes(travel.time, color = as.factor(board_type_name))) +
+    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) + 
+    facet_wrap(vars(board_type_name), scales = 'free_y') +
+    labs(title = 'Travel Time', x = 'time (min)', color = 'Board Type') +
+    theme_grey() +
+    coord_cartesian(xlim = c(-1, 10))
+  
+  g2 <- ggplot(tlfd, aes(travel.time, color = as.factor(mof_region))) +
+    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) +
+    facet_wrap(vars(board_type_name), scales = 'free_y') +
+    labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
+    theme_grey() +
+    coord_cartesian(xlim = c(-1, 10))
+
+  g3 <- tlfd %>%
+    filter(startsWith(board_type_name, 'English')) %>%
+    ggplot(aes(travel.time, color = as.factor(mof_region))) +
+    # geom_area(stat = 'bin', binwidth = 0.1) +
+    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) +
+    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(panel)), scales = 'free_y') +
+    labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
+    theme_grey() +
+    coord_cartesian(xlim = c(-1, 10))
+
+  g4 <- tlfd %>%
+    filter(startsWith(board_type_name, 'French')) %>%
+    ggplot(aes(travel.time, color = as.factor(mof_region))) +
+    # geom_area(stat = 'bin', binwidth = 0.1) +
+    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) +
+    facet_grid(cols = vars(board_type_name), rows = vars(as.factor(panel)), scales = 'free_y') +
+    labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
+    theme_grey() +
+    coord_cartesian(xlim = c(-1, 10))
+
+  grid.arrange(g1, g2, g3, g4, nrow = 4)
+}
+
 # Obtain school and student xy from `student_travel_##` where ## is the catchment distance
 create_student_xy <- function(student_travel) {
   '
@@ -249,9 +288,11 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
       cbind(euclidean.dist = xy_location@data$euclidean.dist,
             student.postal.code = xy_location@data$student.postal.code,
-            school.name = xy_location@data$school.name) %>%
+            school.name = xy_location@data$school.name,
+            sfis = xy_location@data$sfis,
+            enrolment = xy_location@data$enrolment) %>%
       as_tibble() %>%
-      select(Treso_ID, euclidean.dist, student.postal.code, school.name) %>%
+      select(Treso_ID, euclidean.dist, student.postal.code, enrolment, school.name, sfis) %>%
       rename(
         treso.id.por = Treso_ID
       )

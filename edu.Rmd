@@ -19,13 +19,28 @@ library(tictoc)
 library(gridExtra)
 source("helpers.R")
 ```
-- *TODO* Utilization vs travel time
+
+## TODO List
+
+- Utilization vs travel time
+- Recalculate the closest school theory by using travel time
+- Implement sampling procedure
+  - Create sampling proportions at CSD level for each board type
+  - For each TRESO zone, distribute the population of students by board type of CSD
+  - Then distribute the students to closest school (or second closest, so on)
+  - Compare the TLFD against observation
 
 ## Import relavent files
 ```{r Import files, include=FALSE}
 # TRESO 
 treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("output/treso_tb.rds")
+
+# TRESO time skim
+travel_time_skim <- read_csv("input/mf224.csv.gz") %>%
+  melt(id = c("p/q/[val]")) %>%
+  rename(orig = "p/q/[val]", dest = variable) %>%
+  mutate_all(as.numeric)
 
 # Definition files
 school_board_def <- read_csv("input/school_board_types.csv")
@@ -123,8 +138,8 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 - Combine with the historical ADE and utilization data by school
 
 ```{r spatial gymnastics, eval = FALSE}
-#percentile_dist = c('90')
-percentile_dist = c('90', '80', '70', '60', '50')
+percentile_dist = c('90')
+#percentile_dist = c('90', '80', '70', '60', '50')
 
 for (dist in percentile_dist) {
   
@@ -141,7 +156,7 @@ for (dist in percentile_dist) {
   school_overlay <- create_overlay(school_xy, treso_shp, "school")
   
   # Join the POR and POS together for distance matrix
-  observed_por_pos <- left_join(student_overlay, school_overlay, by = "school.name") %>%
+  observed_por_pos <- left_join(student_overlay, school_overlay, by = c("school.name", "sfis")) %>%
     saveRDS(paste0("output/observed_por_pos_", dist, ".rds"))
   
   # Save the zones in each school's catchment area
@@ -158,7 +173,7 @@ for (dist in percentile_dist) {
 
 ```{r test buffer, eval = FALSE, echo = FALSE}
 # Select a specific buffer
-school_of_interest <- "Burleigh Hill PS"
+school_of_interest <- "Holy Trinity CSS"
 student_travel <- get("student_travel_90")
 student_xy <- create_student_xy(student_travel)
 school_xy <- create_school_xy(student_travel)
@@ -213,7 +228,7 @@ ggplot() +
 rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, school_xy_df)
 ```
 
-```{r}
+```{r, echo=FALSE, eval=FALSE}
 as_tibble(interst_zones) %>%
   left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c('treso.id' = 'treso_zone')) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
@@ -392,13 +407,9 @@ g <- readRDS('output/closest_school_summary.rds') %>%
 ggplotly(g)
 ```
 
-## Straight Line TLFD plots {.tabset .tabset-fade}
+## Travel Time TLFD plots {.tabset .tabset-fade}
 
-- Convert this to use the TRESO distance once we obtain the skims. (*need to obtain*)
-- Using `uncount()` to convert the enrollment number to individual entries in the tibble
-
-```{r read in the student overlay RDS, echo = FALSE}
-# Create overlays for the 90th catchment distance
+```{r prepare travel time skim, echo = FALSE}
 student_overlay_90 <- readRDS("output/student_overlay_90.rds")
 student_overlay_80 <- readRDS("output/student_overlay_80.rds")
 student_overlay_70 <- readRDS("output/student_overlay_70.rds")
@@ -408,18 +419,38 @@ student_overlay_50 <- readRDS("output/student_overlay_50.rds")
 
 ### 90th Percentile plots
 ```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
-student_tlfd_90 <- student_travel_90 %>% 
-  select(dsb.index, dist, enrolment, panel, student.postal.code) %>%
+student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
+  # Get the travel time skims
+  left_join(travel_time_skim, by=c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value) %>%
+  # Get the school board type names
   left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  left_join(select(student_overlay_90, student.postal.code, treso.id.por), by = "student.postal.code") %>%
-  rename(treso.id = treso.id.por) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
-  # MOF Region of NA are Quebec Zones
-  filter(mof_region != "NA") %>%
+  # Get the MOF regions
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id.por' = 'treso_id')) %>%
+  # Get the panel information
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   # expand the rows based on enrollment number
   uncount(enrolment)
 
-plot_straight_line_tlfd(student_tlfd_90)
+summary(student_tlfd_90$travel.time)
+
+# fill travel times of NA with 0, 1e20 with 0; and replace with assumed travel speed of:
+# - 30KM/hr (if euclidean > 2KM)
+# - 5km/hr (if euclidean <= 2KM)
+student_tlfd_90 <- student_tlfd_90 %>%
+  mutate(travel.time = replace_na(travel.time, 0)) %>%
+  mutate(travel.time = replace(travel.time, travel.time >= 1e10, 0)) %>%
+  mutate(travel.time = ifelse(travel.time == 0, ifelse(euclidean.dist <= 2, euclidean.dist / 5 * 60, euclidean.dist / 30 * 60), travel.time)) %>%
+  # the large zones TRESO zones in the north have unproportional travel time vs travel distance
+  # between the student and school
+  mutate(euclidean.travel.time = euclidean.dist / 30 * 60) %>%
+  mutate(compare.travel.time = abs(travel.time - euclidean.travel.time)) %>%
+  mutate(travel.time = ifelse(compare.travel.time > 30, euclidean.travel.time, travel.time))
+
+summary(student_tlfd_90$travel.time)
+
+
+plot_travel_time_tlfd(student_tlfd_90)
 ```
 
 ### 80th Percentile plots
