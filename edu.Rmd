@@ -24,11 +24,7 @@ source("helpers.R")
 
 - Utilization vs travel time
 - Recalculate the closest school theory by using travel time
-- Implement sampling procedure
-  - Create sampling proportions at CSD level for each board type
-  - For each TRESO zone, distribute the population of students by board type of CSD
-  - Then distribute the students to closest school (or second closest, so on)
-  - Compare the TLFD against observation
+
 
 ## Import relavent files
 ```{r Import files, include=FALSE}
@@ -37,14 +33,16 @@ treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC"
 treso_tb <- readRDS("output/treso_tb.rds")
 
 # TRESO time skim
-travel_time_skim <- read_csv("input/mf224.csv.gz") %>%
+travel_time_skim_square <- read_csv("input/mf224.csv.gz")
+
+travel_time_skim <- travel_time_skim_square %>%
   melt(id = c("p/q/[val]")) %>%
   rename(orig = "p/q/[val]", dest = variable) %>%
-  mutate_all(as.numeric)
+  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest])
 
 # Definition files
 school_board_def <- read_csv("input/school_board_types.csv")
-treso_zone_def <- read_csv("input/treso_zone_system.csv")
+treso_zone_def <- read.csv("input/treso_zone_system.csv")
 
 # Student travel data
 student_travel_90 <- readRDS("output/student_travel_0.9.rds")
@@ -420,6 +418,8 @@ student_overlay_50 <- readRDS("output/student_overlay_50.rds")
 ### 90th Percentile plots
 ```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
 student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
+  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
+  drop_na(treso.id.por) %>%
   # Get the travel time skims
   left_join(travel_time_skim, by=c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
   rename(travel.time = value) %>%
@@ -434,21 +434,14 @@ student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
 
 summary(student_tlfd_90$travel.time)
 
-# fill travel times of NA with 0, 1e20 with 0; and replace with assumed travel speed of:
-# - 30KM/hr (if euclidean > 2KM)
-# - 5km/hr (if euclidean <= 2KM)
 student_tlfd_90 <- student_tlfd_90 %>%
-  mutate(travel.time = replace_na(travel.time, 0)) %>%
-  mutate(travel.time = replace(travel.time, travel.time >= 1e10, 0)) %>%
-  mutate(travel.time = ifelse(travel.time == 0, ifelse(euclidean.dist <= 2, euclidean.dist / 5 * 60, euclidean.dist / 30 * 60), travel.time)) %>%
   # the large zones TRESO zones in the north have unproportional travel time vs travel distance
   # between the student and school
   mutate(euclidean.travel.time = euclidean.dist / 30 * 60) %>%
-  mutate(compare.travel.time = abs(travel.time - euclidean.travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
   mutate(travel.time = ifelse(compare.travel.time > 30, euclidean.travel.time, travel.time))
 
 summary(student_tlfd_90$travel.time)
-
 
 plot_travel_time_tlfd(student_tlfd_90)
 ```
@@ -609,5 +602,50 @@ summary(mod.partial)
 # summary(mod.expand)
 # plot(mod.expand)
 ```
+
+## Explore Facility Choice - Sampling Procedure
+
+- Implement sampling procedure
+  - Create sampling proportions at CSD level for each board type
+  - For each TRESO zone, distribute the population of students by board type of CSD
+  - Then distribute the students to closest school (or second closest, so on)
+  - Compare the TLFD against observation
+  
+```{r facility choice, echo=FALSE, fig.width=10, fig.height=8}
+
+observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
+  select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.pos" = "treso_id"))
+
+# Calculate the board type sample for each CSD
+board_type_sample <- observed_por_pos_90 %>%
+  group_by(csduid, csdname, board_type_name) %>%
+  summarise(enrolment = sum(enrolment), mof_region = first(mof_region)) %>%
+  group_by(csduid, csdname) %>%
+  mutate(sample = enrolment / sum(enrolment))
+
+g1 <- board_type_sample %>%
+  mutate(csduid.prefix = str_trunc(csduid, 4, side='right', ellipsis = "")) %>%
+  group_by(csduid.prefix, board_type_name) %>%
+  summarise(sample = mean(sample), mof_region = first(mof_region)) %>%
+  ggplot(aes(x = csduid.prefix, y = sample, fill = board_type_name)) +
+  geom_col(position="stack") +
+  facet_wrap(vars(mof_region), scales = 'free_y') +
+  theme_minimal() +
+  labs(title = "Average Board Type Sample at CD Level", x = "CD", y = "Porportions", fill = "Board Type")
+
+g1
+
+# Get the student data over TRESO zones
+student_overlay_90 <- readRDS("output/student_overlay_90.rds") %>%
+  select(treso.id.por, enrolment, actual.school.name = school.name, actual.sfis = sfis) %>%
+  left_join
+
+
+```
+
+
+
 
 
