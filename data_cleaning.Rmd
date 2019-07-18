@@ -112,7 +112,7 @@ treso_tb <- socio_economic_tb %>%
     deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
   ) %>%
   left_join(hhld_structure, by = "treso_zone") %>%
-  saveRDS("output/treso_tb.rds")
+  saveRDS("cache/treso_tb.rds")
 
 # Clean global variables
 rm(hhld_tb, socio_economic_tb, hhld_structure)
@@ -354,7 +354,7 @@ for (catchment_dist in percentileList){
     left_join(select(schoolCatchmentDistPercent, sfis, perc.dist, perc.value), by = c('sfis' = 'sfis')) %>%
     filter(perc.value == catchment_dist) %>%
     filter(dist <= perc.dist) %>%
-    saveRDS(file = paste0('output/student_travel_', as.character(catchment_dist), '.rds'))
+    saveRDS(file = paste0('cache/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
 rm(schoolCatchment, schoolCatchmentDistPercent, schoolCatchmentThreshold, percentileList, temp_tb)
@@ -395,7 +395,7 @@ rm(temp1, temp2, temp)
 ### Visualization of percentile travel distance
 
 ```{r visualize travel distance}
-student_travel <- readRDS(file = 'output/student_travel_0.9.rds') %>%
+student_travel <- readRDS(file = 'cache/student_travel_0.9.rds') %>%
   as_tibble() %>%
   group_by(sfis, school.name, school.lat, school.long) %>%
   summarise(distance = first(perc.dist))
@@ -451,7 +451,7 @@ schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area
 # TODO check with Alec regarding this.
 print(paste0('There are ', length(filter(schoolSFIS, utilization.total > 1)$sfis), ' schools with utilization greater than 1.2.'))
 
-saveRDS(schoolSFIS, file = 'output/school_sfis_2017.rds')
+saveRDS(schoolSFIS, file = 'cache/school_sfis_2017.rds')
 ```
 
 ```{r clean school assets, echo=FALSE}
@@ -465,16 +465,61 @@ schoolAssetsSlim <- schoolAssets %>%
 
 ## Clean EQAO Data
 
+- Remove not reported (N/R) and no data (N/D)
+- Remove suppressed (SP)
+- Keep only public and catholic school types
+- Calculate mean and standard deviations for reading, writing, and mathematics across the same board/panel
+
 ```{r eqao, eval=FALSE}
 eqaoSlim <- eqao %>%
   select(School.Number, School.Name, School.Type, School.Level, School.Language, Enrolment, Latitude, Longitude,
-         Percentage.of.Students.Whose.First.Language.Is.Not.English:Percentage.of.Students.Whose.Parents.Have.Some.University.Education) %>%
+         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Reading:Change.in.Grade.10.OSSLT.Literacy.Achievement.Over.Three.Years) %>%
   mutate_at(vars(matches("Percentage|Change")), list(~gsub(" *%", "", .))) %>%
   # Remove N/R (not-reported) and N/D (no-data)
   mutate_at(vars(matches("Percentage|Change")), list(~gsub("[A-z]\\/[A-z]", NA, .))) %>%
   # Remove SP (suppressed)
   mutate_at(vars(matches("Percentage|Change")), list(~gsub("[A-z][A-z]", NA, .))) %>%
-  mutate_at(vars(matches("Percentage|Change")), list(~as.numeric(.)))
+  mutate_at(vars(matches("Percentage|Change")), list(~as.numeric(.))) %>%
+  # Keep only "public" and "catholic"
+  filter(School.Type %in% c("Public", "Catholic"))
+
+eqao_distribution <- eqaoSlim %>%
+  select_at(vars("School.Type", "School.Language", "School.Level", matches("Achieving.the.Provincial"))) %>%
+  group_by(School.Type, School.Language, School.Level) %>%
+  summarise_all(list(mean = mean, std = sd), na.rm = TRUE)
+
+eqao_standardized <- left_join(eqaoSlim, eqao_distribution, by = c("School.Type", "School.Language", "School.Level")) %>%
+  mutate(Grade.3.Reading.Standardized = (Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Reading - 
+                                         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Reading_mean) /
+                                         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Reading_std) %>%
+  mutate(Grade.3.Writing.Standardized = (Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Writing - 
+                                         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Writing_mean) /
+                                         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Writing_std) %>%
+  mutate(Grade.3.Mathematics.Standardized = (Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Mathematics - 
+                                         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Mathematics_mean) /
+                                         Percentage.of.Grade.3.Students.Achieving.the.Provincial.Standard.in.Mathematics_std) %>%
+  mutate(Grade.6.Reading.Standardized = (Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Reading - 
+                                         Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Reading_mean) /
+                                         Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Reading_std) %>%
+  mutate(Grade.6.Writing.Standardized = (Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Writing - 
+                                         Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Writing_mean) /
+                                         Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Writing_std) %>%
+  mutate(Grade.6.Mathematics.Standardized = (Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Mathematics - 
+                                         Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Mathematics_mean) /
+                                         Percentage.of.Grade.6.Students.Achieving.the.Provincial.Standard.in.Mathematics_std) %>%
+  mutate(Grade.9.Academic.Mathematics.Standardized = (Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Academic.Mathematics - 
+                                         Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Academic.Mathematics_mean) /
+                                         Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Academic.Mathematics_std) %>%
+  mutate(Grade.9.Applied.Mathematics.Standardized = (Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Applied.Mathematics - 
+                                         Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Applied.Mathematics_mean) /
+                                         Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Applied.Mathematics_std) %>%
+  select_at(vars(School.Name, School.Number, School.Type, School.Language, School.Level, matches("Standardized"))) %>%
+  mutate(eqao = select(., Grade.3.Reading.Standardized, Grade.3.Writing.Standardized, Grade.3.Mathematics.Standardized,
+                           Grade.6.Reading.Standardized, Grade.6.Writing.Standardized, Grade.6.Mathematics.Standardized,
+                           Grade.9.Academic.Mathematics.Standardized, Grade.9.Applied.Mathematics.Standardized) %>% rowSums(na.rm = TRUE)) %>%
+  select(School.Name, School.Number, School.Type, School.Language, School.Level, eqao)
+
+saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 
 ```
 

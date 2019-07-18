@@ -30,7 +30,7 @@ source("helpers.R")
 ```{r Import files, include=FALSE}
 # TRESO 
 treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
-treso_tb <- readRDS("output/treso_tb.rds")
+treso_tb <- readRDS("cache/treso_tb.rds")
 
 # TRESO time skim
 travel_time_skim_square <- read_csv("input/mf224.csv.gz")
@@ -42,18 +42,29 @@ travel_time_skim <- travel_time_skim_square %>%
 
 # Definition files
 school_board_def <- read_csv("input/school_board_types.csv")
-treso_zone_def <- read.csv("input/treso_zone_system.csv")
+treso_zone_def <- read.csv("input/treso_zone_system.csv", stringsAsFactors = FALSE)
 
 # Student travel data
-student_travel_90 <- readRDS("output/student_travel_0.9.rds")
-student_travel_80 <- readRDS("output/student_travel_0.8.rds")
-student_travel_70 <- readRDS("output/student_travel_0.7.rds")
-student_travel_60 <- readRDS("output/student_travel_0.6.rds")
-student_travel_50 <- readRDS("output/student_travel_0.5.rds")
+student_travel_90 <- readRDS("cache/student_travel_0.9.rds")
+student_travel_80 <- readRDS("cache/student_travel_0.8.rds")
+student_travel_70 <- readRDS("cache/student_travel_0.7.rds")
+student_travel_60 <- readRDS("cache/student_travel_0.6.rds")
+student_travel_50 <- readRDS("cache/student_travel_0.5.rds")
 
 # School related data
-school_sfis_2017 <- readRDS("output/school_sfis_2017.rds") %>%
+school_sfis_2017 <- readRDS("cache/school_sfis_2017.rds") %>%
   rename(year = year.x)
+
+# EQAO only has school number which corresponds to BSID
+eqao_2017 <- readRDS("cache/eqao_standardized_2017.rds") %>%
+  mutate(School.Number = as.character(School.Number)) %>%
+  mutate(School.Number = gsub("^0+", "", School.Number)) %>%
+  mutate(School.Number = as.integer(School.Number)) %>%
+  drop_na(School.Number) %>% # 3 NA schools with not value
+  left_join(select(school_sfis_2017, bsid, sfis), by = c("School.Number" = "bsid"))
+print(paste0('There are ', length(filter(eqao_2017, is.na(sfis))$sfis), ' schools with unmatching SFIS IDs.'))
+eqao_2017 <- drop_na(eqao_2017, sfis)
+
 ```
 
 ## Summary of School Utilization
@@ -509,7 +520,11 @@ school_tb <- readRDS("output/school_tb_90.rds") %>%
   mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
   mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum)
 
+# Join with EQAO Scores
+school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao), by = "sfis")
+
 summary(school_tb$ade)
+filter(school_tb, is.na(eqao))
 
 g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x=ade)) +
   geom_histogram(bins = 50) +
@@ -535,12 +550,19 @@ g4 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = attend_school_sum,
   theme_minimal() +
   labs(x = 'Attend School', y = 'ADE')
 
+g5 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "East"), aes(x = eqao, y = ade, label=school.name.x)) +
+  geom_point(alpha = 0.5) +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  theme_minimal() +
+  labs(x = 'EQAO', y = 'ADE')
+
 ggplotly(g1)
 ggplotly(g2)
 ggplotly(g3)
 ggplotly(g4)
+ggplotly(g5)
 
-filter(school_tb, mof.region == '0')
+bufilter(school_tb, mof.region == '0')
 
 ```
 
@@ -549,20 +571,25 @@ filter(school_tb, mof.region == '0')
 # Choose the catchment area to explore
 school_tb <- readRDS("output/school_tb_80.rds")
 
+# Join with EQAO Scores
+school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao), by = "sfis")
+
 # Filter the school database down
-school_tb_filtered <- filter(school_tb, panel == "Secondary", board.type.name == "English Public", 
-                             mof.region == "Central")
+school_tb_filtered <- filter(school_tb, panel == "Elementary", board.type.name == "English Public", eqao != 0, utilization < 1.5)
 
 # Display schools that has captured a large area and their 2011 ADE
 school_tb_filtered %>%
-  arrange(desc(n_pop_sum)) %>%
-  select(school.name.x, n_pop_sum, ade)
+  arrange(desc(utilization)) %>%
+  select(school.name.x, utilization, ade)
 
 # Build linear regression dataset with various transformed x, y variables
 linreg <- school_tb_filtered %>%
-  select(ade, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age) %>%
+  select(ade, utilization, eqao, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age) %>%
   mutate(shape.area_sum = shape.area_sum / 1e6) %>%  
   mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
+  mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum) %>%
+  mutate(n_two_adult_two_child_density = n_two_adult_two_child_sum / shape.area_sum) %>%
+  mutate(n_two_adult_one_child_density = n_two_adult_one_child_sum / shape.area_sum) %>%
   mutate_all(
     funs(ln = log1p(.), sqrt = sqrt(.), sq = .^2)
   ) %>%
@@ -574,26 +601,25 @@ linreg %>%
   filter(ade < 100)
 
 # Exploring the data relationships
-ggplot(linreg, aes(y = ade, x = n_sec_pop_density)) +
+ggplot(linreg, aes(y = utilization, x = attend_school_sum)) +
   geom_point(alpha = 0.5, color = "#F8766D")
 
 # Fully segment the data
 linreg_small <- linreg %>%
-  filter(n_pop_sum < 10e+4)
-
+  filter(n_sec_pop_density_sqrt < 5)
 linreg_large <- linreg %>%
-  filter(n_pop_sum >= 10e+4)
+  filter(n_sec_pop_density_sqrt >= 5)
 
 # Build models
-mod.small <- lm(ade ~ n_sec_pop_sum_sqrt + n_pt_sum_sqrt + n_two_adult_one_child_sum, data = linreg_small)
+mod.small <- lm(utilization ~  eqao, data = linreg_small)
 summary(mod.small)
-plot(mod.small)
-mod.large <- lm(ade ~ n_pop_sum_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child_sum +
-                  n_zero_adult_sum, data = linreg_large)
+#plot(mod.small)
+mod.large <- lm(utilization ~ eqao, data = linreg_large)
 summary(mod.large)
-
-mod.partial <- lm(ade ~ n_sec_pop_density_sqrt + n_pt_sum_sqrt + n_one_adult_twoplus_child_sum + dummy_large_pop, data = linreg)
-summary(mod.partial)
+#plot(mod.large)
+mod <- lm(utilization ~ eqao + n_ele_pop_density, data = linreg)
+summary(mod)
+plot(mod)
 # mod.base <- lm(ade_2011 ~ n_sec_pop_sum_sqrt, data = linreg)
 # mod.expand <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_ele_pop_sum_sqrt, data = linreg)
 # anova(mod.base, mod.expand)
@@ -608,22 +634,26 @@ summary(mod.partial)
 - Implement sampling procedure
   - Create sampling proportions at CSD level for each board type
   - For each TRESO zone, distribute the population of students by board type of CSD
-  - Then distribute the students to closest school (or second closest, so on)
+  - Then distribute the students to schools using a composite weight
+    - The composite weight comprises the closest school (or second closest, so on) probability, EQAO, and observed TLFD friction
   - Compare the TLFD against observation
+  
+- There are two version, one is contrained by capacity and another that doesn't have capacity constrains
   
 ```{r facility choice, echo=FALSE, fig.width=10, fig.height=8}
 
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
+  drop_na(treso.id.por) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.pos" = "treso_id"))
+  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id"))
 
 # Calculate the board type sample for each CSD
 board_type_sample <- observed_por_pos_90 %>%
   group_by(csduid, csdname, board_type_name) %>%
-  summarise(enrolment = sum(enrolment), mof_region = first(mof_region)) %>%
+  summarise(enrolment.total = sum(enrolment), mof_region = first(mof_region)) %>%
   group_by(csduid, csdname) %>%
-  mutate(sample = enrolment / sum(enrolment))
+  mutate(sample = enrolment.total / sum(enrolment.total))
 
 g1 <- board_type_sample %>%
   mutate(csduid.prefix = str_trunc(csduid, 4, side='right', ellipsis = "")) %>%
@@ -637,12 +667,40 @@ g1 <- board_type_sample %>%
 
 g1
 
+board_type_sample_spread <- board_type_sample %>%
+  spread(key = board_type_name, value = sample) %>%
+  replace_na(list(`English Catholic` = 0, `French Catholic` = 0, `English Public` = 0, `French Public` = 0)) %>%
+  group_by(csduid, csdname) %>%
+  summarise(
+    enrolment.total = sum(enrolment.total),
+    `English Catholic` = sum(`English Catholic`, na.rm = TRUE),
+    `English Public` = sum(`English Public`, na.rm = TRUE),
+    `French Catholic` = sum(`French Catholic`, na.rm = TRUE),
+    `French Public` = sum(`French Public`, na.rm = TRUE)
+  ) %>%
+  mutate(sample.total = sum(`English Catholic`, `English Public`, `French Catholic`, `French Public`))
+
 # Get the student data over TRESO zones
-student_overlay_90 <- readRDS("output/student_overlay_90.rds") %>%
-  select(treso.id.por, enrolment, actual.school.name = school.name, actual.sfis = sfis) %>%
-  left_join
-
-
+treso_level_sampling <- readRDS("output/student_overlay_90.rds") %>%
+  select(treso.id.por, enrolment) %>%
+  drop_na(treso.id.por) %>%
+  left_join(select(treso_zone_def, treso_id, csduid), by = c("treso.id.por" = "treso_id")) %>%
+  left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = "csduid") %>%
+  group_by(treso.id.por) %>%
+  summarise(
+    enrolment = sum(enrolment),
+    `English Catholic` = first(`English Catholic`),
+    `English Public` = first(`English Public`),
+    `French Catholic` = first(`French Catholic`),
+    `French Public` = first(`French Public`)
+  ) %>%
+  # Create probability list for sample
+  unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
+  rowwise() %>%
+  mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
+  # Sample the different board types 
+  mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size = enrolment, replace = TRUE, prob = prob)))
+  
 ```
 
 
