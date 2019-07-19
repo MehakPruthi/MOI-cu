@@ -148,38 +148,36 @@ plot_straight_line_tlfd <- function(tlfd) {
 # Plot TLFD with segmentation
 plot_travel_time_tlfd <- function(tlfd) {
   g1 <- ggplot(tlfd, aes(travel.time, color = as.factor(board_type_name))) +
-    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) + 
+    geom_freqpoly(stat = 'bin', binwidth = 2, size = 1) + 
     facet_wrap(vars(board_type_name), scales = 'free_y') +
     labs(title = 'Travel Time', x = 'time (min)', color = 'Board Type') +
     theme_grey() +
-    coord_cartesian(xlim = c(-1, 10))
+    coord_cartesian(xlim = c(-1, 30))
   
   g2 <- ggplot(tlfd, aes(travel.time, color = as.factor(mof_region))) +
-    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) +
+    geom_freqpoly(stat = 'bin', binwidth = 2, size = 1) +
     facet_wrap(vars(board_type_name), scales = 'free_y') +
     labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
     theme_grey() +
-    coord_cartesian(xlim = c(-1, 10))
+    coord_cartesian(xlim = c(-1, 30))
 
   g3 <- tlfd %>%
     filter(startsWith(board_type_name, 'English')) %>%
     ggplot(aes(travel.time, color = as.factor(mof_region))) +
-    # geom_area(stat = 'bin', binwidth = 0.1) +
-    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) +
+    geom_freqpoly(stat = 'bin', binwidth = 2, size = 1) +
     facet_grid(cols = vars(board_type_name), rows = vars(as.factor(panel)), scales = 'free_y') +
     labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
     theme_grey() +
-    coord_cartesian(xlim = c(-1, 10))
+    coord_cartesian(xlim = c(-1, 30))
 
   g4 <- tlfd %>%
     filter(startsWith(board_type_name, 'French')) %>%
     ggplot(aes(travel.time, color = as.factor(mof_region))) +
-    # geom_area(stat = 'bin', binwidth = 0.1) +
-    geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) +
+    geom_freqpoly(stat = 'bin', binwidth = 2, size = 1) +
     facet_grid(cols = vars(board_type_name), rows = vars(as.factor(panel)), scales = 'free_y') +
     labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
     theme_grey() +
-    coord_cartesian(xlim = c(-1, 10))
+    coord_cartesian(xlim = c(-1, 30))
 
   grid.arrange(g1, g2, g3, g4, nrow = 4)
 }

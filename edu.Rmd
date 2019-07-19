@@ -450,7 +450,9 @@ student_tlfd_90 <- student_tlfd_90 %>%
   # between the student and school
   mutate(euclidean.travel.time = euclidean.dist / 30 * 60) %>%
   mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
-  mutate(travel.time = ifelse(compare.travel.time > 30, euclidean.travel.time, travel.time))
+  mutate(travel.time = ifelse(compare.travel.time > 30, euclidean.travel.time, travel.time)) %>%
+  # remove intra-zonal trips
+  filter(travel.time > 0)
 
 summary(student_tlfd_90$travel.time)
 
@@ -640,38 +642,40 @@ plot(mod)
   
 - There are two version, one is contrained by capacity and another that doesn't have capacity constrains
   
-```{r facility choice, echo=FALSE, fig.width=10, fig.height=8}
-
+```{r sampling baord type, echo=FALSE, fig.width=10, fig.height=8}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
   drop_na(treso.id.por) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id"))
+  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
 
 # Calculate the board type sample for each CSD
 board_type_sample <- observed_por_pos_90 %>%
-  group_by(csduid, csdname, board_type_name) %>%
+  group_by(csduid, csdname, board_type_name, panel) %>%
   summarise(enrolment.total = sum(enrolment), mof_region = first(mof_region)) %>%
-  group_by(csduid, csdname) %>%
+  group_by(csduid, csdname, panel) %>%
   mutate(sample = enrolment.total / sum(enrolment.total))
 
 g1 <- board_type_sample %>%
   mutate(csduid.prefix = str_trunc(csduid, 4, side='right', ellipsis = "")) %>%
-  group_by(csduid.prefix, board_type_name) %>%
+  group_by(csduid.prefix, board_type_name, panel) %>%
   summarise(sample = mean(sample), mof_region = first(mof_region)) %>%
   ggplot(aes(x = csduid.prefix, y = sample, fill = board_type_name)) +
   geom_col(position="stack") +
-  facet_wrap(vars(mof_region), scales = 'free_y') +
+  facet_grid(cols = vars(panel), rows = vars(mof_region), scales = 'free_y') +
   theme_minimal() +
   labs(title = "Average Board Type Sample at CD Level", x = "CD", y = "Porportions", fill = "Board Type")
 
 g1
 
-board_type_sample_spread <- board_type_sample %>%
+elementary_board_type_sample_spread <- board_type_sample %>%
+  filter(panel == "Elementary") %>%
   spread(key = board_type_name, value = sample) %>%
   replace_na(list(`English Catholic` = 0, `French Catholic` = 0, `English Public` = 0, `French Public` = 0)) %>%
   group_by(csduid, csdname) %>%
   summarise(
+    panel = first(panel),
     enrolment.total = sum(enrolment.total),
     `English Catholic` = sum(`English Catholic`, na.rm = TRUE),
     `English Public` = sum(`English Public`, na.rm = TRUE),
@@ -680,30 +684,56 @@ board_type_sample_spread <- board_type_sample %>%
   ) %>%
   mutate(sample.total = sum(`English Catholic`, `English Public`, `French Catholic`, `French Public`))
 
-# Get the student data over TRESO zones
-treso_level_sampling <- readRDS("output/student_overlay_90.rds") %>%
-  select(treso.id.por, enrolment) %>%
-  drop_na(treso.id.por) %>%
-  left_join(select(treso_zone_def, treso_id, csduid), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = "csduid") %>%
-  group_by(treso.id.por) %>%
+secondary_board_type_sample_spread <- board_type_sample %>%
+  filter(panel == "Secondary") %>%
+  spread(key = board_type_name, value = sample) %>%
+  replace_na(list(`English Catholic` = 0, `French Catholic` = 0, `English Public` = 0, `French Public` = 0)) %>%
+  group_by(csduid, csdname) %>%
   summarise(
+    panel = first(panel),
+    enrolment.total = sum(enrolment.total),
+    `English Catholic` = sum(`English Catholic`, na.rm = TRUE),
+    `English Public` = sum(`English Public`, na.rm = TRUE),
+    `French Catholic` = sum(`French Catholic`, na.rm = TRUE),
+    `French Public` = sum(`French Public`, na.rm = TRUE)
+  ) %>%
+  mutate(sample.total = sum(`English Catholic`, `English Public`, `French Catholic`, `French Public`))
+
+board_type_sample_spread <- rbind(elementary_board_type_sample_spread, secondary_board_type_sample_spread)
+
+# Get the student data over TRESO zones
+treso_level_sampling <- observed_por_pos_90 %>%
+  select(treso.id.por, enrolment, panel, csduid) %>%
+  left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
+  group_by(treso.id.por, panel) %>%
+  summarise(
+    csduid = first(csduid),
+    csdname = first(csdname),
     enrolment = sum(enrolment),
-    `English Catholic` = first(`English Catholic`),
-    `English Public` = first(`English Public`),
-    `French Catholic` = first(`French Catholic`),
-    `French Public` = first(`French Public`)
+    `English Catholic` = mean(`English Catholic`),
+    `English Public` = mean(`English Public`),
+    `French Catholic` = mean(`French Catholic`),
+    `French Public` = mean(`French Public`)
   ) %>%
   # Create probability list for sample
   unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
   rowwise() %>%
   mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
   # Sample the different board types 
-  mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size = enrolment, replace = TRUE, prob = prob)))
-  
+  mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size = enrolment, replace = TRUE, prob = prob))) %>%
+  mutate(`English Catholic` = sum(sample.result == "EC"),
+         `English Public` = sum(sample.result == "EP"),
+         `French Catholic` = sum(sample.result == "FC"),
+         `French Public` = sum(sample.result == "FP"))
+
+treso_level_sampling_elementary_ep <- filter(treso_level_sampling, panel == "Elementary") %>%
+  select(treso.id.por, panel, csduid, csdname, `English Public`)
 ```
 
+```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
 
+
+```
 
 
 
