@@ -434,6 +434,7 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
     num.units = sum(num.units)
   ) %>%
   ungroup() %>%
+  # TODO check this is rounding to 0.75
   mutate(num.units.calculated = round(area.m2 / PORTABLE_UNIT_SIZE, 0))
 
 # schoolSFIS <- readRDS('output/school_sfis_2017.rds') %>%
@@ -517,7 +518,9 @@ eqao_standardized <- left_join(eqaoSlim, eqao_distribution, by = c("School.Type"
   mutate(eqao = select(., Grade.3.Reading.Standardized, Grade.3.Writing.Standardized, Grade.3.Mathematics.Standardized,
                            Grade.6.Reading.Standardized, Grade.6.Writing.Standardized, Grade.6.Mathematics.Standardized,
                            Grade.9.Academic.Mathematics.Standardized, Grade.9.Applied.Mathematics.Standardized) %>% rowSums(na.rm = TRUE)) %>%
-  select(School.Name, School.Number, School.Type, School.Language, School.Level, eqao)
+  mutate(eqao.normalized = (eqao - min(eqao)) / (max(eqao) - min(eqao))) %>%
+  mutate(eqao.standardized = eqao.normalized * 10) %>%
+  select(School.Name, School.Number, School.Type, School.Language, School.Level, eqao.standardized)
 
 saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 

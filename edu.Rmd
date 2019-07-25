@@ -22,9 +22,12 @@ source("helpers.R")
 
 ## TODO List
 
-- Utilization vs travel time
-- Recalculate the closest school theory by using travel time
-
+[] Utilization vs travel time
+[x] Utilization vs EQAO
+[] Recalculate the closest school theory by using travel time
+[x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
+[x] Distribute the students based on the friction
+[] Validate if the distributed patterns matches the observed closest school patterns
 
 ## Import relavent files
 ```{r Import files, include=FALSE}
@@ -266,7 +269,7 @@ as_tibble(interst_zones) %>%
   - if there are schools within this buffer, then the label a value equal in rank (2 - n)
 
 ```{r calculate closest school, eval = FALSE, echo = FALSE}
-student_xy_90 <- student_travel_90 %>%
+student_xy_90 <- student_trvael_90 %>%
   select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, enrolment, student.postal.code, student.lat, student.long,
          dist) %>%
   create_student_xy()
@@ -636,13 +639,14 @@ plot(mod)
 - Implement sampling procedure
   - Create sampling proportions at CSD level for each board type
   - For each TRESO zone, distribute the population of students by board type of CSD
-  - Then distribute the students to schools using a composite weight
-    - The composite weight comprises the closest school (or second closest, so on) probability, EQAO, and observed TLFD friction
-  - Compare the TLFD against observation
+  - Then for each board type, distribute the POR to POS using TLFD (This may require a K factor to calibrate)
+  - Then for each POS, distribute to the individual schools based on EQAO and OTG
+  - Re-check the probability of closest school theory
+- There are two versions, one is contrained by capacity and another that doesn't have capacity constrains
+
+The board type sampling procedure is calculated at the CSD level.
   
-- There are two version, one is contrained by capacity and another that doesn't have capacity constrains
-  
-```{r sampling baord type, echo=FALSE, fig.width=10, fig.height=8}
+```{r sampling board type, echo=FALSE, fig.width=10, fig.height=8}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
   drop_na(treso.id.por) %>%
@@ -720,20 +724,180 @@ treso_level_sampling <- observed_por_pos_90 %>%
   rowwise() %>%
   mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
   # Sample the different board types 
-  mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size = enrolment, replace = TRUE, prob = prob))) %>%
+  mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
   mutate(`English Catholic` = sum(sample.result == "EC"),
          `English Public` = sum(sample.result == "EP"),
          `French Catholic` = sum(sample.result == "FC"),
          `French Public` = sum(sample.result == "FP"))
 
 treso_level_sampling_elementary_ep <- filter(treso_level_sampling, panel == "Elementary") %>%
-  select(treso.id.por, panel, csduid, csdname, `English Public`)
+  select(treso.id.por, panel, csduid, csdname, `English Public`, `English Catholic`,
+         `French Public`, `French Catholic`)
 ```
+
+The TLFD estimation includes some assumptions made for intra-zonal travel times and extremely large travel times.
+
+Intra-zonal travel time is assumed to be performed by walking at a speed of 5 km/hr over the euclidean distance between the student's postal code and school's postal code
+
+Extremely long travel time is defined by any travel time that is 30 min longer than travelling the euclidean distance at 30 km/hr. If it is over 30 min, the OD pair use the euclidean travel time (30 km/hr) instead.
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
 
+generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
+  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "obs")
+  
+  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "model")
+  
+  # Combine into one dataframe and plot TLFD
+  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
+  return(combined_tlfd)
+}
 
+# Read in the observed trips, and focus on elementary/GTA/Ep
+# Combine with travel time
+observed_trips <- readRDS("output/observed_por_pos_90.rds") %>%
+  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
+  drop_na(treso.id.por) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id.por' = 'treso_id')) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+  
+  filter(panel == "Elementary", board_type_name == "English Public") %>%
+  left_join(travel_time_skim, by = c('treso.id.por' = 'orig', 'treso.id.pos' = 'dest')) %>%
+  # Change intra-zonal travel time to walk speed of 5km/hr
+  # Cap the large travel times for zones up north to euclidean travel time assuming speeds of 30km/hr
+  # TODO check with others regarding this
+  mutate(euclidean.travel.time = euclidean.dist / 30 * 60) %>%
+  mutate(compare.travel.time = value - euclidean.travel.time) %>%
+  mutate(value = ifelse(compare.travel.time > 30, euclidean.travel.time, value)) %>%
+  mutate(value = ifelse(value == 0, (euclidean.dist / 5 * 60), value)) %>%
+  group_by(treso.id.por, treso.id.pos) %>%
+  summarise(value = weighted.mean(value, enrolment),
+            euclidean.dist = weighted.mean(euclidean.dist, enrolment),
+            enrolment = sum(enrolment))
+  
+
+travel_time_skim_select <- select(observed_trips, treso.id.por, treso.id.pos, value)
+
+# Calculate observed average trip lengths
+tlfd_obs <- sum(observed_trips$value * observed_trips$enrolment) / sum(observed_trips$enrolment)
+print(paste0("The average travel time to be calibrated to is " , tlfd_obs))
+  
+cost <- travel_time_skim_select
+initbeta <- -1/log(sum(cost$value)) - runif(1)/10
+initalpha <- 1/log(sum(cost$value)) + runif(1)/10
+beta <- initbeta
+alpha <- initalpha
+
+iterations <- 12
+for (j in 1:iterations) {
+  print(j)
+  cfunc <- cost %>%
+    mutate(value = value^alpha * exp(beta*value)) %>%
+    replace_na(value = 0)
+  
+  cfunc_rowsums <- cfunc %>%
+    group_by(treso.id.por) %>%
+    summarise(rowsum = sum(value))
+  
+  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
+    mutate(prob_scaled = value / rowsum) %>%
+    select(treso.id.por, treso.id.pos, prob_scaled)
+  
+  simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
+    group_by(treso.id.por) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    left_join(t, by = "treso.id.por") %>%
+    mutate(enrolment = enrolment * prob_scaled) %>%
+    left_join(travel_time_skim_select, by = c("treso.id.por", "treso.id.pos"))
+  
+  # Calculate observed average trip lengths
+  tlfd_sim <- sum(simulated_trips$value * simulated_trips$enrolment) / sum(simulated_trips$enrolment)
+  print(paste0("The average travel time of simulated is " , tlfd_sim))
+  
+  if (j %% 2 == 0) {
+    alpha <- alpha * (tlfd_sim/tlfd_obs)
+    print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
+  } else {
+    beta <- beta * (tlfd_sim/tlfd_obs)
+    print(paste0("The beta value in this iteriation of the combined function is ", beta))
+  }
+}
+
+combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, 85, 1)
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+  geom_line(size = 1) +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  ggtitle(paste0("EP/ELEM - alpha: ", initalpha, " beta: ", initbeta))
+
+simulated_trips %>%
+  saveRDS(paste0("cache/simulated_trips.RDS"))
 ```
 
+Distribute each the POS demand to the individual schools
 
+```{r distribute POS demand} 
+pos_school <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+  filter(panel == "Elementary", board_type_name == "English Public") %>%
+  group_by(sfis, school.name) %>%
+  summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
+  left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
+  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
+
+pos_school_weight <- pos_school %>%
+  group_by(treso.id.pos) %>%
+  summarise(eqao.total = sum(eqao.standardized))
+
+pos_school <- left_join(pos_school, pos_school_weight, by = "treso.id.pos") %>%
+  mutate(eqao.weight = eqao.standardized / eqao.total) %>%
+  select(treso.id.pos, sfis, school.name, dsb.index, eqao.weight) %>%
+  group_by(treso.id.pos) %>%
+  summarise(
+    sfis.list = paste(sfis, collapse = ','),
+    school.name.list = paste(school.name, collapse = ','),
+    dsb.index.ist = paste(dsb.index, collapse = ','),
+    eqao.weight.list = paste(eqao.weight, collapse = ',')
+  ) %>%
+  rowwise() %>%
+  mutate(eqao.weight.list = list(as.numeric(unlist(strsplit(eqao.weight.list, ","))))) %>%
+  mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+print(paste0("There are ", nrow(filter(pos_school, length(eqao.weight.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school, length(eqao.weight.list) != 1)), " TRESO zones with multiple schools."))
+
+simulated_trips <- readRDS(paste0("cache/simulated_trips.RDS")) %>%
+  left_join(pos_school, by = "treso.id.pos")
+  
+  
+f2 <- function(row) {
+  x = row['sfis.list'][[1]]
+  size = round(row['enrolment'][[1]], 0)
+  
+  if (length(x) == 1) {
+    x = as.numeric(x)
+    prob = c(rep(0, x-1), row['eqao.weight.list'][[1]])
+  } else {
+    prob = row['eqao.weight.list'][[1]]
+  }
+  
+  print(paste0("Size of x is: ", length(x), " and size of prob is: ", length(prob)))
+  results = sample(x, size=size, replace=TRUE, prob=prob)
+
+  print(results)
+}
+
+apply(slice(simulated_trips, 1:10), 1, f2)
+
+
+```
 
