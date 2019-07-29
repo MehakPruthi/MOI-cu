@@ -179,7 +179,7 @@ plot_travel_time_tlfd <- function(tlfd) {
     theme_grey() +
     coord_cartesian(xlim = c(-1, 30))
 
-  grid.arrange(g1, g2, g3, g4, nrow = 4)
+  g <- arrangeGrob(g1, g2, g3, g4, nrow = 4)
 }
 
 # Obtain school and student xy from `student_travel_##` where ## is the catchment distance

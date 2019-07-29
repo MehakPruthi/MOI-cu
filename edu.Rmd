@@ -17,6 +17,8 @@ library(foreach)
 library(doParallel)
 library(tictoc)
 library(gridExtra)
+library(future.apply)
+library(FNN)
 source("helpers.R")
 ```
 
@@ -91,8 +93,7 @@ g <- ggplotly(g)
 g
 ```
 
-
-## Find Closest School for each Student
+# Find Closest School for each Student
 
 - Get the coordinates for schools and students
 - Get the projection from the TRESO shapefile
@@ -150,8 +151,7 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 - Combine with the historical ADE and utilization data by school
 
 ```{r spatial gymnastics, eval = FALSE}
-percentile_dist = c('90')
-#percentile_dist = c('90', '80', '70', '60', '50')
+percentile_dist = c('90', '80', '70', '60', '50')
 
 for (dist in percentile_dist) {
   
@@ -197,7 +197,7 @@ treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
   cbind(treso.id = treso_shp@data$Treso_ID,
         households = treso_shp@data$TotHH,
         persons = treso_shp@data$TotPers) %>%
-  as.tibble() %>%
+  as_tibble() %>%
   select(school.name, sfis, dsb.index, catchment.dist, treso.id, households, persons) %>%
   drop_na()
 
@@ -269,9 +269,9 @@ as_tibble(interst_zones) %>%
   - if there are schools within this buffer, then the label a value equal in rank (2 - n)
 
 ```{r calculate closest school, eval = FALSE, echo = FALSE}
-student_xy_90 <- student_trvael_90 %>%
-  select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, enrolment, student.postal.code, student.lat, student.long,
-         dist) %>%
+student_xy_90 <- student_travel_90 %>%
+  select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, 
+         enrolment, student.postal.code, student.lat, student.long, dist) %>%
   create_student_xy()
 school_xy <- create_school_xy(student_travel_90)
 
@@ -305,7 +305,7 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
               overlay.sfis = school_xy@data$sfis,
               overlay.panel = school_xy@data$panel,
               overlay.coords = school_xy@coords) %>%
-        as.tibble() %>%
+        as_tibble() %>%
         drop_na()
     
     # Save each tibble in a list of tibbles
@@ -320,9 +320,9 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   rm(student_xy_90, student_buffered, datalist)
 ```
 
-
 ``` {r test closest school, echo = FALSE, eval = FALSE}
-TESTID = 200
+TESTID = 523550
+datalist <- readRDS('output/closest_school_full.rds')
 # Convert buffer into df
 buffer_df <- fortify(student_buffered[student_buffered@data$id == TESTID, ]) %>%
   rename(
@@ -345,12 +345,21 @@ school_interest_df <- school_xy[is.element(school_xy@data$sfis, filter(datalist,
     y = lat
   )
 
+school_user_df <- school_xy[school_xy@data$sfis == 16794, ] %>%
+  data.frame() %>%
+  rename(
+    x = long,
+    y = lat
+  )
+
 ggplot() +
   geom_point(data = filter(student_interest_df, id == TESTID), mapping = aes(x = x, y = y), 
                color = 'blue', fill = "blue", alpha = 1, size = 3) +
   geom_point(data = school_interest_df, mapping = aes(x = x, y = y), 
                color = 'green', fill = "green", alpha = 1, size = 3) +
   geom_text(data = school_interest_df, aes(x = x, y = y, label = school.name), size = 2) +
+  geom_point(data = school_user_df, mapping = aes(x = x, y = y),
+             color = 'yellow', fill = 'yellow', alpha = 1, size = 5) +
   geom_polygon(data = buffer_df, mapping = aes(x = x, y = y, group = group),
                fill = 'red', color = 'red', alpha = 0.01) +
   labs(x = "", y = "", title = "Test Buffer") +
@@ -361,19 +370,22 @@ rm(buffer_df, student_interest_df, school_interest_df)
 
 ```
 
-```{r closest school results, fig.height = 12, fig.width = 10, echo = FALSE}
+```{r closest school results, echo = FALSE}
+por_mof <- readRDS("output/observed_por_pos_90.rds") %>%
+  select(treso.id.por, student.postal.code) %>%
+  mutate(student.postal.code = as.character(student.postal.code)) %>%
+  distinct(student.postal.code, .keep_all=TRUE) %>%
+  left_join(select(treso_zone_def, treso_id, csdname, mof_region), by = c("treso.id.por" = "treso_id"))
+
 closest_school <- readRDS('output/closest_school_full.rds') %>%
   left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  rename(
-    board.type = board_type,
-    board.type.name = board_type_name
-         ) %>%
+  rename(board.type = board_type,
+         board.type.name = board_type_name) %>%
   left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('overlay.dsb.index' = 'dsb')) %>%
-  rename(
-    overlay.board.type = board_type,
-    overlay.board.type.name = board_type_name
-         ) %>%
-  filter(panel == as.character(overlay.panel), board.type == overlay.board.type)
+  rename(overlay.board.type = board_type,
+         overlay.board.type.name = board_type_name) %>% 
+  filter(panel == as.character(overlay.panel), board.type == overlay.board.type) %>%
+  left_join(por_mof, by = "student.postal.code")
 
 closest_school_summary <- closest_school %>%
   group_by(id) %>%
@@ -387,36 +399,56 @@ closest_school_summary <- closest_school %>%
     student.postal.code = first(student.postal.code),
     board.type = first(board.type),
     board.type.name = first(board.type.name),
+    mof_region = first(mof_region),
+    csdname = first(csdname),
     num.closer.schools = n()
     )
 
 closest_school_subtotal <- closest_school_summary %>%
-  group_by(board.type.name, panel) %>%
+  group_by(board.type.name, panel, mof_region, csdname) %>%
   summarise(
     total.students = sum(enrolment)
   )
 
 closest_school_summary %>%
   mutate(num.closer.schools.cuts = cut(num.closer.schools, c(0, 1, 2, 3, 4, Inf), labels = c('1', '2', '3', '4', '5+'))) %>%
-  group_by(num.closer.schools.cuts, board.type.name, panel) %>%
+  group_by(num.closer.schools.cuts, board.type.name, panel, mof_region, csdname) %>%
   summarise(
     num.students = sum(enrolment)
   ) %>%
-  left_join(closest_school_subtotal, by = c('board.type.name', 'panel')) %>%
+  left_join(closest_school_subtotal, by = c('board.type.name', 'panel', 'mof_region', 'csdname')) %>%
   mutate(percentage = num.students/total.students) %>%
   mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), '')) %>%
   saveRDS('output/closest_school_summary.rds')
 
+rm(closest_school, closest_school_summary, school_mof)
+```
+
+```{r plot closest school results, fig.height = 12, fig.width = 10, echo=FALSE}
+g_subtotal <- readRDS('output/closest_school_summary.rds') %>%
+  group_by(board.type.name, panel, mof_region) %>%
+    summarise(
+      total.students = sum(num.students)
+    )
+
 g <- readRDS('output/closest_school_summary.rds') %>%
+  group_by(num.closer.schools.cuts, board.type.name, panel, mof_region) %>%
+    summarise(
+      num.students = sum(num.students)
+    ) %>%
+  left_join(g_subtotal, by = c("board.type.name", "panel", "mof_region")) %>%
+  mutate(percentage = num.students/total.students) %>%
+  mutate(segmentation = paste0(panel, "_", board.type.name, "_", mof_region)) %>%
   ggplot(aes(x = '', y = percentage, fill = num.closer.schools.cuts)) +
   geom_bar(width = 1, stat = 'identity', position = 'dodge') +
-  facet_grid(rows = vars(board.type.name), cols = vars(panel), scales = 'free_y') +
+  facet_wrap(vars(segmentation), scales = 'free_y') +
   theme_minimal() + 
   theme(axis.text.x = element_blank()) +
   labs(x = '', y = '', fill = 'Schools within travel distance') +
-  ggsave('output/closest_school_summary.png')
+  ggsave('output/closest_school_summary.png', height=12, width=10, units="in")
 
 ggplotly(g)
+
 ```
 
 ## Travel Time TLFD plots {.tabset .tabset-fade}
@@ -459,7 +491,7 @@ student_tlfd_90 <- student_tlfd_90 %>%
 
 summary(student_tlfd_90$travel.time)
 
-plot_travel_time_tlfd(student_tlfd_90)
+ggsave(file = "output/tlfd_sample.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
 ```
 
 ### 80th Percentile plots
@@ -900,4 +932,187 @@ apply(slice(simulated_trips, 1:10), 1, f2)
 
 
 ```
+
+## Explore Closest School Probability Choice
+
+- Using the closest school probability to assign students to schools
+- Examine if the resulting assignment aligns closely with observed ADE as well as OTG constraints
+- Assumes the school board and panel is predetermined
+
+```{r applying closest school probability}
+closest_school_summary <- readRDS("output/closest_school_summary.rds") %>%
+  group_by(board.type.name, panel, mof_region, csdname) %>%
+  summarise(closest.school.list = paste(num.closer.schools.cuts, collapse = ','),
+            prob.list = paste(percentage, collapse = ','))
+
+observed_students <- readRDS("output/observed_por_pos_90.rds") %>%
+  select(treso.id.por, student.postal.code, enrolment, sfis, dsb.index) %>%
+  left_join(select(treso_zone_def, treso_id, mof_region, csdname), by = c("treso.id.por" = "treso_id")) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+  left_join(closest_school_summary, by = c("board_type_name" = "board.type.name",
+                                          "panel", "mof_region", "csdname")) %>%
+  drop_na(mof_region, prob.list) %>%
+  rowwise() %>%
+  mutate(prob.list = list(as.numeric(unlist(strsplit(prob.list, ","))))) %>%
+  mutate(closest.school.list = list(as.character(unlist(strsplit(closest.school.list, ",")))))
+  # FIXME this is a hotfix for prob.list and closest.school.list being NA (empty)
+  # The reason for empty list is the 25 meter buffer was not enough to capture the
+  # actual school it went to. And, filtering to the panel and board.index resulted
+  # in no schools in the selection. Therefore, it is most likely students in these
+  # segmentations are going to the closest school.
+
+
+f2 <- function(row) {
+  x = row['closest.school.list'][[1]]
+  size = row['enrolment'][[1]]
+  pc = row['student.postal.code'][[1]]
+  sfis = row['sfis'][[1]]
+  
+  print(paste0("Student Postal Code: ", pc, ". SFIS: ", sfis))
+  
+  if (length(x) == 1) {
+    if (x == '5+') {x = 5}
+    else {x = as.numeric(x)}
+    prob = c(rep(0, x-1), row['prob.list'][[1]])
+  } else {
+    prob = row['prob.list'][[1]]
+  }
+  
+  results <- list(sample(x, size=size, replace=TRUE, prob=prob))
+}
+
+plan(multiprocess)
+results <- future_apply(observed_students, 1, f2)
+results_tb = t(as.data.table(results))
+observed_students <- cbind(observed_students, results_tb)
+
+summary <- observed_students %>%
+  rowwise() %>%
+  mutate(school.1 = sum(results_tb == "1"),
+         school.2 = sum(results_tb == "2"),
+         school.3 = sum(results_tb == "3"),
+         school.4 = sum(results_tb == "4"),
+         school.5 = sum(results_tb == "5+"))
+
+saveRDS(summary, "output/closest_school_theory_applied.RDS")  
+
+```
+
+
+```{r summarize application}
+# TODO maybe including mof_region could further improve the results
+
+student_lat_long <- student_travel_90 %>%
+  select(student.postal.code, student.lat, student.long) %>%
+  distinct(student.postal.code, .keep_all = TRUE)
+
+student_to_schools <- readRDS("output/closest_school_theory_applied.RDS") %>%
+  select(student.postal.code, school.1, school.2, school.3, school.4, school.5, mof_region, panel, board_type_name) %>%
+  group_by(student.postal.code, mof_region, panel, board_type_name) %>%
+  summarise_all(list(sum)) %>%
+  ungroup() %>%
+  mutate(student.postal.code = as.character(student.postal.code)) %>%
+  left_join(student_lat_long, by = "student.postal.code") %>%
+  mutate(id = row_number())
+
+result = data.table()
+for (i in c("English Catholic", "English Public", "French Catholic", "French Public")) {
+  for (j in c("Elementary", "Secondary")) {
+    print(paste0(i, j))
+    
+    student_xy <- student_to_schools %>%
+      filter(board_type_name == i, panel == j)
+    coordinates(student_xy) <- c('student.long', 'student.lat')
+    
+    school_xy <- student_travel_90 %>%
+      left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+      filter(board_type_name == i, panel == j) %>%
+      select(sfis, school.name, school.lat, school.long) %>%
+      distinct(sfis, .keep_all=TRUE)
+    coordinates(school_xy) <- c('school.long', 'school.lat')
+    
+    nn <- get.knnx(coordinates(school_xy), coordinates(student_xy), k = 5)
+    nearest_schools <- nn$nn.index %>%
+      as_tibble()
+
+    school_df <- as_tibble(school_xy) %>%
+      mutate(index.column = row_number())
+    student_df <- as_tibble(student_xy)
+
+    nn_schools_sfis <- nearest_schools %>%
+      left_join(select(school_df, index.column, sfis), by=c("V1" = "index.column")) %>%
+      rename(sfis.1 = sfis) %>%
+      left_join(select(school_df, index.column, sfis), by=c("V2" = "index.column")) %>%
+      rename(sfis.2 = sfis) %>%
+      left_join(select(school_df, index.column, sfis), by=c("V3" = "index.column")) %>%
+      rename(sfis.3 = sfis) %>%
+      left_join(select(school_df, index.column, sfis), by=c("V4" = "index.column")) %>%
+      rename(sfis.4 = sfis) %>%
+      left_join(select(school_df, index.column, sfis), by=c("V5" = "index.column")) %>%
+      rename(sfis.5 = sfis) %>%
+      select(sfis.1, sfis.2, sfis.3, sfis.4, sfis.5)
+    
+    students_assigned <- cbind(student_df, nn_schools_sfis) 
+    
+    school_1 <- students_assigned %>%
+      group_by(sfis.1) %>%
+      summarise(enrolment = sum(school.1)) %>%
+      rename(sfis = sfis.1)
+    school_2 <- students_assigned %>%
+      group_by(sfis.2) %>%
+      summarise(enrolment = sum(school.2)) %>%
+      rename(sfis = sfis.2)
+    school_3 <- students_assigned %>%
+      group_by(sfis.3) %>%
+      summarise(enrolment = sum(school.3)) %>%
+      rename(sfis = sfis.3)
+    school_4 <- students_assigned %>%
+      group_by(sfis.4) %>%
+      summarise(enrolment = sum(school.4)) %>%
+      rename(sfis = sfis.4)
+    school_5 <- students_assigned %>%
+      group_by(sfis.5) %>%
+      summarise(enrolment = sum(school.5)) %>%
+      rename(sfis = sfis.5)
+    
+    school_student_assigned <- rbind(school_1, school_2, school_3, school_4, school_5) %>%
+      group_by(sfis) %>%
+      summarise(enrolment.assigned = sum(enrolment))
+    
+    result <- rbind(result, school_student_assigned)
+
+  }
+}
+
+test <- result %>%
+  group_by(sfis) %>%
+  summarise(enrolment.assigned = sum(enrolment.assigned)) %>%
+  right_join(school_sfis_2017, by = "sfis") %>%
+  select(panel, sfis, school.name, otg, ade, enrolment.assigned) %>%
+  mutate(ade.difference = ade - enrolment.assigned) %>%
+  mutate(index = row_number())
+
+summary(test$ade.difference)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
