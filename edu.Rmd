@@ -4,7 +4,6 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(data.table)
 library(scales)
@@ -30,6 +29,7 @@ source("helpers.R")
 [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
 [x] Distribute the students based on the friction
 [] Validate if the distributed patterns matches the observed closest school patterns
+[x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
 
 ## Import relavent files
 ```{r Import files, include=FALSE}
@@ -72,7 +72,7 @@ eqao_2017 <- drop_na(eqao_2017, sfis)
 
 ```
 
-## Summary of School Utilization
+## Summary of Education Dataset
 
 - Plot a chart showing the average utilization per DSB and board type.
 
@@ -93,11 +93,7 @@ g <- ggplotly(g)
 g
 ```
 
-# Find Closest School for each Student
-
-- Get the coordinates for schools and students
-- Get the projection from the TRESO shapefile
-- Transform the coordinates to use the same projection system as TRESO shapefile
+- Plot a chart of the entire dataset with students and schools
 
 ```{r plotting shapefiles, echo = FALSE}
 student_xy <- create_student_xy(student_travel_90)
@@ -139,14 +135,12 @@ ggplot() +
 rm(school_xy_df, treso_shp_df, student_xy_df)
 ```
 
-## Spatial Gymnastics
+## Obtain socio-economic data for each school
 
 - Loop and do the following for all catchment distance available
 - Using `over()` to determine the treso zone number for each student/school point
 - Using `gbuffer()` to determine the treso zones that catchment distance touches for each school
 - Setting up the multi-core to do `foreach()` loop is worth it once you are doing more than 100 fields
-  - 100 fields: 29s compared to 19s
-  - 1000 fields: 252s compared to 116s
 - Combine the the datalist of buffered TRESO zones with the tibble containing socio-economic data
 - Combine with the historical ADE and utilization data by school
 
@@ -238,25 +232,6 @@ ggplot() +
 
 # Clean up global environment variables
 rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, school_xy_df)
-```
-
-```{r, echo=FALSE, eval=FALSE}
-as_tibble(interst_zones) %>%
-  left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c('treso.id' = 'treso_zone')) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
-  replace(is.na(.), 0) %>%
-  group_by(sfis) %>%
-  summarise(
-    mean.income = mean(mean_income),
-    mean.age = mean(mean_age),
-    dsb.index = first(dsb.index),
-    school.name = first(school.name),
-    catchment.dist = first(catchment.dist),
-    board.type.name = first(board_type_name),
-    area = names(which.max(table(area))),
-    mof.region = names(which.max(table(mof_region)))
-  )
 ```
 
 ## Closest School Theory
@@ -426,12 +401,14 @@ rm(closest_school, closest_school_summary, school_mof)
 
 ```{r plot closest school results, fig.height = 12, fig.width = 10, echo=FALSE}
 g_subtotal <- readRDS('output/closest_school_summary.rds') %>%
+  drop_na(mof_region) %>%
   group_by(board.type.name, panel, mof_region) %>%
     summarise(
       total.students = sum(num.students)
     )
 
 g <- readRDS('output/closest_school_summary.rds') %>%
+  drop_na(mof_region) %>%
   group_by(num.closer.schools.cuts, board.type.name, panel, mof_region) %>%
     summarise(
       num.students = sum(num.students)
@@ -449,19 +426,20 @@ g <- readRDS('output/closest_school_summary.rds') %>%
 
 ggplotly(g)
 
+rm(g, g_subtotal)
 ```
 
-## Travel Time TLFD plots {.tabset .tabset-fade}
+## Travel Time TLFD plots
 
-```{r prepare travel time skim, echo = FALSE}
-student_overlay_90 <- readRDS("output/student_overlay_90.rds")
-student_overlay_80 <- readRDS("output/student_overlay_80.rds")
-student_overlay_70 <- readRDS("output/student_overlay_70.rds")
-student_overlay_60 <- readRDS("output/student_overlay_60.rds")
-student_overlay_50 <- readRDS("output/student_overlay_50.rds")
-```
+The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of. 
+The current assumption is intra-zonal trips which are less than or equal to 2.5 km in length
+are performed by walking at an average speed of 5 km/hr. 
+Intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
+Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and 
+euclidean travel time at 30 km/hr) are set to euclidean travel time.
 
 ### 90th Percentile plots
+
 ```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
 student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   # Drop NAs in POR, it didn't overlay on the TRESO shapefile
@@ -481,69 +459,26 @@ student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
 summary(student_tlfd_90$travel.time)
 
 student_tlfd_90 <- student_tlfd_90 %>%
-  # the large zones TRESO zones in the north have unproportional travel time vs travel distance
-  # between the student and school
-  mutate(euclidean.travel.time = euclidean.dist / 30 * 60) %>%
+  # intra-zonal trip assumptions
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse(travel.time == 0,
+                              euclidean.travel.time,
+                              travel.time)) %>%
   mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
-  mutate(travel.time = ifelse(compare.travel.time > 30, euclidean.travel.time, travel.time)) %>%
-  # remove intra-zonal trips
-  filter(travel.time > 0)
+  mutate(travel.time = ifelse(compare.travel.time > 30,
+                              euclidean.travel.time,
+                              travel.time))
 
 summary(student_tlfd_90$travel.time)
 
 ggsave(file = "output/tlfd_sample.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
 ```
 
-### 80th Percentile plots
-```{r tlfd plots for 80th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
-student_tlfd_80 <- student_travel_80 %>% 
-  select(dsb.index, dist, enrolment, panel, student.postal.code) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  left_join(select(student_overlay_80, student.postal.code, treso.id.por), by = "student.postal.code") %>%
-  rename(treso.id = treso.id.por) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
-  # MOF Region of NA are Quebec Zones
-  filter(mof_region != "NA") %>%
-  # expand the rows based on enrollment number
-  uncount(enrolment)
+## Exploration of demand modelling {.tabset .tabset-fade}
 
-plot_straight_line_tlfd(student_tlfd_80)
-```
-
-### 70th Percentile plots
-```{r tlfd plots for 70th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
-student_tlfd_70 <- student_travel_70 %>% 
-  select(dsb.index, dist, enrolment, panel, student.postal.code) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  left_join(select(student_overlay_70, student.postal.code, treso.id.por), by = "student.postal.code") %>%
-  rename(treso.id = treso.id.por) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
-  # MOF Region of NA are Quebec Zones
-  filter(mof_region != "NA") %>%
-  # expand the rows based on enrollment number
-  uncount(enrolment)
-
-plot_straight_line_tlfd(student_tlfd_70)
-```
-
-### 50th Percentile plots
-```{r tlfd plots for 50th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
-student_tlfd_50 <- student_travel_50 %>% 
-  select(dsb.index, dist, enrolment, panel, student.postal.code) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  left_join(select(student_overlay_50, student.postal.code, treso.id.por), by = "student.postal.code") %>%
-  rename(treso.id = treso.id.por) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id' = 'treso_id')) %>%
-  # MOF Region of NA are Quebec Zones
-  filter(mof_region != "NA") %>%
-  # expand the rows based on enrollment number
-  uncount(enrolment)
-
-
-plot_straight_line_tlfd(student_tlfd_50)
-```
-
-## Explore Linear Regressions
+### Explore Linear Regressions
 
 - Segment the schools by board (at least)
 - Build linear regression 
@@ -599,7 +534,7 @@ ggplotly(g3)
 ggplotly(g4)
 ggplotly(g5)
 
-bufilter(school_tb, mof.region == '0')
+filter(school_tb, mof.region == '0')
 
 ```
 
@@ -666,7 +601,7 @@ plot(mod)
 # plot(mod.expand)
 ```
 
-## Explore Facility Choice - Sampling Procedure
+### Explore gravity model
 
 - Implement sampling procedure
   - Create sampling proportions at CSD level for each board type
@@ -769,9 +704,12 @@ treso_level_sampling_elementary_ep <- filter(treso_level_sampling, panel == "Ele
 
 The TLFD estimation includes some assumptions made for intra-zonal travel times and extremely large travel times.
 
-Intra-zonal travel time is assumed to be performed by walking at a speed of 5 km/hr over the euclidean distance between the student's postal code and school's postal code
-
-Extremely long travel time is defined by any travel time that is 30 min longer than travelling the euclidean distance at 30 km/hr. If it is over 30 min, the OD pair use the euclidean travel time (30 km/hr) instead.
+The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of. 
+The current assumption is intra-zonal trips which are less than or equal to 2.5 km in length
+are performed by walking at an average speed of 5 km/hr. 
+Intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
+Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and 
+euclidean travel time at 30 km/hr) are set to euclidean travel time.
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
 
@@ -804,18 +742,21 @@ observed_trips <- readRDS("output/observed_por_pos_90.rds") %>%
   
   filter(panel == "Elementary", board_type_name == "English Public") %>%
   left_join(travel_time_skim, by = c('treso.id.por' = 'orig', 'treso.id.pos' = 'dest')) %>%
-  # Change intra-zonal travel time to walk speed of 5km/hr
-  # Cap the large travel times for zones up north to euclidean travel time assuming speeds of 30km/hr
-  # TODO check with others regarding this
-  mutate(euclidean.travel.time = euclidean.dist / 30 * 60) %>%
+  # intra-zonal trip assumptions
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(value = ifelse(value == 0,
+                        euclidean.travel.time,
+                        value)) %>%
   mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(compare.travel.time > 30, euclidean.travel.time, value)) %>%
-  mutate(value = ifelse(value == 0, (euclidean.dist / 5 * 60), value)) %>%
+  mutate(value = ifelse(value > 30,
+                        euclidean.travel.time,
+                        value)) %>%
   group_by(treso.id.por, treso.id.pos) %>%
   summarise(value = weighted.mean(value, enrolment),
             euclidean.dist = weighted.mean(euclidean.dist, enrolment),
             enrolment = sum(enrolment))
-  
 
 travel_time_skim_select <- select(observed_trips, treso.id.por, treso.id.pos, value)
 
@@ -872,7 +813,7 @@ ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   ggtitle(paste0("EP/ELEM - alpha: ", initalpha, " beta: ", initbeta))
 
 simulated_trips %>%
-  saveRDS(paste0("cache/simulated_trips.RDS"))
+  saveRDS(paste0("cache/simulated_trips.rds"))
 ```
 
 Distribute each the POS demand to the individual schools
@@ -929,11 +870,9 @@ f2 <- function(row) {
 }
 
 apply(slice(simulated_trips, 1:10), 1, f2)
-
-
 ```
 
-## Explore Closest School Probability Choice
+### Explore Closest School Probability Choice
 
 - Using the closest school probability to assign students to schools
 - Examine if the resulting assignment aligns closely with observed ADE as well as OTG constraints
@@ -952,16 +891,15 @@ observed_students <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   left_join(closest_school_summary, by = c("board_type_name" = "board.type.name",
                                           "panel", "mof_region", "csdname")) %>%
+  # FIXME this is a hotfix for prob.list and closest.school.list being NA (empty)
+  # The reason for empty list is the 25 meter added buffer was not enough to capture the
+  # actual school it went to. And, filtering to the panel and board.index resulted
+  # in no schools in the selection. Therefore, it is most likely students in these
+  # segmentations are going to the closest school.
   drop_na(mof_region, prob.list) %>%
   rowwise() %>%
   mutate(prob.list = list(as.numeric(unlist(strsplit(prob.list, ","))))) %>%
   mutate(closest.school.list = list(as.character(unlist(strsplit(closest.school.list, ",")))))
-  # FIXME this is a hotfix for prob.list and closest.school.list being NA (empty)
-  # The reason for empty list is the 25 meter buffer was not enough to capture the
-  # actual school it went to. And, filtering to the panel and board.index resulted
-  # in no schools in the selection. Therefore, it is most likely students in these
-  # segmentations are going to the closest school.
-
 
 f2 <- function(row) {
   x = row['closest.school.list'][[1]]
@@ -1000,9 +938,7 @@ saveRDS(summary, "output/closest_school_theory_applied.RDS")
 ```
 
 
-```{r summarize application}
-# TODO maybe including mof_region could further improve the results
-
+```{r summarize application, echo=FALSE}
 student_lat_long <- student_travel_90 %>%
   select(student.postal.code, student.lat, student.long) %>%
   distinct(student.postal.code, .keep_all = TRUE)
@@ -1016,7 +952,8 @@ student_to_schools <- readRDS("output/closest_school_theory_applied.RDS") %>%
   left_join(student_lat_long, by = "student.postal.code") %>%
   mutate(id = row_number())
 
-result = data.table()
+result_school = data.table()
+result_student = data.table()
 for (i in c("English Catholic", "English Public", "French Catholic", "French Public")) {
   for (j in c("Elementary", "Secondary")) {
     print(paste0(i, j))
@@ -1053,7 +990,38 @@ for (i in c("English Catholic", "English Public", "French Catholic", "French Pub
       rename(sfis.5 = sfis) %>%
       select(sfis.1, sfis.2, sfis.3, sfis.4, sfis.5)
     
-    students_assigned <- cbind(student_df, nn_schools_sfis) 
+    students_assigned <- cbind(student_df, nn_schools_sfis)
+    
+    student_1 <- students_assigned %>%
+      group_by(student.postal.code, student.lat, student.long, sfis.1) %>%
+      summarise(enrolment = sum(school.1)) %>%
+      filter(enrolment > 0) %>%
+      ungroup() %>%
+      rename(sfis = sfis.1)
+    student_2 <- students_assigned %>%
+      group_by(student.postal.code, student.lat, student.long, sfis.2) %>%
+      summarise(enrolment = sum(school.2)) %>%
+      filter(enrolment > 0) %>%
+      ungroup() %>%
+      rename(sfis = sfis.2)
+    student_3 <- students_assigned %>%
+      group_by(student.postal.code, student.lat, student.long, sfis.3) %>%
+      summarise(enrolment = sum(school.3)) %>%
+      filter(enrolment > 0) %>%
+      ungroup() %>%
+      rename(sfis = sfis.3)
+    student_4 <- students_assigned %>%
+      group_by(student.postal.code, student.lat, student.long, sfis.4) %>%
+      summarise(enrolment = sum(school.4)) %>%
+      filter(enrolment > 0) %>%
+      ungroup() %>%
+      rename(sfis = sfis.4)
+    student_5 <- students_assigned %>%
+      group_by(student.postal.code, student.lat, student.long, sfis.5) %>%
+      summarise(enrolment = sum(school.5)) %>%
+      filter(enrolment > 0) %>%
+      ungroup() %>%
+      rename(sfis = sfis.5)
     
     school_1 <- students_assigned %>%
       group_by(sfis.1) %>%
@@ -1076,30 +1044,83 @@ for (i in c("English Catholic", "English Public", "French Catholic", "French Pub
       summarise(enrolment = sum(school.5)) %>%
       rename(sfis = sfis.5)
     
-    school_student_assigned <- rbind(school_1, school_2, school_3, school_4, school_5) %>%
+    student_total <- rbind(student_1, student_2, student_3, student_4, student_5) %>%
+      group_by(student.postal.code, student.lat, student.long, sfis) %>%
+      summarise(enrolment.assigned = sum(enrolment)) %>%
+      ungroup()
+    
+    school_total <- rbind(school_1, school_2, school_3, school_4, school_5) %>%
       group_by(sfis) %>%
       summarise(enrolment.assigned = sum(enrolment))
     
-    result <- rbind(result, school_student_assigned)
+    result_student <- rbind(result_student, student_total)
+    result_school <- rbind(result_school, school_total)
 
   }
 }
 
-test <- result %>%
+result_student <- result_student %>%
+  group_by(student.postal.code, student.lat, student.long, sfis) %>%
+  summarise(enrolment.assigned = sum(enrolment.assigned))
+
+result_school <- result_school %>%
   group_by(sfis) %>%
   summarise(enrolment.assigned = sum(enrolment.assigned)) %>%
   right_join(school_sfis_2017, by = "sfis") %>%
   select(panel, sfis, school.name, otg, ade, enrolment.assigned) %>%
-  mutate(ade.difference = ade - enrolment.assigned) %>%
-  mutate(index = row_number())
+  mutate(ade.difference = ade - enrolment.assigned)
 
-summary(test$ade.difference)
+summary(result_school$ade.difference)
+sd(result_school$ade.difference, na.rm = TRUE)
 ```
 
+```{r tlfd of closest school probability}
 
+school_overlay <- readRDS("output/observed_por_pos_90.rds") %>%
+  distinct(sfis, school.name, treso.id.pos, dsb.index) %>%
+  left_join(select(school_sfis_2017, sfis, school.lat, school.long), by = "sfis")
 
+student_overlay <- readRDS("output/observed_por_pos_90.rds") %>%
+  distinct(student.postal.code, treso.id.por) %>%
+  mutate(student.postal.code = as.character(student.postal.code))
 
+result_student_tlfd <- result_student %>%
+  left_join(school_overlay, by="sfis") %>%
+  left_join(student_overlay, by="student.postal.code") %>%
+  # There are new POR-POS pairs that did not exist before, need to recalculate euclidean_dist
+  mutate(euclidean.dist = haverFunction(student.lat, student.long, school.lat, school.long)) %>%
+  # Get the travel time skims
+  left_join(travel_time_skim, by=c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value) %>%
+  # Get the school board type names
+  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  # Get the MOF regions
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id.por' = 'treso_id')) %>%
+  # Get the panel information
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+  # expand the rows based on enrollment number
+  uncount(enrolment.assigned)
 
+summary(result_student_tlfd$travel.time)
+
+result_student_tlfd <- result_student_tlfd %>%
+  # intra-zonal trip assumptions
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse(travel.time == 0,
+                              euclidean.travel.time,
+                              travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
+  mutate(travel.time = ifelse(compare.travel.time > 30,
+                              euclidean.travel.time,
+                              travel.time))
+
+summary(result_student_tlfd$travel.time)
+
+ggsave(file = "output/tlfd_closest_school_probability.png", plot_travel_time_tlfd(result_student_tlfd), height = 28, width = 10)
+
+```
 
 
 
