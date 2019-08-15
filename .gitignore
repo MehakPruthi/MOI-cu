@@ -41,5 +41,5 @@ vignettes/*.pdf
 .Rproj.user
 
 # Compiled HTML files
-.html
+*.html
 /edu_files/
