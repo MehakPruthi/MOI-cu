@@ -38,7 +38,7 @@ treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC"
 treso_tb <- readRDS("cache/treso_tb.rds")
 
 # TRESO time skim
-travel_time_skim_square <- read_csv("input/mf224.csv.gz")
+travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
 
 travel_time_skim <- travel_time_skim_square %>%
   melt(id = c("p/q/[val]")) %>%
@@ -46,8 +46,8 @@ travel_time_skim <- travel_time_skim_square %>%
   mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest])
 
 # Definition files
-school_board_def <- read_csv("input/school_board_types.csv")
-treso_zone_def <- read.csv("input/treso_zone_system.csv", stringsAsFactors = FALSE)
+school_board_def <- read_csv("input/edu/school_board_types.csv")
+treso_zone_def <- read.csv("input/treso/treso_zone_system.csv", stringsAsFactors = FALSE)
 
 # Student travel data
 student_travel_90 <- readRDS("cache/student_travel_0.9.rds")

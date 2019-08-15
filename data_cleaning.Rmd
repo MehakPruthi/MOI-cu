@@ -14,19 +14,19 @@ source("helpers.R")
 # Import data
 ```{r import, include=FALSE}
 # TRESO data
-hhld_df <- data.table::fread("input/households_2011.csv.gz")
-pop_df <- data.table::fread("input/persons_2011.csv.gz")
+hhld_df <- data.table::fread("input/treso/households_2011.csv.gz")
+pop_df <- data.table::fread("input/treso/persons_2011.csv.gz")
 
 # School Data
-schoolCap <- read.csv("input/school_capacity.csv", stringsAsFactors = FALSE)
-schoolForecast <- read.csv("input/school_forecast.csv", stringsAsFactors = FALSE)
-schoolAssets <- read.csv("input/school_assets.csv", stringsAsFactors = FALSE)
-schoolAssetsPortables <- read.csv("input/school_assets_portables.csv", stringsAsFactors = FALSE)
-studentPost <- read.csv('input/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
-eqao <- read.csv('input/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+schoolCap <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
+schoolForecast <- read.csv("input/edu/school_forecast.csv", stringsAsFactors = FALSE)
+schoolAssets <- read.csv("input/edu/school_assets.csv", stringsAsFactors = FALSE)
+schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", stringsAsFactors = FALSE)
+studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
+eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
 # Postal code to lat/long conversion file
-pccf <- read.csv('input/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
+pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 ```
 
 # TRESO Data cleaning 
