@@ -68,8 +68,9 @@ eqao_2017 <- readRDS("cache/eqao_standardized_2017.rds") %>%
   mutate(School.Number = gsub("^0+", "", School.Number)) %>%
   mutate(School.Number = as.integer(School.Number)) %>%
   drop_na(School.Number) %>% # 3 NA schools with not value
-  left_join(select(school_sfis_2017, bsid, sfis), by = c("School.Number" = "bsid"))
-print(paste0('There are ', length(filter(eqao_2017, is.na(sfis))$sfis), ' schools with unmatching SFIS IDs.'))
+  left_join(select(school_sfis_2017, bsid, sfis),
+            by = c("School.Number" = "bsid"))
+print(paste0("There are ", length(filter(eqao_2017, is.na(sfis))$sfis), " schools with unmatching SFIS IDs."))
 eqao_2017 <- drop_na(eqao_2017, sfis)
 
 ```
@@ -80,15 +81,15 @@ eqao_2017 <- drop_na(eqao_2017, sfis)
 
 ```{r school utilization}
 g <- school_sfis_2017 %>%
-  left_join(school_board_def, by = c('dsb.index'='dsb')) %>%
+  left_join(school_board_def, by = c("dsb.index" = "dsb")) %>%
   group_by(dsb.index, panel) %>%
   summarise(
     utilization.total = mean(utilization.total),
     board_type_name = first(board_type_name)
   ) %>%
   ggplot(aes(x = dsb.index, y = utilization.total, fill = board_type_name)) +
-  geom_col(position = 'dodge') +
-  labs(x = 'DSB', y = 'Average Utilization', fill = 'Board Type') +
+  geom_col(position = "dodge") +
+  labs(x = "DSB", y = "Average Utilization", fill = "Board Type") +
   theme_minimal()
 
 g <- ggplotly(g)
@@ -122,7 +123,7 @@ student_xy_df <- data.frame(student_xy) %>%
 
 ggplot() +
   geom_polygon(data = treso_shp_df, mapping = aes(x = x, y = y, group = group),
-               fill = 'grey40', color = 'grey90', alpha = 1, size = 0.1) +
+               fill = "grey40", color = "grey90", alpha = 1, size = 0.1) +
   geom_point(data = student_xy_df, mapping = aes(x = x, y = y), color = "red", alpha = 0.1, size = 0.01) +
   geom_point(data = school_xy_df, mapping = aes(x = x, y = y), color = "blue", alpha = 0.1, size = 0.01, shape = 2) +
   labs(x = "", y = "", title = "Students and schools in Ontario") +
@@ -147,30 +148,30 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 - Combine with the historical ADE and utilization data by school
 
 ```{r spatial gymnastics, eval = FALSE}
-percentile_dist = c('90', '80', '70', '60', '50')
+percentile_dist <- c("90", "80", "70", "60", "50")
 
 for (dist in percentile_dist) {
-  
+
   # Loop through the different catchment areas by retriving the proper variable.
-  student_travel <- get(paste0("student_travel_",dist))
-  
+  student_travel <- get(paste0("student_travel_", dist))
+
   # Spatial transformation to XY
   student_xy <- create_student_xy(student_travel)
   school_xy <- create_school_xy(student_travel)
-  
+
   # Create the overlays to get the TRESO zone each XY coordinate falls on
   student_overlay <- create_overlay(student_xy, treso_shp, "student")
   saveRDS(student_overlay, paste0("output/student_overlay_", dist, ".rds"))
   school_overlay <- create_overlay(school_xy, treso_shp, "school")
-  
+
   # Join the POR and POS together for distance matrix
   observed_por_pos <- left_join(student_overlay, school_overlay, by = c("school.name", "sfis")) %>%
     saveRDS(paste0("output/observed_por_pos_", dist, ".rds"))
-  
+
   # Save the zones in each school's catchment area
   buffered_df <- buffer_zones(school_xy, treso_shp)
   saveRDS(buffered_df, paste0("output/school_catchment_treso_zones_", dist, ".rds"))
-  
+
   # Combine the school's buffered TRESO zones with socio-economic info and group_by school name
   school_tb <- summarize_buffered_zones(buffered_df, treso_tb, school_sfis_2017, school_board_def, treso_zone_def) %>%
     saveRDS(paste0("output/school_tb_", dist, ".rds"))
@@ -201,7 +202,7 @@ treso_overlay <- over(treso_shp, buffer, returnList = FALSE) %>%
 treso_zones_interest <- treso_shp[is.element(treso_shp@data$Treso_ID, treso_overlay$treso.id), ] %>%
   fortify() %>%
   rename(
-    x = long, 
+    x = long,
     y = lat
   )
 
@@ -210,7 +211,7 @@ interst_zones <- treso_overlay
 # Convert buffer into df
 buffer_df <- fortify(buffer) %>%
   rename(
-    x = long, 
+    x = long,
     y = lat
   )
 
@@ -222,11 +223,11 @@ school_xy_df <- data.frame(school_xy) %>%
 
 # Plot the school, buffer and the selected TRESO zones
 ggplot() +
-  geom_polygon(data = treso_zones_interest, mapping = aes(x = x, y = y, group = group), 
-               fill = 'grey40', color = 'grey90', alpha = 1, size = 0.1) +
+  geom_polygon(data = treso_zones_interest, mapping = aes(x = x, y = y, group = group),
+               fill = "grey40", color = "grey90", alpha = 1, size = 0.1) +
   geom_polygon(data = buffer_df, mapping = aes(x = x, y = y, group = group),
-               fill = 'red', color = 'red', alpha = 0.5) +
-  geom_point(data = filter(school_xy_df, school.name == school_of_interest), mapping = aes(x = x, y = y), 
+               fill = "red", color = "red", alpha = 0.5) +
+  geom_point(data = filter(school_xy_df, school.name == school_of_interest), mapping = aes(x = x, y = y),
                fill = "blue", alpha = 0.5, size = 10) +
   labs(x = "", y = "", title = "Test Buffer") +
   theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
@@ -255,7 +256,7 @@ school_xy <- create_school_xy(student_travel_90)
 student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean.dist * 1000 + 25), byid = TRUE)
 
   # Start multi-core clustering for performance
-  cores = parallel::detectCores()
+  cores <- parallel::detectCores()
   cl <- parallel::makeCluster(cores[1] - 1)
   registerDoParallel(cl)
   
@@ -265,13 +266,13 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   progress <- function(n) setTxtProgressBar(pb, n)
   opts <- list(progress = progress)
   
-  tic('using sp::over')
+  tic("using sp::over")
   # foreach() loop to find the TRESO zones touching the school buffers
   datalist <- list()
   datalist <- foreach(i = 1:nrow(student_buffered@data), .combine = rbind,
-                  .options.snow = opts, .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
+                  .options.snow = opts, .packages=c("sp", "tidyverse", "rgeos")) %dopar% {
   # datalist <- foreach(i = 1:10, .combine = rbind, 
-  #                 .options.snow = opts, .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
+  #                 .options.snow = opts, .packages=c("sp", "tidyverse", "rgeos")) %dopar% {
     # Select the buffer
     buffer <- student_buffered[student_buffered@data$id == i, ]
     
@@ -293,13 +294,13 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   stopCluster(cl)
   
   # Write the datalist to csv
-  saveRDS(datalist, 'output/closest_school_full.rds')
+  saveRDS(datalist, "output/closest_school_full.rds")
   rm(student_xy_90, student_buffered, datalist)
 ```
 
 ``` {r test closest school, echo = FALSE, eval = FALSE}
-TESTID = 523550
-datalist <- readRDS('output/closest_school_full.rds')
+TESTID <- 523550
+datalist <- readRDS("output/closest_school_full.rds")
 # Convert buffer into df
 buffer_df <- fortify(student_buffered[student_buffered@data$id == TESTID, ]) %>%
   rename(
@@ -331,14 +332,14 @@ school_user_df <- school_xy[school_xy@data$sfis == 16794, ] %>%
 
 ggplot() +
   geom_point(data = filter(student_interest_df, id == TESTID), mapping = aes(x = x, y = y), 
-               color = 'blue', fill = "blue", alpha = 1, size = 3) +
+               color = "blue", fill = "blue", alpha = 1, size = 3) +
   geom_point(data = school_interest_df, mapping = aes(x = x, y = y), 
-               color = 'green', fill = "green", alpha = 1, size = 3) +
+               color = "green", fill = "green", alpha = 1, size = 3) +
   geom_text(data = school_interest_df, aes(x = x, y = y, label = school.name), size = 2) +
   geom_point(data = school_user_df, mapping = aes(x = x, y = y),
-             color = 'yellow', fill = 'yellow', alpha = 1, size = 5) +
+             color = "yellow", fill = "yellow", alpha = 1, size = 5) +
   geom_polygon(data = buffer_df, mapping = aes(x = x, y = y, group = group),
-               fill = 'red', color = 'red', alpha = 0.01) +
+               fill = "red", color = "red", alpha = 0.01) +
   labs(x = "", y = "", title = "Test Buffer") +
   theme(plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
   coord_equal(ratio = 1)
@@ -354,11 +355,11 @@ por_mof <- readRDS("output/observed_por_pos_90.rds") %>%
   distinct(student.postal.code, .keep_all=TRUE) %>%
   left_join(select(treso_zone_def, treso_id, csdname, mof_region), by = c("treso.id.por" = "treso_id"))
 
-closest_school <- readRDS('output/closest_school_full.rds') %>%
-  left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+closest_school <- readRDS("output/closest_school_full.rds") %>%
+  left_join(select(school_board_def, dsb, board_type, board_type_name), by = c("dsb.index" = "dsb")) %>%
   rename(board.type = board_type,
          board.type.name = board_type_name) %>%
-  left_join(select(school_board_def, dsb, board_type, board_type_name), by = c('overlay.dsb.index' = 'dsb')) %>%
+  left_join(select(school_board_def, dsb, board_type, board_type_name), by = c("overlay.dsb.index" = "dsb")) %>%
   rename(overlay.board.type = board_type,
          overlay.board.type.name = board_type_name) %>% 
   filter(panel == as.character(overlay.panel), board.type == overlay.board.type) %>%
@@ -388,43 +389,43 @@ closest_school_subtotal <- closest_school_summary %>%
   )
 
 closest_school_summary %>%
-  mutate(num.closer.schools.cuts = cut(num.closer.schools, c(0, 1, 2, 3, 4, Inf), labels = c('1', '2', '3', '4', '5+'))) %>%
+  mutate(num.closer.schools.cuts = cut(num.closer.schools, c(0, 1, 2, 3, 4, Inf), labels = c("1", "2", "3", "4", "5+"))) %>%
   group_by(num.closer.schools.cuts, board.type.name, panel, mof_region, csdname) %>%
   summarise(
     num.students = sum(enrolment)
   ) %>%
-  left_join(closest_school_subtotal, by = c('board.type.name', 'panel', 'mof_region', 'csdname')) %>%
-  mutate(percentage = num.students/total.students) %>%
-  mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), '')) %>%
-  saveRDS('output/closest_school_summary.rds')
+  left_join(closest_school_subtotal, by = c("board.type.name", "panel", "mof_region", "csdname")) %>%
+  mutate(percentage = num.students / total.students) %>%
+  mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), "")) %>%
+  saveRDS("output/closest_school_summary.rds")
 
 rm(closest_school, closest_school_summary, school_mof)
 ```
 
 ```{r plot closest school results, fig.height = 12, fig.width = 10, echo=FALSE}
-g_subtotal <- readRDS('output/closest_school_summary.rds') %>%
+g_subtotal <- readRDS("output/closest_school_summary.rds") %>%
   drop_na(mof_region) %>%
   group_by(board.type.name, panel, mof_region) %>%
     summarise(
       total.students = sum(num.students)
     )
 
-g <- readRDS('output/closest_school_summary.rds') %>%
+g <- readRDS("output/closest_school_summary.rds") %>%
   drop_na(mof_region) %>%
   group_by(num.closer.schools.cuts, board.type.name, panel, mof_region) %>%
     summarise(
       num.students = sum(num.students)
     ) %>%
   left_join(g_subtotal, by = c("board.type.name", "panel", "mof_region")) %>%
-  mutate(percentage = num.students/total.students) %>%
+  mutate(percentage = num.students / total.students) %>%
   mutate(segmentation = paste0(panel, "_", board.type.name, "_", mof_region)) %>%
-  ggplot(aes(x = '', y = percentage, fill = num.closer.schools.cuts)) +
-  geom_bar(width = 1, stat = 'identity', position = 'dodge') +
-  facet_wrap(vars(segmentation), scales = 'free_y') +
-  theme_minimal() + 
+  ggplot(aes(x = "", y = percentage, fill = num.closer.schools.cuts)) +
+  geom_bar(width = 1, stat = "identity", position = "dodge") +
+  facet_wrap(vars(segmentation), scales = "free_y") +
+  theme_minimal() +
   theme(axis.text.x = element_blank()) +
-  labs(x = '', y = '', fill = 'Schools within travel distance') +
-  ggsave('output/closest_school_summary.png', height=12, width=10, units="in")
+  labs(x = "", y = "", fill = "Schools within travel distance") +
+  ggsave("output/closest_school_summary.png", height = 12, width = 10, units = "in")
 
 ggplotly(g)
 
@@ -447,12 +448,12 @@ student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   # Drop NAs in POR, it didn't overlay on the TRESO shapefile
   drop_na(treso.id.por) %>%
   # Get the travel time skims
-  left_join(travel_time_skim, by=c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
   rename(travel.time = value) %>%
   # Get the school board type names
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   # Get the MOF regions
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id.por' = 'treso_id')) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
   # Get the panel information
   left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   # expand the rows based on enrollment number
@@ -501,35 +502,35 @@ school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by
   filter(school_tb, is.na(eqao.standardized))
 summary(school_tb$ade)
 
-g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x=ade)) +
+g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = ade)) +
   geom_histogram(bins = 50) +
-  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = "free") +
   theme_minimal() +
-  labs(x = 'ADE', y = 'Count')
+  labs(x = "ADE", y = "Count")
 
-g2 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = catchment.dist, y = ade, label=school.name.x)) +
+g2 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = catchment.dist, y = ade, label = school.name.x)) +
   geom_point(alpha = 0.5) +
-  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = "free") +
   theme_minimal() +
-  labs(x = 'Catchment Distance', y = 'ADE')
+  labs(x = "Catchment Distance", y = "ADE")
 
-g3 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "GTA"), aes(x = n_sec_pop_density, y = ade, label=school.name.x)) +
+g3 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "GTA"), aes(x = n_sec_pop_density, y = ade, label = school.name.x)) +
   geom_point(alpha = 0.5) +
-  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = "free") +
   theme_minimal() +
-  labs(x = 'Secondary Population Density', y = 'ADE')
+  labs(x = "Secondary Population Density", y = "ADE")
 
 g4 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = attend_school_sum, y = ade, label=school.name.x)) +
   geom_point(alpha = 0.5) +
-  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = "free") +
   theme_minimal() +
-  labs(x = 'Attend School', y = 'ADE')
+  labs(x = "Attend School", y = "ADE")
 
 g5 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "East"), aes(x = eqao.standardized, y = ade, label=school.name.x)) +
   geom_point(alpha = 0.5) +
-  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
+  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = "free") +
   theme_minimal() +
-  labs(x = 'EQAO', y = 'ADE')
+  labs(x = "EQAO", y = "ADE")
 
 ggplotly(g1)
 ggplotly(g2)
@@ -558,7 +559,7 @@ school_tb_filtered %>%
 # Build linear regression dataset with various transformed x, y variables
 linreg <- school_tb_filtered %>%
   select(ade, utilization, eqao, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age) %>%
-  mutate(shape.area_sum = shape.area_sum / 1e6) %>%  
+  mutate(shape.area_sum = shape.area_sum / 1e6) %>%
   mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
   mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum) %>%
   mutate(n_two_adult_two_child_density = n_two_adult_two_child_sum / shape.area_sum) %>%
@@ -630,12 +631,12 @@ board_type_sample <- observed_por_pos_90 %>%
   mutate(sample = enrolment.total / sum(enrolment.total))
 
 g1 <- board_type_sample %>%
-  mutate(csduid.prefix = str_trunc(csduid, 4, side='right', ellipsis = "")) %>%
+  mutate(csduid.prefix = str_trunc(csduid, 4, side="right", ellipsis = "")) %>%
   group_by(csduid.prefix, board_type_name, panel) %>%
   summarise(sample = mean(sample), mof_region = first(mof_region)) %>%
   ggplot(aes(x = csduid.prefix, y = sample, fill = board_type_name)) +
   geom_col(position="stack") +
-  facet_grid(cols = vars(panel), rows = vars(mof_region), scales = 'free_y') +
+  facet_grid(cols = vars(panel), rows = vars(mof_region), scales = "free_y") +
   theme_minimal() +
   labs(title = "Average Board Type Sample at CD Level", x = "CD", y = "Porportions", fill = "Board Type")
 
@@ -737,12 +738,12 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
 observed_trips <- readRDS("output/observed_por_pos_90.rds") %>%
   # Drop NAs in POR, it didn't overlay on the TRESO shapefile
   drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id.por' = 'treso_id')) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   
   filter(panel == "Elementary", board_type_name == "English Public") %>%
-  left_join(travel_time_skim, by = c('treso.id.por' = 'orig', 'treso.id.pos' = 'dest')) %>%
+  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
   # intra-zonal trip assumptions
   mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
                                         euclidean.dist / 5 * 60,
@@ -821,7 +822,7 @@ Distribute each the POS demand to the individual schools
 
 ```{r distribute POS demand} 
 pos_school <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   filter(panel == "Elementary", board_type_name == "English Public") %>%
   group_by(sfis, school.name) %>%
@@ -838,10 +839,10 @@ pos_school <- left_join(pos_school, pos_school_weight, by = "treso.id.pos") %>%
   select(treso.id.pos, sfis, school.name, dsb.index, eqao.weight) %>%
   group_by(treso.id.pos) %>%
   summarise(
-    sfis.list = paste(sfis, collapse = ','),
-    school.name.list = paste(school.name, collapse = ','),
-    dsb.index.ist = paste(dsb.index, collapse = ','),
-    eqao.weight.list = paste(eqao.weight, collapse = ',')
+    sfis.list = paste(sfis, collapse = ","),
+    school.name.list = paste(school.name, collapse = ","),
+    dsb.index.ist = paste(dsb.index, collapse = ","),
+    eqao.weight.list = paste(eqao.weight, collapse = ",")
   ) %>%
   rowwise() %>%
   mutate(eqao.weight.list = list(as.numeric(unlist(strsplit(eqao.weight.list, ","))))) %>%
@@ -866,7 +867,7 @@ smart.round <- function(x, digits = 0) {
 }
 
 # Apply bucket rounding to chunks of data by POS
-results <- by(simulated_trips$enrolment, simulated_trips[c('treso.id.pos')], smart.round, simplify = FALSE)
+results <- by(simulated_trips$enrolment, simulated_trips[c("treso.id.pos")], smart.round, simplify = FALSE)
 
 # Convert the output of by() to dataframe
 results2 <- t(sapply(results, I))
@@ -880,17 +881,17 @@ simulated_trips2 <- arrange(simulated_trips, treso.id.pos) %>%
 summary(simulated_trips2$diff)
 
 f2 <- function(row) {
-  x = row['sfis.list'][[1]]
-  size = row['enrolment.rounded'][[1]]
+  x <- row["sfis.list"][[1]]
+  size <- row["enrolment.rounded"][[1]]
 
   print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
 
   if (length(x) == 1) {
-    prob = c(rep(0, x-1), row['eqao.weight.list'][[1]])
+    prob = c(rep(0, x - 1), row["eqao.weight.list"][[1]])
   } else {
-    prob = row['eqao.weight.list'][[1]]
+    prob = row["eqao.weight.list"][[1]]
   }
-  results <- list(sample(x, size=size, replace=TRUE, prob=prob))
+  list(sample(x, size=size, replace=TRUE, prob=prob))
 }
 
 plan(multiprocess)
@@ -908,8 +909,8 @@ simulated_trips_schools <- cbind(simulated_trips2, results_tb)
 ```{r applying closest school probability, echo=FALSE, eval=FALSE}
 closest_school_summary <- readRDS("output/closest_school_summary.rds") %>%
   group_by(board.type.name, panel, mof_region, csdname) %>%
-  summarise(closest.school.list = paste(num.closer.schools.cuts, collapse = ','),
-            prob.list = paste(percentage, collapse = ','))
+  summarise(closest.school.list = paste(num.closer.schools.cuts, collapse = ","),
+            prob.list = paste(percentage, collapse = ","))
 
 observed_students <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, student.postal.code, enrolment, sfis, dsb.index) %>%
@@ -929,22 +930,28 @@ observed_students <- readRDS("output/observed_por_pos_90.rds") %>%
   mutate(closest.school.list = list(as.character(unlist(strsplit(closest.school.list, ",")))))
 
 f2 <- function(row) {
-  x = row['closest.school.list'][[1]]
-  size = row['enrolment'][[1]]
-  pc = row['student.postal.code'][[1]]
-  sfis = row['sfis'][[1]]
+  x = row["closest.school.list"][[1]]
+  size = row["enrolment"][[1]]
+  pc = row["student.postal.code"][[1]]
+  sfis = row["sfis"][[1]]
   
   print(paste0("Student Postal Code: ", pc, ". SFIS: ", sfis))
   
   if (length(x) == 1) {
-    if (x == '5+') {x = 5}
-    else {x = as.numeric(x)}
-    prob = c(rep(0, x-1), row['prob.list'][[1]])
-  } else {
-    prob = row['prob.list'][[1]]
+    if (x == "5+") {
+      x <- 5
+    }
+    else {
+      x <- as.numeric(x)
+    }
+    
+    prob <- c(rep(0, x-1), row["prob.list"][[1]])
+  } 
+  else {
+    prob <- row["prob.list"][[1]]
   }
   
-  results <- list(sample(x, size=size, replace=TRUE, prob=prob))
+  list(sample(x, size=size, replace=TRUE, prob=prob))
 }
 
 plan(multiprocess)
@@ -987,14 +994,14 @@ for (i in c("English Catholic", "English Public", "French Catholic", "French Pub
     
     student_xy <- student_to_schools %>%
       filter(board_type_name == i, panel == j)
-    coordinates(student_xy) <- c('student.long', 'student.lat')
+    coordinates(student_xy) <- c("student.long", "student.lat")
     
     school_xy <- student_travel_90 %>%
       left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
       filter(board_type_name == i, panel == j) %>%
       select(sfis, school.name, school.lat, school.long) %>%
       distinct(sfis, .keep_all=TRUE)
-    coordinates(school_xy) <- c('school.long', 'school.lat')
+    coordinates(school_xy) <- c("school.long", "school.lat")
     
     nn <- get.knnx(coordinates(school_xy), coordinates(student_xy), k = 5)
     nearest_schools <- nn$nn.index %>%
@@ -1120,9 +1127,11 @@ result_student_tlfd <- result_student %>%
   left_join(travel_time_skim, by=c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
   rename(travel.time = value) %>%
   # Get the school board type names
-  left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  left_join(select(school_board_def, dsb, board_type_name),
+            by = c("dsb.index" = "dsb")) %>%
   # Get the MOF regions
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c('treso.id.por' = 'treso_id')) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region),
+            by = c("treso.id.por" = "treso_id")) %>%
   # Get the panel information
   left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   # expand the rows based on enrollment number
@@ -1145,7 +1154,8 @@ result_student_tlfd <- result_student_tlfd %>%
 
 summary(result_student_tlfd$travel.time)
 
-ggsave(file = "output/tlfd_closest_school_probability.png", plot_travel_time_tlfd(result_student_tlfd), height = 28, width = 10)
+ggsave(file = "output/tlfd_closest_school_probability.png",
+       plot_travel_time_tlfd(result_student_tlfd), height = 28, width = 10)
 
 ```
 
