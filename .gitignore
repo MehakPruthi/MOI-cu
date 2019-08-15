@@ -42,3 +42,4 @@ vignettes/*.pdf
 
 # Compiled HTML files
 .html
+/edu_files/
