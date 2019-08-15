@@ -530,6 +530,7 @@ saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 # Health Data Cleaning
 
 ## Import Health Data
+
 ```{r, include=FALSE}
 healthRodbc <-odbcConnect("NourDSN")
 

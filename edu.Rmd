@@ -31,7 +31,6 @@ source("helpers.R")
 [] Validate if the distributed patterns matches the observed closest school patterns
 [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
 
-## Import relavent files
 ```{r Import files, include=FALSE}
 # TRESO 
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
@@ -137,7 +136,7 @@ rm(school_xy_df, treso_shp_df, student_xy_df)
 
 ## Obtain socio-economic data for each school
 
-- Loop and do the following for all catchment distance available
+- Loop and do the following for all catchment distances available
 - Using `over()` to determine the treso zone number for each student/school point
 - Using `gbuffer()` to determine the treso zones that catchment distance touches for each school
 - Setting up the multi-core to do `foreach()` loop is worth it once you are doing more than 100 fields
@@ -263,7 +262,7 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   progress <- function(n) setTxtProgressBar(pb, n)
   opts <- list(progress = progress)
   
-  tic('testing sp::over')
+  tic('using sp::over')
   # foreach() loop to find the TRESO zones touching the school buffers
   datalist <- list()
   datalist <- foreach(i = 1:nrow(student_buffered@data), .combine = rbind,
@@ -291,7 +290,7 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   stopCluster(cl)
   
   # Write the datalist to csv
-  saveRDS(datalist, 'output/closest_school.rds')
+  saveRDS(datalist, 'output/closest_school_full.rds')
   rm(student_xy_90, student_buffered, datalist)
 ```
 
@@ -431,7 +430,7 @@ rm(g, g_subtotal)
 
 ## Travel Time TLFD plots
 
-The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of. 
+The intra-zonal travel times from TRESO is 0, this required some extra work to take care of. 
 The current assumption is intra-zonal trips which are less than or equal to 2.5 km in length
 are performed by walking at an average speed of 5 km/hr. 
 Intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
@@ -476,9 +475,9 @@ summary(student_tlfd_90$travel.time)
 ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
 ```
 
-## Exploration of demand modelling {.tabset .tabset-fade}
+## Exploration of demand modelling methods {.tabset .tabset-fade}
 
-### Explore Linear Regressions
+### Linear Regressions
 
 - Segment the schools by board (at least)
 - Build linear regression 
@@ -493,10 +492,10 @@ school_tb <- readRDS("output/school_tb_90.rds") %>%
   mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum)
 
 # Join with EQAO Scores
-school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao), by = "sfis")
+school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by = "sfis")
 
 summary(school_tb$ade)
-filter(school_tb, is.na(eqao))
+filter(school_tb, is.na(eqao.standardized))
 
 g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x=ade)) +
   geom_histogram(bins = 50) +
@@ -522,7 +521,7 @@ g4 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = attend_school_sum,
   theme_minimal() +
   labs(x = 'Attend School', y = 'ADE')
 
-g5 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "East"), aes(x = eqao, y = ade, label=school.name.x)) +
+g5 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "East"), aes(x = eqao.standardized, y = ade, label=school.name.x)) +
   geom_point(alpha = 0.5) +
   facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = 'free') +
   theme_minimal() +
@@ -601,7 +600,7 @@ plot(mod)
 # plot(mod.expand)
 ```
 
-### Explore gravity model
+### Gravity model
 
 - Implement sampling procedure
   - Create sampling proportions at CSD level for each board type
@@ -872,7 +871,7 @@ f2 <- function(row) {
 apply(slice(simulated_trips, 1:10), 1, f2)
 ```
 
-### Explore Closest School Probability Choice
+### Closest School Probability Choice
 
 - Using the closest school probability to assign students to schools
 - Examine if the resulting assignment aligns closely with observed ADE as well as OTG constraints
@@ -1121,19 +1120,4 @@ summary(result_student_tlfd$travel.time)
 ggsave(file = "output/tlfd_closest_school_probability.png", plot_travel_time_tlfd(result_student_tlfd), height = 28, width = 10)
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

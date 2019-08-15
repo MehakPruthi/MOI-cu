@@ -39,3 +39,6 @@ vignettes/*.pdf
 /input/
 /output/
 .Rproj.user
+
+# Compiled HTML files
+.html
