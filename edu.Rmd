@@ -34,7 +34,7 @@ source("helpers.R")
 ## Import relavent files
 ```{r Import files, include=FALSE}
 # TRESO 
-treso_shp <- readOGR(dsn = "input", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("cache/treso_tb.rds")
 
 # TRESO time skim
@@ -473,7 +473,7 @@ student_tlfd_90 <- student_tlfd_90 %>%
 
 summary(student_tlfd_90$travel.time)
 
-ggsave(file = "output/tlfd_sample.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
+ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
 ```
 
 ## Exploration of demand modelling {.tabset .tabset-fade}

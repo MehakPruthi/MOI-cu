@@ -7,6 +7,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(weights)
+library(RODBC)
 source("helpers.R")
 ```
 
@@ -526,3 +527,275 @@ saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 
 ```
 
+# Health Data Cleaning
+
+## Import Health Data
+```{r, include=FALSE}
+healthRodbc <-odbcConnect("NourDSN")
+
+#Bed Census Data
+healthDailyBedHistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
+healthDailyBedCensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
+healthDischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
+
+#HBAM Data
+# healthHBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIS")
+# healthHBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_Proj")
+#Upload Updated HBAM Data (as per update from 06 Aug 2019)
+healthHBAMhistorical <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/cap.MOH_HBAM_HIS.csv')
+healthHBAMprojected <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/cap.MOH_HBAM_Proj.csv')
+
+#Facility Data
+healthLHINfacilityList <- sqlFetch(healthRodbc, "cap.MOH_LHIN_Hosp_Fac_List")
+healthHospitalLocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
+
+#LHIN Data
+healthPopulationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
+healthBedDays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
+
+#Wait Times
+healthWaitTime <- sqlFetch(healthRodbc, "cap.HospitalWaitTime")
+
+#ALC Data
+healthALCAge <- sqlFetch(healthRodbc, "cap.ALCAge")
+healthALCAnnualVolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
+healthALCCases <- sqlFetch(healthRodbc, "cap.ALCCases")
+healthALCDesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
+healthALCDischarge <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
+healthALCInpatientBedType <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
+healthALCMonthlyRatebySite <- sqlFetch(healthRodbc, "cap.ALCMonthlyRateByProvinceLHINFacilitySite")
+healthALCMonthlyVolume <- sqlFetch(healthRodbc, "cap.ALCMonthlyVolumeAndTotalDays")
+healthALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
+
+#CIHI Data
+healthCIHIFacilityNameID <- sqlFetch(healthRodbc, "cap.CIHI_FacilityName_FacilityID")
+healthCIHIFacilityNumberOld <- sqlFetch(healthRodbc, "cap.CIHI_FacilityNumber_OLD")
+healthCIHIHospitalBeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
+healthCIHIWaitTimesRegion <- sqlFetch(healthRodbc, "cap.CIHI_Wait Times by Region")
+healthCIHIWaitTimesProvince <- sqlFetch(healthRodbc, "cap.CIHI_Wait_Time_Data_by_Province")
+
+#Health Asset Inventory
+healthInventoryMOHLTC <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC")
+healthInventoryMOHLTCfid <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC_FID_Map")
+healthMOHLocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
+
+#Lookup Tables
+healthHospitalSiteLookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
+healthLHINLookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
+
+#Sample Population Extraction by LHIN
+healthPopulationLHIN %>%
+  filter(LHIN=='South West') %>%
+  arrange(Year, Gender, Age)
+
+#List of Care-Types
+caretypes <- healthHBAMprojected %>%
+  distinct(Care_Type)
+```
+
+##Bed Census Data Cleaning and Analysis
+```{r}
+bedhistoryslim <- healthDailyBedHistory %>% 
+  group_by('Facility #', 'Master #', 'Care Type', 'Fiscal Year')
+
+bedcensusslim <- healthDailyBedCensus %>% 
+  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
+  mutate(HALLWAYPATIENTS = ERSTRETCHERSUSED + UNCONVENTIONALBEDSUSED) %>%
+  arrange(FACILITY_NO, INST, FISCALYEAR, CENSUSDATE)
+
+#Max Bed-count per Hospital
+bedcensustotal <- bedcensusslim %>% 
+  group_by(INST, FISCALYEAR, TYPE) %>% 
+  summarise(maxbeds = max(BEDSWITHSTAFFAVAILABLE, na.rm = TRUE)
+            )
+#Count Daily Entries by Year
+bedcensusslim %>% 
+  ungroup(INST, TYPE) %>%
+  group_by(FISCALYEAR) %>% 
+  distinct(CENSUSDATE) %>% 
+  count(CENSUSDATE) %>% 
+  summarise(totaldays = sum(n, na.rm = TRUE))
+
+#Total Daily Entries by SiteID: 2017:294 / 2018: 234
+bedcensusslim %>% 
+  group_by(INST,FISCALYEAR) %>% 
+  count(INST)
+
+#Count Total Site IDs: 448
+bedcensusslim %>% 
+  group_by(INST) %>% 
+  distinct(INST)
+
+#Bed-Days by Census Total
+beddaystotal <- bedcensusslim %>% 
+  group_by(INST, FISCALYEAR) %>% 
+  summarise(bedaystotal = sum(BEDSWITHSTAFFAVAILABLE, na.rm = TRUE))
+
+#Check if Hospitals have multiple care-types per year
+bedcensustotal %>% 
+  count(INST) %>% 
+  filter(n > 2)
+
+#List of Care-Types
+bedcensusslim %>% 
+  distinct(TYPE)
+```
+
+##Discharge Data
+```{r}
+#Health Discharges
+totaldaystest <- healthDischarges %>% 
+  select(SITE_ID, Total_Days, TOTAL_DAYS1, DaysInYear)
+
+discharges <- healthDischarges %>% 
+  mutate(totaldays = Total_Days + as.numeric(TOTAL_DAYS1),
+         agegroup = as.character(AGE_GROUP)) %>% 
+  select(fiscalyear = FY, 
+         hospitalcorporation = HOSPITAL_CORPORATION, 
+         facilityid = FACILITY_NO,
+         hospitalname = HOSPITAL_NAME, 
+         siteid = SITE_ID,
+         agegroup,
+         bedtype = "Bed Type",
+         discharges = Discharges,
+         totaldays,
+         activecases = Active_Cases
+         ) %>% 
+  separate(agegroup, c("agegroup", "agedef"), sep = " ") %>%
+  mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>%
+  mutate(agegroup = replace(agegroup, agegroup == 7, 6)) %>%
+  select(-agedef)
+ 
+#Total Discharges and Days by CT (Test for AT/ED = NA)
+discharges %>% 
+  group_by(bedtype) %>% 
+  summarise(totaldays = sum(totaldays),
+            totalcases = sum(activecases)
+            )
+
+```
+##HBAM Data
+```{r}
+#Age Group Testing - Age groups replaced with dates ("07-Jan") tested as proportion of 0-17
+healthHBAMhistorical %>% 
+  filter(grepl("<1|07-Jan|17-Aug|0-17", Age_Group)) %>% 
+  group_by(Age_Group) %>% 
+  summarise(totalagegroup = sum(Number_of_Cases))
+
+#HBAM Historical Data
+hbamhistorical <- healthHBAMhistorical %>% 
+  select(year = YR, 
+         totalcases = Number_of_Cases,
+         hospitalname = Hospital_Site_Name, 
+         siteid = Hospital_Site_ID, 
+         agegroup = Age_Group, 
+         caretype = Care_Type,
+         csd = CSD) %>%
+  filter(agegroup != "07-Jan", 
+         agegroup != "17-Aug", 
+         agegroup != "<1")
+
+healthHBAMprojected %>% 
+  filter(grepl("<1|07-Jan|17-Aug|0-17", Age_Group)) %>% 
+  group_by(Age_Group) %>% 
+  summarise(totalagegroup = sum(Number_of_Cases))
+
+#HBAM Projected Data
+hbamproj <- healthHBAMprojected %>% 
+  select(year = Yr, 
+         totalcases = Number_of_Cases,
+         totalweightedcases = Number_of_Weighted_Cases,
+         hospitalname = Hospital_Site_Name, 
+         siteid = Hospital_Site_ID, 
+         agegroup = Age_Group, 
+         lengthofstay = Length_of_Stay,
+         caretype = Care_Type)
+
+```
+
+## ALC Data
+
+- ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
+```{r}
+#ALC Annual Volume
+ALCannualvol <- healthALCAnnualVolume %>% 
+  filter(CaseType == 9, 
+         AgeGroup != 9,
+         AgeGroup != 7,
+         DischargeDestination != "ALL") %>% 
+  select(year = Year,
+         facilityid = SiteNumber,
+         freq = Frequency,
+         casetype = CaseType,
+         bedtype = InPatientBedType,
+         agegroup = AgeGroup,
+         dd = DischargeDestination,
+         losmean = Mean,
+         losmed = Median,
+         los90thp = "90thP",
+         totalALCdays = TotalALCDays,
+          )
+
+#Join to Facility Data to Eliminate Overcounted IDs (from 145k entries to 61k entries)
+ALCannualjoin <- ALCannualvol %>% 
+  inner_join(healthMOHLocations, by = c('facilityid' = 'Master Number'))
+
+ALCannualjoin %>% 
+  group_by(year) %>% 
+  drop_na(totalALCdays) %>% 
+  summarise(annualALC = sum(totalALCdays))
+
+#ALC by Age Group
+ALCvolage <- ALCannualvol %>%
+  left_join(healthALCAge, by=c('agegroup' = 'Id')) %>%
+  group_by(year, AgeRange) %>%
+  summarise(annualALCdays = sum(totalALCdays),
+            annualALCcases = sum(freq)) %>% 
+  drop_na(AgeRange)
+
+#ALC Percentage by DD (test)
+ALCbydd <- ALCannualvol %>% 
+  group_by(year, dd) %>% 
+  summarise(annualALCdaysbydd = sum(totalALCdays)) %>% 
+  mutate(percent = percent(annualALCdaysbydd / sum(annualALCdaysbydd)))
+
+#ALC Most Appropriate
+ALCmaddvol <- healthALCmostappropriate %>% 
+  filter(TYPEFLAG == 'MADD', 
+         madd != 'ALL', #filter out sum values for DD
+         Agerange != 9,
+         casetype == 9) %>%
+  separate(period, c("year", "month"), sep = "_") %>%
+  filter(SUM != "LV") %>% #filter out NA values
+  select(year,
+         month,
+         facilityid = sitenumber,
+         freq = "_FREQ_",
+         casetype,
+         bedtype = INPATIENTBEDTYPE,
+         agegroup = Agerange,
+         dd = DD,
+         madd,
+         losmean = MEAN,
+         losmedian = MEDIAN,
+         los90thp = P90,
+         totalALCdays = SUM) %>% 
+  mutate(totalALCdays = as.numeric(totalALCdays),
+         losmean = as.numeric(losmean),
+         losmedian = as.numeric(losmedian),
+         los90thp = as.numeric(los90thp))
+  
+#ALC MADD Annual Totals (test)
+ALCmaddtotalvol <- ALCmaddvol %>% 
+  inner_join(healthMOHLocations, by = c("facilityid" = "Master Number")) %>% 
+  group_by(year) %>%
+  summarise(annualALCdays = sum(totalALCdays, na.rm = TRUE),
+            annualALCcases = sum(freq))  
+
+#ALC Percentage by MADD (test)
+ALCbymadd <- ALCmaddvol %>% 
+  group_by(year, madd) %>% 
+  summarise(ALCdaysbymadd = sum(totalALCdays)) %>% 
+  mutate(percent = ALCdaysbymadd / sum(ALCdaysbymadd))
+
+```
