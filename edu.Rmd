@@ -23,13 +23,16 @@ source("helpers.R")
 
 ## TODO List
 
-[] Utilization vs travel time
-[x] Utilization vs EQAO
-[] Recalculate the closest school theory by using travel time
-[x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
-[x] Distribute the students based on the friction
-[] Validate if the distributed patterns matches the observed closest school patterns
-[x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
+- [] Utilization vs travel time
+- [x] Utilization vs EQAO
+- [] Recalculate the closest school theory by using travel time
+- [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
+- [x] Distribute the students based on the friction
+- [] Distribute TRESO zones with multiple schools based on EQAO schools
+- [] Validate the distributed patterns
+- [x] Validate if the distributed patterns matches the observed closest school patterns
+- [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
+- [] Improve Haversine function to mimic manhattan travel
 
 ```{r Import files, include=FALSE}
 # TRESO 
@@ -472,7 +475,9 @@ student_tlfd_90 <- student_tlfd_90 %>%
 
 summary(student_tlfd_90$travel.time)
 
-ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
+#ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
+g <- plot_travel_time_tlfd(student_tlfd_90)
+plot(g)
 ```
 
 ## Exploration of demand modelling methods {.tabset .tabset-fade}
@@ -492,10 +497,9 @@ school_tb <- readRDS("output/school_tb_90.rds") %>%
   mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum)
 
 # Join with EQAO Scores
-school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by = "sfis")
-
+school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by = "sfis") %>%
+  filter(school_tb, is.na(eqao.standardized))
 summary(school_tb$ade)
-filter(school_tb, is.na(eqao.standardized))
 
 g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x=ade)) +
   geom_histogram(bins = 50) +
@@ -532,8 +536,6 @@ ggplotly(g2)
 ggplotly(g3)
 ggplotly(g4)
 ggplotly(g5)
-
-filter(school_tb, mof.region == '0')
 
 ```
 
@@ -637,7 +639,7 @@ g1 <- board_type_sample %>%
   theme_minimal() +
   labs(title = "Average Board Type Sample at CD Level", x = "CD", y = "Porportions", fill = "Board Type")
 
-g1
+ggplotly(g1)
 
 elementary_board_type_sample_spread <- board_type_sample %>%
   filter(panel == "Elementary") %>%
@@ -850,25 +852,51 @@ print(paste0("There are ", nrow(filter(pos_school, length(eqao.weight.list) == 1
 simulated_trips <- readRDS(paste0("cache/simulated_trips.RDS")) %>%
   left_join(pos_school, by = "treso.id.pos")
   
-  
+# Bucket rounding
+# [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
+smart.round <- function(x, digits = 0) {
+  up <- 10 ^ digits
+  x <- x * up
+  y <- floor(x)
+  # Get the biggest residuals that will add up the difference
+  # from the floor round
+  indices <- tail(order(x-y), round(sum(x)) - sum(y))
+  y[indices] <- y[indices] + 1
+  y / up
+}
+
+# Apply bucket rounding to chunks of data by POS
+results <- by(simulated_trips$enrolment, simulated_trips[c('treso.id.pos')], smart.round, simplify = FALSE)
+
+# Convert the output of by() to dataframe
+results2 <- t(sapply(results, I))
+df <- data.frame(t(as.data.frame(results2)))
+colnames(df) <- "enrolment.rounded"
+df2 <- unnest(df, enrolment.rounded)
+
+simulated_trips2 <- arrange(simulated_trips, treso.id.pos) %>%
+  cbind(df2)
+
+summary(simulated_trips2$diff)
+
 f2 <- function(row) {
   x = row['sfis.list'][[1]]
-  size = round(row['enrolment'][[1]], 0)
-  
+  size = row['enrolment.rounded'][[1]]
+
+  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
+
   if (length(x) == 1) {
-    x = as.numeric(x)
     prob = c(rep(0, x-1), row['eqao.weight.list'][[1]])
   } else {
     prob = row['eqao.weight.list'][[1]]
   }
-  
-  print(paste0("Size of x is: ", length(x), " and size of prob is: ", length(prob)))
-  results = sample(x, size=size, replace=TRUE, prob=prob)
-
-  print(results)
+  results <- list(sample(x, size=size, replace=TRUE, prob=prob))
 }
 
-apply(slice(simulated_trips, 1:10), 1, f2)
+plan(multiprocess)
+results <- future_apply(simulated_trips2, 1, f2)
+results_tb = t(as.data.table(results))
+simulated_trips_schools <- cbind(simulated_trips2, results_tb)
 ```
 
 ### Closest School Probability Choice
@@ -877,7 +905,7 @@ apply(slice(simulated_trips, 1:10), 1, f2)
 - Examine if the resulting assignment aligns closely with observed ADE as well as OTG constraints
 - Assumes the school board and panel is predetermined
 
-```{r applying closest school probability}
+```{r applying closest school probability, echo=FALSE, eval=FALSE}
 closest_school_summary <- readRDS("output/closest_school_summary.rds") %>%
   group_by(board.type.name, panel, mof_region, csdname) %>%
   summarise(closest.school.list = paste(num.closer.schools.cuts, collapse = ','),
