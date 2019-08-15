@@ -529,59 +529,41 @@ saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 
 # Health Data Cleaning
 
-## Import Health Data
+## Import Health Data from SQL
 ```{r, include=FALSE}
 healthRodbc <-odbcConnect("NourDSN")
 
 #Bed Census Data
-healthDailyBedHistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
-healthDailyBedCensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
-healthDischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
+dailybedhistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
+dailybedcensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
+hospitaldischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
 
 #HBAM Data
-# healthHBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIS")
-# healthHBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_Proj")
-#Upload Updated HBAM Data (as per update from 06 Aug 2019)
-healthHBAMhistorical <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/cap.MOH_HBAM_HIS.csv')
-healthHBAMprojected <- read.csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/cap.MOH_HBAM_Proj.csv')
-
-#Facility Data
-healthLHINfacilityList <- sqlFetch(healthRodbc, "cap.MOH_LHIN_Hosp_Fac_List")
-healthHospitalLocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
+HBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIST")
+HBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_PROJECT")
 
 #LHIN Data
-healthPopulationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
-healthBedDays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
-
-#Wait Times
-healthWaitTime <- sqlFetch(healthRodbc, "cap.HospitalWaitTime")
+populationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
+healthbeddays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
 
 #ALC Data
-healthALCAge <- sqlFetch(healthRodbc, "cap.ALCAge")
-healthALCAnnualVolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
-healthALCCases <- sqlFetch(healthRodbc, "cap.ALCCases")
-healthALCDesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
-healthALCDischarge <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
-healthALCInpatientBedType <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
-healthALCMonthlyRatebySite <- sqlFetch(healthRodbc, "cap.ALCMonthlyRateByProvinceLHINFacilitySite")
-healthALCMonthlyVolume <- sqlFetch(healthRodbc, "cap.ALCMonthlyVolumeAndTotalDays")
-healthALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
+ALCage <- sqlFetch(healthRodbc, "cap.ALCAge")
+ALCannualvolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
+ALCcases <- sqlFetch(healthRodbc, "cap.ALCCases")
+ALCdesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
+ALCdischargedest <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
+ALCinpatientbedtype <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
+ALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
 
 #CIHI Data
-healthCIHIFacilityNameID <- sqlFetch(healthRodbc, "cap.CIHI_FacilityName_FacilityID")
-healthCIHIFacilityNumberOld <- sqlFetch(healthRodbc, "cap.CIHI_FacilityNumber_OLD")
-healthCIHIHospitalBeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
-healthCIHIWaitTimesRegion <- sqlFetch(healthRodbc, "cap.CIHI_Wait Times by Region")
-healthCIHIWaitTimesProvince <- sqlFetch(healthRodbc, "cap.CIHI_Wait_Time_Data_by_Province")
+CIHIhospitalbeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
 
 #Health Asset Inventory
-healthInventoryMOHLTC <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC")
-healthInventoryMOHLTCfid <- sqlFetch(healthRodbc, "dbo.AssetInventoryMOHLTC_FID_Map")
-healthMOHLocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
+hospitallocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
 
 #Lookup Tables
-healthHospitalSiteLookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
-healthLHINLookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
+hospitalsitelookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
+LHINlookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
 
 #Sample Population Extraction by LHIN
 healthPopulationLHIN %>%
@@ -592,6 +574,39 @@ healthPopulationLHIN %>%
 caretypes <- healthHBAMprojected %>%
   distinct(Care_Type)
 ```
+
+##Import Health Data from CSVs
+```{r}
+#Bed Census Data
+dailybedhistory <- read.csv('input/health/cap.MOH_DailyBedCensus_Historical.csv')
+dailybedcensus <- read.csv('input/health/cap.MOH_DailyBedCensus_Summary.csv')
+hospitaldischarges <- read.csv('input/health/cap.MOH_Discharges.csv')
+
+#HBAM Data
+HBAMhistorical <- read.csv('input/health/cap.MOH_HBAM_HIS.csv')
+HBAMprojected <- read.csv('input/health/cap.MOH_HBAM_Proj.csv')
+
+#LHIN Data
+populationLHIN <- read.csv('input/health/dbo.Population_LHIN.csv')
+
+#ALC Data
+ALCage <- read.csv('input/health/cap.ALCAge.csv')
+ALCannualvolume <- read.csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv')
+ALCcases <- read.csv('input/health/cap.ALCCases.csv')
+ALCdesignations <- read.csv('input.health/cap.ALCDesignations.csv')
+ALCdischargedest <- read.csv('input.health/cap.ALCDischargeDestination.csv')
+ALCinpatientbedtype <- read.csv('input.health/cap.ALCInpatientBedType.csv')
+ALCmostappropriate <- read.csv('input.health/ALC.MostAppropriateDischarge from CCO_2019-06-28.csv')
+
+#CIHI Data
+CIHIhospitalbeds <- read.csv('input.health/cap.CIHI_Hospital_Beds.csv')
+
+#Health Asset Inventory
+hospitallocations <- read.csv('input.health/cap.MOH_Hospital_Locations.csv')
+
+
+```
+
 
 ##Bed Census Data Cleaning and Analysis
 ```{r}
