@@ -530,7 +530,7 @@ saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 # Health Data Cleaning
 
 ## Import Health Data from SQL
-```{r, include=FALSE}
+```{r, include=FALSE, eval=FALSE}
 healthRodbc <-odbcConnect("NourDSN")
 
 #Bed Census Data
@@ -576,10 +576,31 @@ caretypes <- healthHBAMprojected %>%
 ```
 
 ##Import Health Data from CSVs
-```{r}
+```{r, include= FALSE}
 #Bed Census Data
 dailybedhistory <- read.csv('input/health/cap.MOH_DailyBedCensus_Historical.csv')
-dailybedcensus <- read.csv('input/health/cap.MOH_DailyBedCensus_Summary.csv')
+dailybedcensus <- read.csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
+  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
+  select(facilityid = FACILITY_NO,
+         siteid = INST,
+         type = TYPE,
+         year = FISCALYEAR,
+         censusdate = CENSUSDATE,
+         admission = ADMISSION,
+         discharge = DISCHARGE,
+         death = DEATHS,
+         atbeds = INACUTEBEDS,
+         mhbeds = INMHBEDS,
+         cccbeds = INCCCBEDS,
+         grbeds = INGRBEDS,
+         srbeds = INSRBEDS,
+         patientbeds = PATIENTSINDESIGNATEDBEDS,
+         staffedbeds = BEDSWITHSTAFFAVAILABLE,
+         erstretchers = ERSTRETCHERSUSED,
+         uncovnentionalbeds = UNCONVENTIONALBEDSUSED,
+         overflowpatients = OVERFLOWPATIENTS,
+         totalpatients = TOTALPATIENTS)
+
 hospitaldischarges <- read.csv('input/health/cap.MOH_Discharges.csv')
 
 #HBAM Data
@@ -604,56 +625,97 @@ CIHIhospitalbeds <- read.csv('input.health/cap.CIHI_Hospital_Beds.csv')
 #Health Asset Inventory
 hospitallocations <- read.csv('input.health/cap.MOH_Hospital_Locations.csv')
 
-
 ```
 
-
 ##Bed Census Data Cleaning and Analysis
+  - Simplify and aggregate daily census to annual figures
+  - Calculate the number of daily entries available for each site id
+  - Calculate Annualization factor
+  - Calculate Operational and Physical Capacity
 ```{r}
-bedhistoryslim <- healthDailyBedHistory %>% 
-  group_by('Facility #', 'Master #', 'Care Type', 'Fiscal Year')
 
-bedcensusslim <- healthDailyBedCensus %>% 
-  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
-  mutate(HALLWAYPATIENTS = ERSTRETCHERSUSED + UNCONVENTIONALBEDSUSED) %>%
-  arrange(FACILITY_NO, INST, FISCALYEAR, CENSUSDATE)
-
-#Max Bed-count per Hospital
-bedcensustotal <- bedcensusslim %>% 
-  group_by(INST, FISCALYEAR, TYPE) %>% 
-  summarise(maxbeds = max(BEDSWITHSTAFFAVAILABLE, na.rm = TRUE)
-            )
-#Count Daily Entries by Year
-bedcensusslim %>% 
-  ungroup(INST, TYPE) %>%
-  group_by(FISCALYEAR) %>% 
-  distinct(CENSUSDATE) %>% 
-  count(CENSUSDATE) %>% 
+#Count Daily Entries by Year: 2017:294 / 2018: 324
+dailybedcensus %>% 
+  group_by(year) %>% 
+  distinct(censusdate) %>% 
+  count(censusdate) %>% 
   summarise(totaldays = sum(n, na.rm = TRUE))
 
-#Total Daily Entries by SiteID: 2017:294 / 2018: 234
-bedcensusslim %>% 
-  group_by(INST,FISCALYEAR) %>% 
-  count(INST)
+#Total Daily Entries by SiteID
+dailyentrycount <- dailybedcensus %>% 
+  group_by(siteid, year) %>% 
+  count(siteid) %>% 
+  rename('entrycount' = 'n')
+
+#Annual Bed-Days Observed
+beddaysobserved <- dailybedcensus %>% 
+  group_by(siteid,
+           type,
+           year) %>% 
+  summarise(atbedsobs = sum(atbeds, na.rm = TRUE),
+            mhbedsobs = sum(mhbeds, na.rm = TRUE),
+            cccbedsobs = sum(cccbeds, na.rm = TRUE),
+            grbedsobs = sum(grbeds, na.rm = TRUE),
+            srbedsobs = sum(grbeds, na.rm = TRUE),
+            patientbedsobs = sum(patientbeds, na.rm = TRUE),
+            staffedbedsobs = sum(staffedbeds, na.rm = TRUE))
+
+#Annualization Factor from Residual Day-Count
+annualizationfactor <- dailybedcensus %>% 
+  group_by(siteid,
+           type,
+           year) %>% 
+  left_join(censusentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
+  mutate(remainingdays = 365 - entrycount,
+         atbedsaf = mean(atbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         mhbedsaf = mean(mhbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         cccbedsaf = mean(cccbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         grbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         srbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         patientbedsaf = mean(patientbeds, na.rm = TRUE, trim =1)*remainingdays,
+         staffedbedsaf = mean(staffedbeds, na.rm = TRUE, trim = 1)*remainingdays) %>% 
+  distinct(siteid,type, year, atbedsaf, mhbedsaf, cccbedsaf, grbedsaf, srbedsaf, patientbedsaf, staffedbedsaf)
+
+#Operational Capacity by Hospital
+hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid', 'type', 'year')) %>% 
+  mutate(atbeds = atbedsobs + atbedsaf,
+         mhbeds = mhbedsobs + mhbedsaf,
+         cccbeds = cccbedsobs + cccbedsaf,
+         grbeds = grbedsobs + grbedsaf,
+         srbeds = srbedsobs + srbedsaf,
+         patientbeds = patientbedsobs + patientbedsaf,
+         staffedbeds = staffedbedsobs + staffedbedsaf) %>% 
+  select(siteid,
+         type,
+         year,
+         atbeds,
+         mhbeds,
+         cccbeds,
+         grbeds,
+         srbeds,
+         patientbeds,
+         staffedbed)
+
+#Physcial Capacity
+Hospitalphyscap <- dailybedcensus %>% 
+  group_by(siteid, type, year) %>% 
+  summarise(maxatbeds = max(atbeds, na.rm = TRUE)*365,
+            maxmhbeds = max(cccbeds, na.rm= TRUE)*365,
+            maxcccbeds = max(cccbeds, na.rm = TRUE)*365,
+            maxgrbeds = max(grbeds, na.rm = TRUE)*365,
+            maxsrbeds = max(srbeds, na.rm = TRUE)*365,
+            maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
+            maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
 
 #Count Total Site IDs: 448
-bedcensusslim %>% 
-  group_by(INST) %>% 
-  distinct(INST)
-
-#Bed-Days by Census Total
-beddaystotal <- bedcensusslim %>% 
-  group_by(INST, FISCALYEAR) %>% 
-  summarise(bedaystotal = sum(BEDSWITHSTAFFAVAILABLE, na.rm = TRUE))
-
-#Check if Hospitals have multiple care-types per year
-bedcensustotal %>% 
-  count(INST) %>% 
-  filter(n > 2)
+dailybedcensus %>% 
+  distinct(siteid) %>% 
+  tally
 
 #List of Care-Types
-bedcensusslim %>% 
-  distinct(TYPE)
+dailybedcensus %>% 
+  group_by(type) %>% 
+  distinct(type)
 ```
 
 ##Discharge Data
@@ -691,40 +753,37 @@ discharges %>%
 ```
 ##HBAM Data
 ```{r}
-#Age Group Testing - Age groups replaced with dates ("07-Jan") tested as proportion of 0-17
-healthHBAMhistorical %>% 
-  filter(grepl("<1|07-Jan|17-Aug|0-17", Age_Group)) %>% 
-  group_by(Age_Group) %>% 
-  summarise(totalagegroup = sum(Number_of_Cases))
-
 #HBAM Historical Data
-hbamhistorical <- healthHBAMhistorical %>% 
-  select(year = YR, 
-         totalcases = Number_of_Cases,
-         hospitalname = Hospital_Site_Name, 
-         siteid = Hospital_Site_ID, 
-         agegroup = Age_Group, 
+HBAMhistorical <- HBAMhistorical %>% 
+  select(year = Year, 
+         siteid = Hospital_Site_ID,
+         hospitalname = Hospital_Site_Name,
          caretype = Care_Type,
-         csd = CSD) %>%
-  filter(agegroup != "07-Jan", 
-         agegroup != "17-Aug", 
-         agegroup != "<1")
+         agegroup = Age_Group, 
+         totalcases = Number_of_Cases,
+         csd = CSD)
+
+#Age Group Testing - Age groups replaced with dates ("07-Jan") tested as proportion of 0-17
+HBAMhistorical %>% 
+  group_by(agegroup,
+           year) %>% 
+  summarise(totalsagegroup = sum(totalcases))
+
+#HBAM Projected Data
+HBAMproj <- HBAMprojected %>% 
+  select(year = Year, 
+         siteid = Hospital_Site_ID, 
+         hospitalname = Hospital_Site_Name,
+         caretype = Care_Type,
+         agegroup = Age_Group, 
+         totalcases = Number_of_Cases,
+         lengthofstay = Length_of_Stay)
 
 healthHBAMprojected %>% 
   filter(grepl("<1|07-Jan|17-Aug|0-17", Age_Group)) %>% 
   group_by(Age_Group) %>% 
   summarise(totalagegroup = sum(Number_of_Cases))
 
-#HBAM Projected Data
-hbamproj <- healthHBAMprojected %>% 
-  select(year = Yr, 
-         totalcases = Number_of_Cases,
-         totalweightedcases = Number_of_Weighted_Cases,
-         hospitalname = Hospital_Site_Name, 
-         siteid = Hospital_Site_ID, 
-         agegroup = Age_Group, 
-         lengthofstay = Length_of_Stay,
-         caretype = Care_Type)
 
 ```
 
