@@ -674,7 +674,14 @@ ALCmostappropriate <- read.csv('input/health/ALCMostAppropriateDischage.csv') %>
          madd != 'ALL', #filter out sum values for DD
          agegroup != 9,
          casetype == 9,
-         bedtype == 'AP') %>% 
+         bedtype == 'AP') 
+
+ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
+  group_by(year) %>% 
+  distinct(month) %>% 
+  count()
+
+ALCmostappropriate <- ALCmostappropriate %>% 
   group_by(year, siteid, agegroup, madd) %>%
   summarise(freq = sum(freq),
             totalALCdays = sum(totalALCdays))
@@ -683,11 +690,47 @@ ALCmostappropriate <- read.csv('input/health/ALCMostAppropriateDischage.csv') %>
 # CIHIhospitalbeds <- read.csv('input.health/dbo.CIHI_Hospital_Beds.csv')
 
 #Health Asset Inventory
-hospitallocations <- read.csv('input/health/dbo.MOH_Hospital_Locations.csv')
+hospitallocations <- read.csv('input/health/dbo.MOH_Hospital_Locations.csv') %>% 
+  select(lhin = LHIN,
+         lhinlocation = Location,
+         name = Name,
+         type = Type,
+         siteid = Master.Number,
+         facilityid = Facility.Number,
+         hospitalcorp = Provider.Legal.Name,
+         address = Address.Line.1,
+         city = City,
+         pcode = Postal.Code,
+         lat = latitude,
+         long = longitude)
 
 #CCO Linkage Table
-idcrosswalk <- read.csv('input/health/SiteID_Linkage_Table.csv')
+idcrosswalk <- read.csv('input/health/SiteID_Linkage_Table.csv') %>% 
+  select(lhin = WTISLHINNum,
+         name = MNSName,
+         type = MNSType,
+         siteid = MNSMaster,
+         facilityid = MNSFacNum)
 
+#Test SiteID/Fac ID Linkages
+idlinkage <- left_join(hospitallocations, idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+
+#Identify Mismatched Site IDs
+mismatchedids <- idlinkage %>% 
+  filter(is.na(type.cco))
+
+mismatchedids %>% 
+  group_by(type.moh) %>%
+  count()
+
+idlinkage %>% 
+  count(type.cco %in% type.moh)
+
+#Filter out Mismatched IDs
+hospital_id_master <- idlinkage %>% 
+  filter(!is.na(type.cco)) %>% 
+  group_by(siteid, facilityid, type.moh, name.moh) %>% 
+  distinct()
 ```
 
 ##Bed Census Data Cleaning and Analysis
@@ -828,73 +871,10 @@ HBAMprojected %>%
 ```
 
 ## ALC Data
-
-- ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
+  - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD)
+  - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
 ```{r}
-#ALC Annual Volume
-ALCannualvol <- healthALCAnnualVolume %>% 
+#ALC Annual Volume Crosswalk
 
-
-#Join to Facility Data to Eliminate Overcounted IDs (from 145k entries to 61k entries)
-ALCannualjoin <- ALCannualvol %>% 
-  inner_join(healthMOHLocations, by = c('facilityid' = 'Master Number'))
-
-ALCannualjoin %>% 
-  group_by(year) %>% 
-  drop_na(totalALCdays) %>% 
-  summarise(annualALC = sum(totalALCdays))
-
-#ALC by Age Group
-ALCvolage <- ALCannualvol %>%
-  left_join(healthALCAge, by=c('agegroup' = 'Id')) %>%
-  group_by(year, AgeRange) %>%
-  summarise(annualALCdays = sum(totalALCdays),
-            annualALCcases = sum(freq)) %>% 
-  drop_na(AgeRange)
-
-#ALC Percentage by DD (test)
-ALCbydd <- ALCannualvol %>% 
-  group_by(year, dd) %>% 
-  summarise(annualALCdaysbydd = sum(totalALCdays)) %>% 
-  mutate(percent = percent(annualALCdaysbydd / sum(annualALCdaysbydd)))
-
-#ALC Most Appropriate
-ALCmaddvol <- healthALCmostappropriate %>% 
-  filter(TYPEFLAG == 'MADD', 
-         madd != 'ALL', #filter out sum values for DD
-         Agerange != 9,
-         casetype == 9) %>%
-  separate(period, c("year", "month"), sep = "_") %>%
-  filter(SUM != "LV") %>% #filter out NA values
-  select(year,
-         month,
-         facilityid = sitenumber,
-         freq = "_FREQ_",
-         casetype,
-         bedtype = INPATIENTBEDTYPE,
-         agegroup = Agerange,
-         dd = DD,
-         madd,
-         losmean = MEAN,
-         losmedian = MEDIAN,
-         los90thp = P90,
-         totalALCdays = SUM) %>% 
-  mutate(totalALCdays = as.numeric(totalALCdays),
-         losmean = as.numeric(losmean),
-         losmedian = as.numeric(losmedian),
-         los90thp = as.numeric(los90thp))
-  
-#ALC MADD Annual Totals (test)
-ALCmaddtotalvol <- ALCmaddvol %>% 
-  inner_join(healthMOHLocations, by = c("facilityid" = "Master Number")) %>% 
-  group_by(year) %>%
-  summarise(annualALCdays = sum(totalALCdays, na.rm = TRUE),
-            annualALCcases = sum(freq))  
-
-#ALC Percentage by MADD (test)
-ALCbymadd <- ALCmaddvol %>% 
-  group_by(year, madd) %>% 
-  summarise(ALCdaysbymadd = sum(totalALCdays)) %>% 
-  mutate(percent = ALCdaysbymadd / sum(ALCdaysbymadd))
 
 ```
