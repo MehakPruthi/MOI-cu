@@ -30,6 +30,35 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   return(d)
 }
 
+# Bucket rounding
+# [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
+smart_round <- function(x, digits = 0) {
+  up <- 10 ^ digits
+  x <- x * up
+  y <- floor(x)
+  # Get the biggest residuals that will add up the difference
+  # from the floor round
+  indices <- tail(order(x-y), round(sum(x)) - sum(y))
+  y[indices] <- y[indices] + 1
+  y / up
+}
+
+# Apply sample() row by row
+sample_by_row <- function(row) {
+  x <- row["sfis.list"][[1]]
+  size <- row["enrolment.rounded"][[1]]
+  
+  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
+  
+  if (length(x) == 1) {
+    # Quirk 
+    prob = c(rep(0, x - 1), row["eqao.weight.list"][[1]])
+  } else {
+    prob = row["eqao.weight.list"][[1]]
+  }
+  list(sample(x, size=size, replace=TRUE, prob=prob))
+}
+
 # Gravity model 
 furness <- function(cmat, observed_matrix){
   

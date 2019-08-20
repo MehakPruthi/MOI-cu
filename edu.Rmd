@@ -23,16 +23,19 @@ source("helpers.R")
 
 ## TODO List
 
-- [] Utilization vs travel time
-- [x] Utilization vs EQAO
-- [] Recalculate the closest school theory by using travel time
-- [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
-- [x] Distribute the students based on the friction
-- [] Distribute TRESO zones with multiple schools based on EQAO schools
-- [] Validate the distributed patterns
-- [x] Validate if the distributed patterns matches the observed closest school patterns
-- [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
-- [] Improve Haversine function to mimic manhattan travel
+- General Tasks
+  - [] Utilization vs travel time
+  - [x] Utilization vs EQAO
+  - [] Recalculate the closest school theory by using travel time
+  - [] Improve Haversine function to mimic manhattan travel
+- Gravity Model
+  - [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
+  - [x] Distribute the students based on the friction
+  - [x] Distribute TRESO zones with multiple schools based on EQAO schools
+  - [] Validate the distributed patterns
+- Closest School Model
+  - [x] Validate if the distributed patterns matches the observed closest school patterns
+  - [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
 
 ```{r Import files, include=FALSE}
 # TRESO 
@@ -499,7 +502,7 @@ school_tb <- readRDS("output/school_tb_90.rds") %>%
 
 # Join with EQAO Scores
 school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by = "sfis") %>%
-  filter(school_tb, is.na(eqao.standardized))
+  filter(is.na(eqao.standardized))
 summary(school_tb$ade)
 
 g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = ade)) +
@@ -812,12 +815,125 @@ combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, 85, 1)
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   geom_line(size = 1) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EP/ELEM - alpha: ", initalpha, " beta: ", initbeta))
+  ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
 simulated_trips %>%
   saveRDS(paste0("cache/simulated_trips.rds"))
 ```
 
+2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+
+```{r distribute POR and POS}
+por_total <- observed_por_pos_90 %>%
+  filter(panel == "Elementary", board_type_name == "English Public") %>%
+  group_by(treso.id.por) %>%
+  summarise(enrolment = sum(enrolment))
+
+por_full <- travel_time_skim %>%
+  distinct(orig) %>%
+  left_join(por_total, by = c("orig" = "treso.id.por")) %>%
+  replace_na(list(enrolment = 0)) %>%
+  column_to_rownames(var = "orig") %>%
+  data.matrix()
+
+pos_total <- observed_por_pos_90 %>%
+  filter(panel == "Elementary", board_type_name == "English Public") %>%
+  group_by(treso.id.pos) %>%
+  summarise(enrolment = sum(enrolment))
+
+pos_full <- travel_time_skim %>%
+  distinct(dest) %>%
+  left_join(pos_total, by = c("dest" = "treso.id.pos")) %>%
+  replace_na(list(enrolment = 0)) %>%
+  column_to_rownames(var = "dest") %>%
+  data.matrix()
+
+prop_matrix <- travel_time_skim %>%
+  mutate(value = 0.0001) %>%
+  left_join(select(simulated_trips, treso.id.por, treso.id.pos, enrolment),
+            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
+  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
+  select(-enrolment) %>%
+  spread(key = dest, value=value) %>%
+  column_to_rownames(var = "orig") %>%
+  data.matrix()
+
+balance <- function(matrix, tot, axis) {
+  if (axis == 1) {
+      sum <- rowSums(matrix)
+  } else if (axis == 2) {
+      sum <- colSums(matrix)
+  }
+  sc <- tot / sum 
+  sc[is.nan(sc)] <- 0
+
+  
+  # MARGIN = 1 indicates rows, MARGIN = 2 indicates columns
+  matrix2 <- sweep(matrix, MARGIN = axis, sc, `*`)
+  return(matrix2)
+}
+
+calc_error <- function(matrix, a, b) {
+  row_sum <- sum(abs(a - rowSums(matrix)))
+  col_sum <- sum(abs(b - colSums(matrix)))
+  return(row_sum + col_sum)
+}
+
+rel_error = 0.001
+max_iterations = 1000
+
+
+matrix_balancing <- function(matrix, a, b, max_iterations = 10000, rel_error = 0.0001) {
+  error <- 1.0
+  i <- 0
+  init_error <- calc_error(matrix, a, b)
+  matrix2 <- matrix
+  
+  while (error > rel_error) {
+    if (i > max_iterations) {
+      print("Matrix balancing did not converge within iteration limit")
+      break
+    }
+    matrix2 <- balance(matrix2, a, 1)
+    matrix2 <- balance(matrix2, b, 2)
+    error <- calc_error(matrix2, a, b) / init_error
+    i <- i + 1
+  }
+  return(matrix2)
+}
+
+prop_matrix2 <- matrix_balancing(prop_matrix, por_full, pos_full, 1000, 0.001)
+
+```
+
+```{r timing}
+sum <- rowSums(prop_matrix)
+sc <- por_full / sum
+sc <- as.vector(sc)
+
+
+Rprof(tmp <- tempfile(),interval = 0.001)
+t(t(prop_matrix2) * sc) # first option
+Rprof()
+MyTimerTranspose=summaryRprof(tmp)$sampling.time
+unlink(tmp)
+
+Rprof(tmp <- tempfile(),interval = 0.001)
+sweep(prop_matrix2, MARGIN = 1, sc, `*`) # sweep option
+Rprof()
+MyTimerSweep=summaryRprof(tmp)$sampling.time
+unlink(tmp)
+```
+
+Obtain the balanced POR-POS trip list
+
+```{r trip list}
+trip_list <- melt(prop_matrix2) %>%
+  filter(value != 0)
+colnames(trip_list) <- c('treso.id.por', 'treso.id.pos', 'trips')
+
+saveRDS(trip_list, "cache/trip_list.rds")
+```
 Distribute each the POS demand to the individual schools
 
 ```{r distribute POS demand} 
@@ -850,54 +966,26 @@ pos_school <- left_join(pos_school, pos_school_weight, by = "treso.id.pos") %>%
 
 print(paste0("There are ", nrow(filter(pos_school, length(eqao.weight.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school, length(eqao.weight.list) != 1)), " TRESO zones with multiple schools."))
 
-simulated_trips <- readRDS(paste0("cache/simulated_trips.RDS")) %>%
+trip_list <- readRDS(paste0("cache/trip_list.RDS")) %>%
   left_join(pos_school, by = "treso.id.pos")
-  
-# Bucket rounding
-# [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
-smart.round <- function(x, digits = 0) {
-  up <- 10 ^ digits
-  x <- x * up
-  y <- floor(x)
-  # Get the biggest residuals that will add up the difference
-  # from the floor round
-  indices <- tail(order(x-y), round(sum(x)) - sum(y))
-  y[indices] <- y[indices] + 1
-  y / up
-}
 
+# TODO there is some error here.
 # Apply bucket rounding to chunks of data by POS
-results <- by(simulated_trips$enrolment, simulated_trips[c("treso.id.pos")], smart.round, simplify = FALSE)
+results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
 
-# Convert the output of by() to dataframe
+# Convert the output of by() to a dataframe
 results2 <- t(sapply(results, I))
 df <- data.frame(t(as.data.frame(results2)))
-colnames(df) <- "enrolment.rounded"
-df2 <- unnest(df, enrolment.rounded)
+colnames(df) <- "trips.rounded"
+df2 <- unnest(df, trips.rounded)
 
-simulated_trips2 <- arrange(simulated_trips, treso.id.pos) %>%
+trip_list2 <- arrange(trip_list, treso.id.pos) %>%
   cbind(df2)
 
-summary(simulated_trips2$diff)
-
-f2 <- function(row) {
-  x <- row["sfis.list"][[1]]
-  size <- row["enrolment.rounded"][[1]]
-
-  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
-
-  if (length(x) == 1) {
-    prob = c(rep(0, x - 1), row["eqao.weight.list"][[1]])
-  } else {
-    prob = row["eqao.weight.list"][[1]]
-  }
-  list(sample(x, size=size, replace=TRUE, prob=prob))
-}
-
 plan(multiprocess)
-results <- future_apply(simulated_trips2, 1, f2)
+results <- future_apply(trip_list2, 1, sample_by_row)
 results_tb = t(as.data.table(results))
-simulated_trips_schools <- cbind(simulated_trips2, results_tb)
+trip_list_schools <- cbind(trip_list2, results_tb)
 ```
 
 ### Closest School Probability Choice
