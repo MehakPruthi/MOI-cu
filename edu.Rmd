@@ -36,8 +36,7 @@ source("helpers.R")
 - Closest School Model
   - [x] Validate if the distributed patterns matches the observed closest school patterns
   - [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
-- Salah
-  - test commit
+
 
 ```{r Import files, include=FALSE}
 # TRESO 
@@ -738,7 +737,7 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
-# Read in the observed trips, and focus on elementary/GTA/Ep
+# Read in the observed trips, and focus on elementary/EP
 # Combine with travel time
 observed_trips <- readRDS("output/observed_por_pos_90.rds") %>%
   # Drop NAs in POR, it didn't overlay on the TRESO shapefile
@@ -767,7 +766,7 @@ observed_trips <- readRDS("output/observed_por_pos_90.rds") %>%
 
 travel_time_skim_select <- select(observed_trips, treso.id.por, treso.id.pos, value)
 
-# Calculate observed average trip lengths
+# Calculate observed average trip travel time
 tlfd_obs <- sum(observed_trips$value * observed_trips$enrolment) / sum(observed_trips$enrolment)
 print(paste0("The average travel time to be calibrated to is " , tlfd_obs))
   
@@ -826,6 +825,13 @@ simulated_trips %>%
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
 
 ```{r distribute POR and POS}
+observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
+  select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
+  drop_na(treso.id.por) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
+
 por_total <- observed_por_pos_90 %>%
   filter(panel == "Elementary", board_type_name == "English Public") %>%
   group_by(treso.id.por) %>%
@@ -880,10 +886,6 @@ calc_error <- function(matrix, a, b) {
   col_sum <- sum(abs(b - colSums(matrix)))
   return(row_sum + col_sum)
 }
-
-rel_error = 0.001
-max_iterations = 1000
-
 
 matrix_balancing <- function(matrix, a, b, max_iterations = 10000, rel_error = 0.0001) {
   error <- 1.0
@@ -988,6 +990,12 @@ plan(multiprocess)
 results <- future_apply(trip_list2, 1, sample_by_row)
 results_tb = t(as.data.table(results))
 trip_list_schools <- cbind(trip_list2, results_tb)
+```
+
+Validate the assigned trips are matching with known closest scool probability
+
+```{r validate gravity model}
+
 ```
 
 ### Closest School Probability Choice
