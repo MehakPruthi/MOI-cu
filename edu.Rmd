@@ -36,7 +36,7 @@ source("helpers.R")
 - Closest School Model
   - [x] Validate if the distributed patterns matches the observed closest school patterns
   - [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
-
+Trial test sadfsdfsdfsdf
 
 ```{r Import files, include=FALSE}
 # TRESO 
