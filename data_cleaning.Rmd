@@ -710,6 +710,7 @@ idcrosswalk <- read.csv('input/health/SiteID_Linkage_Table.csv') %>%
          name = MNSName,
          type = MNSType,
          siteid = MNSMaster,
+         ALCsite_id = WTISSiteNum,
          facilityid = MNSFacNum)
 
 #Test SiteID/Fac ID Linkages
@@ -866,15 +867,68 @@ HBAMprojected %>%
   distinct(siteid) %>% 
   count()
 
-
-
 ```
 
 ## ALC Data
   - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD)
+  - Given ALC data with multiple Site ID types (1-4-digit codes), each unique volume needs to be stripped out in order to get accurate totals
   - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
 ```{r}
-#ALC Annual Volume Crosswalk
+#Isolate all 3-digit ALC-Site IDs (assuming single address/location)
+three_digit_ALC <- ALCannualvolume %>%
+  filter(siteid < 999,
+         siteid > 99) %>% 
+  select (-casetype,
+          -bedtype) 
 
+unique_facilityids <- hospital_id_master %>% 
+  mutate(pcode = as.character(pcode)) %>% 
+  group_by(facilityid) %>%
+  summarise(pcodecount = n_distinct(pcode)) %>%
+  right_join(hospital_id_master, by=c('facilityid')) %>% 
+  filter(pcodecount == 1) %>% 
+  distinct()
+
+site_id_count <- unique_facilityids %>% 
+  group_by(facilityid) %>% 
+  distinct(siteid) %>% 
+  count()
+
+facilityid_ALC <- left_join(unique_facilityids, three_digit_ALC, by = c('facilityid' = 'siteid')) %>% 
+  filter(!is.na(pcode)) %>% 
+  select(-pcodecount) %>% 
+  # rename('facilityid' = 'siteid',
+  #        'siteid' = 'siteid.y') %>%
+  left_join(site_id_count, by=c('facilityid')) %>% 
+  mutate(totalALCdays = (totalALCdays/n)) %>% 
+  select(-n)
+
+facilityid_ALC %>% filter(facilityid == 927, year ==1112) %>% summarise(n = sum(totalALCdays))
+
+#Isolate all 4-digit ALC-Site IDs
+four_digit_ALC <- ALCannualvolume %>% 
+  filter(siteid > 999) %>% 
+  select(-casetype,
+          -bedtype)
+
+siteid_ALC <-left_join(four_digit_ALC, hospital_id_master, by = c('siteid' = 'ALCsite_id')) %>% 
+  filter(!is.na(pcode)) %>% 
+  rename('ALCsite_id' = 'siteid',
+         'siteid' = 'siteid.y')
+
+ALCsite_id_count <- siteid_ALC %>% 
+  group_by(ALCsite_id) %>% 
+  summarise(duplicates = n_distinct(siteid))
+
+siteid_ALC <- left_join(siteid_ALC, ALCsite_id_count, by = c('ALCsite_id')) %>%
+  mutate(totalALCdays = (totalALCdays/duplicates)) %>% 
+  select(-duplicates)
+
+siteid_ALC %>%  filter(ALCsite_id == 4414, year == 1112) %>% summarise(sum(totalALCdays))
+
+ALC_master <- rbind(siteid_ALC, facilityid_ALC)
+
+#TEST
+ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalALCdays))
 
 ```
