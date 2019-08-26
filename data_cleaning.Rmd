@@ -531,7 +531,7 @@ saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 
 ## Import Health Data from SQL
 ```{r, include=FALSE, eval=FALSE}
-healthRodbc <-odbcConnect("NourDSN")
+healthRodbc <-odbcConnect("SQLDSN")
 
 #Bed Census Data
 dailybedhistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
@@ -577,9 +577,8 @@ caretypes <- healthHBAMprojected %>%
 
 ##Import Health Data from CSVs
 ```{r, include=FALSE, eval=TRUE}
-
 #Bed Census Data
-dailybedcensus <- read.csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
+dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
   drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
   select(facilityid = FACILITY_NO,
          siteid = INST,
@@ -601,10 +600,34 @@ dailybedcensus <- read.csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>
          overflowpatients = OVERFLOWPATIENTS,
          totalpatients = TOTALPATIENTS)
 
-hospitaldischarges <- read.csv('input/health/cap.MOH_Discharges.csv')
+hospitaldischarges <- read_csv('input/health/cap.MOH_Discharges.csv') %>%
+  replace_na(list(Discharges = 0)) %>% 
+  replace_na(list(Total_Days = 0)) %>% 
+  mutate(ATSEPARATIONS = ifelse(ATSEPARATIONS == 'NULL', '0', ATSEPARATIONS),
+         ATSEPARATIONS = as.integer(ATSEPARATIONS),
+         TOTAL_DAYS1 = ifelse(TOTAL_DAYS1 == 'NULL', '0', TOTAL_DAYS1),
+         TOTAL_DAYS1 = as.integer(TOTAL_DAYS1),
+         ALC_DAYS = ifelse(ALC_DAYS == 'NULL', '0', ALC_DAYS),
+         ALC_DAYS = as.integer(ALC_DAYS),
+         agegroup = as.character(AGE_GROUP)) %>% 
+  mutate(totaldays = TOTAL_DAYS1 + Total_Days,
+         discharges = Discharges + ATSEPARATIONS) %>% 
+  select(year = FY, 
+         hospitalcorporation = HOSPITAL_CORPORATION,
+         hospitalname = HOSPITAL_NAME, 
+         facilityid = FACILITY_NO,
+         siteid = SITE_ID,
+         agegroup,
+         bedtype = 'Bed Type',
+         discharges,
+         totaldays,
+         ALCdays = ALC_DAYS) %>% 
+  mutate(agegroup = substring(agegroup, 0, 1)) %>%
+  mutate(agegroup = replace(agegroup, agegroup == 0, 1),
+         agegroup = replace(agegroup, agegroup == 7, 6))
 
 #HBAM Data
-HBAMhistorical <- read.csv('input/health/cap.MOH_HBAM_HIS.csv') %>% 
+HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>% 
   select(year = Year, 
          siteid = Hospital_Site_ID,
          hospitalname = Hospital_Site_Name,
@@ -612,7 +635,8 @@ HBAMhistorical <- read.csv('input/health/cap.MOH_HBAM_HIS.csv') %>%
          agegroup = Age_Group, 
          totalcases = Number_of_Cases,
          csd = CSD)
-HBAMprojected <- read.csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
+
+HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
     select(year = Year, 
          siteid = Hospital_Site_ID, 
          hospitalname = Hospital_Site_Name,
@@ -622,17 +646,17 @@ HBAMprojected <- read.csv('input/health/cap.MOH_HBAM_Proj.csv') %>%
          lengthofstay = Length_of_Stay)
 
 #LHIN Data
-populationLHIN <- read.csv('input/health/dbo.Population_LHIN.csv')
+populationLHIN <- read_csv('input/health/dbo.Population_LHIN.csv')
 
 #ALC Data
 ##Reference Files
-ALCage <- read.csv('input/health/cap.ALCAge.csv')
-ALCcases <- read.csv('input/health/cap.ALCCases.csv')
-ALCdesignations <- read.csv('input/health/cap.ALCDesignations.csv')
-ALCdischargedest <- read.csv('input/health/cap.ALCDischargeDestination.csv')
-ALCinpatientbedtype <- read.csv('input/health/cap.ALCInpatientBedType.csv')
+ALCage <- read_csv('input/health/cap.ALCAge.csv')
+ALCcases <- read_csv('input/health/cap.ALCCases.csv')
+ALCdesignations <- read_csv('input/health/cap.ALCDesignations.csv')
+ALCdischargedest <- read_csv('input/health/cap.ALCDischargeDestination.csv')
+ALCinpatientbedtype <- read_csv('input/health/cap.ALCInpatientBedType.csv')
 #ALC Datasets
-ALCannualvolume <- read.csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
+ALCannualvolume <- read_csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
   select(year = Year,
          siteid = SiteNumber,
          casetype = CaseType,
@@ -642,7 +666,7 @@ ALCannualvolume <- read.csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') 
          freq = Frequency,
          losmean = Mean,
          losmed = Median,
-         los90thp = X90thP,
+         los90thp = '90thP',
          totalALCdays = TotalALCDays) %>% 
   filter(casetype == 9, 
          agegroup != 9,
@@ -650,7 +674,7 @@ ALCannualvolume <- read.csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') 
          bedtype == 'AP',
          dd != "ALL")
 
-ALCmostappropriate <- read.csv('input/health/ALCMostAppropriateDischage.csv') %>% 
+ALCmostappropriate <- read_csv('input/health/ALCMostAppropriateDischage.csv') %>% 
   separate(period, c("year", "month"), sep = "_") %>%
   select(year,
          month,
@@ -661,7 +685,7 @@ ALCmostappropriate <- read.csv('input/health/ALCMostAppropriateDischage.csv') %>
          tag = TYPEFLAG,
          dd = DD,
          madd,
-         freq = X_FREQ_,
+         freq = '_FREQ_',
          losmean = MEAN,
          losmedian = MEDIAN,
          los90thp = P90,
@@ -690,7 +714,7 @@ ALCmostappropriate <- ALCmostappropriate %>%
 # CIHIhospitalbeds <- read.csv('input.health/dbo.CIHI_Hospital_Beds.csv')
 
 #Health Asset Inventory
-hospitallocations <- read.csv('input/health/dbo.MOH_Hospital_Locations.csv') %>% 
+hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>% 
   select(lhin = LHIN,
          lhinlocation = Location,
          name = Name,
@@ -705,7 +729,7 @@ hospitallocations <- read.csv('input/health/dbo.MOH_Hospital_Locations.csv') %>%
          long = longitude)
 
 #CCO Linkage Table
-idcrosswalk <- read.csv('input/health/SiteID_Linkage_Table.csv') %>% 
+idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>% 
   select(lhin = WTISLHINNum,
          name = MNSName,
          type = MNSType,
@@ -734,7 +758,64 @@ hospital_id_master <- idlinkage %>%
   distinct()
 ```
 
-##Bed Census Data Cleaning and Analysis
+##TRESO Data Input
+```{r}
+#TRESO-CSD Crosswalk
+treso_csd_tb <- read_csv('input/treso/treso_zone_system.csv') %>% 
+  rename('treso_zone' = 'treso_id')
+
+treso_health_tb <- socio_economic_tb %>%
+  group_by(treso_zone) %>%
+  summarise(
+    n_pop = n(),
+    n_hhlds = length(unique(hhid)),
+    n_ft = length(treso_zone[work_status == "full_time"]),
+    n_pt = length(treso_zone[work_status == "part_time"]),
+    n_unemp = length(treso_zone[work_status == "unemployed"]),
+    n_ag1_pop = length(treso_zone[age <= 17 & age >= 0]),
+    n_ag2_pop = length(treso_zone[age <= 44 & age >= 18]),
+    n_ag3_pop = length(treso_zone[age <= 64 & age >= 45]),
+    n_ag4_pop = length(treso_zone[age <= 74 & age >= 65]),
+    n_ag5_pop = length(treso_zone[age <= 84 & age >= 75]),
+    n_ag6_pop = length(treso_zone[age >= 85]),
+    n_ped1_pop = length(treso_zone[age <= 1]),
+    n_ped2_pop = length(treso_zone[age <= 7 & age >= 1]),
+    n_ped3_pop = length(treso_zone[age <= 17 & age >= 8]),
+    
+    mean_income = mean(income, na.rm = TRUE),
+    mean_age = mean(age, na.rm = TRUE),
+    
+    occu_management = length(treso_zone[nocs_11 == 1]),
+    occu_business = length(treso_zone[nocs_11 == 2]),
+    occu_science = length(treso_zone[nocs_11 == 3]),
+    occu_health = length(treso_zone[nocs_11 == 4]),
+    occu_public = length(treso_zone[nocs_11 == 5]),
+    occu_recreation = length(treso_zone[nocs_11 == 6]),
+    occu_sales = length(treso_zone[nocs_11 == 7]),
+    occu_trades = length(treso_zone[nocs_11 == 8]),
+    occu_production = length(treso_zone[nocs_11 == 9]),
+    occu_manufacturing = length(treso_zone[nocs_11 == 10]),
+    occu_notapplicable = length(treso_zone[nocs_11 == 99]),
+    attend_school = length(treso_zone[school_status == 2]),
+    deg_none = length(treso_zone[hdgree == 1]),
+    deg_hs = length(treso_zone[hdgree == 2]),
+    deg_trades = length(treso_zone[hdgree == 3]),
+    deg_ra = length(treso_zone[hdgree == 4]),
+    deg_col = length(treso_zone[hdgree == 5]),
+    deg_uni = length(treso_zone[hdgree == 6]),
+    deg_ugrad = length(treso_zone[hdgree == 7]),
+    deg_grad = length(treso_zone[hdgree == 8]),
+    deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
+  ) %>%
+  # left_join(hhld_structure, by = "treso_zone") %>%
+  left_join(treso_csd_tb, by = 'treso_zone')
+  # saveRDS("cache/treso_tb.rds")
+
+
+
+```
+
+##Bed Census Data Cleaning
   - Simplify and aggregate daily census to annual figures
   - Calculate the number of daily entries available for each site id
   - Calculate Annualization factor
@@ -826,46 +907,180 @@ dailybedcensus %>%
 
 ##Discharge Data
 ```{r}
-#Health Discharges
-totaldaystest <- healthDischarges %>% 
-  select(SITE_ID, Total_Days, TOTAL_DAYS1, DaysInYear)
 
-discharges <- healthDischarges %>% 
-  mutate(totaldays = Total_Days + as.numeric(TOTAL_DAYS1),
-         agegroup = as.character(AGE_GROUP)) %>% 
-  select(fiscalyear = FY, 
-         hospitalcorporation = HOSPITAL_CORPORATION, 
-         facilityid = FACILITY_NO,
-         hospitalname = HOSPITAL_NAME, 
-         siteid = SITE_ID,
-         agegroup,
-         bedtype = "Bed Type",
-         discharges = Discharges,
-         totaldays,
-         activecases = Active_Cases
-         ) %>% 
-  separate(agegroup, c("agegroup", "agedef"), sep = " ") %>%
-  mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>%
-  mutate(agegroup = replace(agegroup, agegroup == 7, 6)) %>%
-  select(-agedef)
- 
-#Total Discharges and Days by CT (Test for AT/ED = NA)
-discharges %>% 
-  group_by(bedtype) %>% 
-  summarise(totaldays = sum(totaldays),
-            totalcases = sum(activecases))
 
 ```
 ##HBAM Data
+  - Join HBAM historical data with TRESO CSD 
+  - Join TRESO MOF Pop data with HBAM for Origin caseloads
 ```{r}
-#Count Site IDs from HBAM
-HBAMhistorical %>% 
-  distinct(siteid) %>% 
-  count()
+#Adjust HBAM data to Match TRESO population spread
+HBAMhistorical_csd_spread <- HBAMhistorical %>%
+  filter(year == 2016) %>% 
+  spread(agegroup, totalcases) %>% 
+  rename('cases_ag1' =  "0-17",
+         'cases_ag2' = "18-44",
+         'cases_ag3' = "45-64",
+         'cases_ag4' = "65-74",
+         'cases_ag5' = "75-84",
+         'cases_ag6' = ">85",
+         'cases_ped1' = "<1",
+         'cases_ped2' = "1-7",
+         'cases_ped3' = "8-17") %>% 
+  group_by(year, csd, caretype) %>% 
+  summarise(cases_tot = sum(cases_ag1, cases_ag2, cases_ag3, cases_ag4, cases_ag5, cases_ag6, na.rm = TRUE),
+            cases_ag1 = sum(cases_ag1, na.rm = TRUE),
+            cases_ag2 = sum(cases_ag2, na.rm = TRUE),
+            cases_ag3 = sum(cases_ag3, na.rm = TRUE),
+            cases_ag4 = sum(cases_ag4, na.rm = TRUE),
+            cases_ag5 = sum(cases_ag5, na.rm = TRUE),
+            cases_ag6 = sum(cases_ag6, na.rm = TRUE),
+            cases_ped1 = sum(cases_ped1, na.rm = TRUE),
+            cases_ped2 = sum(cases_ped2, na.rm = TRUE),
+            cases_ped3 = sum(cases_ped3, na.rm = TRUE))
 
-HBAMprojected %>% 
-  distinct(siteid) %>% 
-  count()
+#Aggregate TRESO pop data to the CSD-level
+csd_pop <- treso_health_tb %>% 
+  ungroup(treso_zone) %>%
+  rename('csd' = 'csduid') %>% 
+  group_by(csd) %>% 
+  summarise(pop_tot = sum(n_pop),
+            pop_ag1 = sum(n_ag1_pop),
+            pop_ag2 = sum(n_ag2_pop),
+            pop_ag3 = sum(n_ag3_pop),
+            pop_ag4 = sum(n_ag4_pop),
+            pop_ag5 = sum(n_ag5_pop),
+            pop_ag6 = sum(n_ag6_pop),
+            pop_ped1 = sum(n_ped1_pop),
+            pop_ped2 = sum(n_ped2_pop),
+            pop_ped3 = sum(n_ped3_pop))
+
+#Provincial Caserates
+cases_total <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>%
+  summarise(cases_total = sum(cases_tot))
+
+pop_total <- csd_pop %>%
+  summarise(total_pop = sum(pop_tot))
+
+provincial_caserate = cases_total/pop_total
+
+#Provincial Caserate by CT
+cases_ct <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>% 
+  group_by(caretype) %>% 
+  summarise(cases_total = sum(cases_tot)) %>% 
+  mutate(index_link = 1)
+
+pop_total <- pop_total %>%
+  mutate(index_link = 1) 
+  
+provincial_caserate_ct <- left_join(cases_ct, pop_total, by = 'index_link') %>% 
+  mutate(caserate_ct = cases_total/total_pop) %>% 
+  select(-index_link,
+         caretype,
+         caserate_ct)
+
+#Provincial Caserate by Age Group
+pop_agegroup <- csd_pop %>% 
+  ungroup(csd) %>% 
+  summarise(pop_tot = sum(pop_tot),
+            pop_ag1 = sum(pop_ag1),
+            pop_ag2 = sum(pop_ag2),
+            pop_ag3 = sum(pop_ag3),
+            pop_ag4 = sum(pop_ag4),
+            pop_ag5 = sum(pop_ag5),
+            pop_ag6 = sum(pop_ag6),
+            pop_ped1 = sum(pop_ped1),
+            pop_ped2 = sum(pop_ped2),
+            pop_ped3 = sum(pop_ped3)) %>% 
+  mutate(index_link = 1)
+
+cases_agegoup <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>%
+  summarise(cases_tot = sum(cases_tot),
+            cases_ag1 = sum(cases_ag1),
+            cases_ag2 = sum(cases_ag2),
+            cases_ag3 = sum(cases_ag3),
+            cases_ag4 = sum(cases_ag4),
+            cases_ag5 = sum(cases_ag5),
+            cases_ag6 = sum(cases_ag6),
+            cases_ped1 = sum(cases_ped1),
+            cases_ped2 = sum(cases_ped2),
+            cases_ped3 = sum(cases_ped3)) %>% 
+  mutate(index_link = 1)
+  
+provincial_caserate_agegroup <- left_join(cases_agegoup, pop_agegroup, by = 'index_link') %>% 
+  mutate(caserate_tot = cases_tot/pop_tot,
+         caserate_ag1 = cases_ag1/pop_ag1,
+         caserate_ag2 = cases_ag2/pop_ag2,
+         caserate_ag3 = cases_ag3/pop_ag3,
+         caserate_ag4 = cases_ag4/pop_ag4,
+         caserate_ag5 = cases_ag5/pop_ag5,
+         caserate_ag6 = cases_ag6/pop_ag6,
+         caserate_ped1 = cases_ped1/pop_ped1,
+         caserate_ped2 = cases_ped2/pop_ped2,
+         caserate_ped3 = cases_ped3/pop_ped3) %>% 
+  select(caserate_tot,
+         caserate_ag1,
+         caserate_ag2,
+         caserate_ag3,
+         caserate_ag4,
+         caserate_ag5,
+         caserate_ag6,
+         caserate_ped1,
+         caserate_ped2,
+         caserate_ped3)
+
+# create a column named anything and just fill it with a constant of anything "x"
+# do the same on c_total 
+# join on that column
+
+# join p-total into c-total and then new column in c-total will be the division
+
+#Provincial Caserate by Caretype by Age Group
+cases_ct_agegroup <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>% 
+  group_by(caretype) %>% 
+    summarise(cases_tot = sum(cases_tot),
+            cases_ag1 = sum(cases_ag1),
+            cases_ag2 = sum(cases_ag2),
+            cases_ag3 = sum(cases_ag3),
+            cases_ag4 = sum(cases_ag4),
+            cases_ag5 = sum(cases_ag5),
+            cases_ag6 = sum(cases_ag6),
+            cases_ped1 = sum(cases_ped1),
+            cases_ped2 = sum(cases_ped2),
+            cases_ped3 = sum(cases_ped3)) %>% 
+  mutate(index_link = 1)
+
+caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by = 'index_link') %>% 
+    mutate(caserate_tot = cases_tot/pop_tot,
+         caserate_ag1 = cases_ag1/pop_ag1,
+         caserate_ag2 = cases_ag2/pop_ag2,
+         caserate_ag3 = cases_ag3/pop_ag3,
+         caserate_ag4 = cases_ag4/pop_ag4,
+         caserate_ag5 = cases_ag5/pop_ag5,
+         caserate_ag6 = cases_ag6/pop_ag6,
+         caserate_ped1 = cases_ped1/pop_ped1,
+         caserate_ped2 = cases_ped2/pop_ped2,
+         caserate_ped3 = cases_ped3/pop_ped3) %>% 
+  select(caretype,
+         caserate_tot,
+         caserate_ag1,
+         caserate_ag2,
+         caserate_ag3,
+         caserate_ag4,
+         caserate_ag5,
+         caserate_ag6,
+         caserate_ped1,
+         caserate_ped2,
+         caserate_ped3)
+
+
+#Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
+csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>% 
+  drop_na(pop_tot)
 
 ```
 
