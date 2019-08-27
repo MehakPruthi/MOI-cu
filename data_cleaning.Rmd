@@ -723,14 +723,16 @@ hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>%
          lhinlocation = Location,
          name = Name,
          type = Type,
-         siteid = Master.Number,
-         facilityid = Facility.Number,
-         hospitalcorp = Provider.Legal.Name,
-         address = Address.Line.1,
+         siteid = 'Master Number',
+         facilityid = 'Facility Number',
+         hospitalcorp = 'Provider Legal Name',
+         address = 'Address Line 1',
          city = City,
-         pcode = Postal.Code,
+         pcode = 'Postal Code',
          lat = latitude,
          long = longitude)
+
+saveRDS(hospitallocations, file = 'cache/hospitals/hospitallocations.rds')
 
 #CCO Linkage Table
 idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>% 
