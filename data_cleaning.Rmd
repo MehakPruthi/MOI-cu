@@ -816,7 +816,7 @@ treso_health_tb <- socio_economic_tb %>%
   left_join(treso_csd_tb, by = 'treso_zone')
   # saveRDS("cache/treso_tb.rds")
 
-
+saveRDS(treso_health_tb, file = 'cache/hospitals/treso_health_tb.rds')
 
 ```
 
@@ -1087,6 +1087,7 @@ csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>%
 ```
 
 ###Census Division (CD) Caserate Calculations
+  - Convert HBAM data back to long format
   - Calculate caserates per care-type disaggregated by age group
   - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
   - Note: age groups ped1:ped3 redundant within age group "1", exclude when totalling
@@ -1145,8 +1146,10 @@ cd_caserate_ct_agegroup <- left_join(HBAMhistorical_cd_long, cd_pop_long, by = c
   filter(!is.na(population)) %>%
   mutate(caserate = totalcases/population)
 
-```
+saveRDS(cd_caserate_ct_agegroup, file = 'cache/hospitals/cd_caserates.rds')
+saveRDS(HBAMhistorical_cd_long, file = 'cache/hospitals/hbam_cd.rds')
 
+```
 
 ## ALC Data
   - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD)
