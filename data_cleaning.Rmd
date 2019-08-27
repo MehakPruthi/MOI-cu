@@ -576,6 +576,10 @@ caretypes <- healthHBAMprojected %>%
 ```
 
 ##Import Health Data from CSVs
+  - Clean and organize provided data to maintain variable-name consistency across all datasets and filter for data entry errors
+  - Age group filters exclude agegroup index "9 (total)" to prevent double counting
+  - Age group filters exclude "7 (Missing)"
+  - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
 ```{r, include=FALSE, eval=TRUE}
 #Bed Census Data
 dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
@@ -623,8 +627,8 @@ hospitaldischarges <- read_csv('input/health/cap.MOH_Discharges.csv') %>%
          totaldays,
          ALCdays = ALC_DAYS) %>% 
   mutate(agegroup = substring(agegroup, 0, 1)) %>%
-  mutate(agegroup = replace(agegroup, agegroup == 0, 1),
-         agegroup = replace(agegroup, agegroup == 7, 6))
+  mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
+  filter(agegroup != 7)
 
 #HBAM Data
 HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>% 
@@ -759,6 +763,7 @@ hospital_id_master <- idlinkage %>%
 ```
 
 ##TRESO Data Input
+  - Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
 ```{r}
 #TRESO-CSD Crosswalk
 treso_csd_tb <- read_csv('input/treso/treso_zone_system.csv') %>% 
@@ -815,7 +820,7 @@ treso_health_tb <- socio_economic_tb %>%
 
 ```
 
-##Bed Census Data Cleaning
+##Daily Bed Census Data Cleaning and Aggregation
   - Simplify and aggregate daily census to annual figures
   - Calculate the number of daily entries available for each site id
   - Calculate Annualization factor
@@ -910,9 +915,10 @@ dailybedcensus %>%
 
 
 ```
-##HBAM Data
-  - Join HBAM historical data with TRESO CSD 
-  - Join TRESO MOF Pop data with HBAM for Origin caseloads
+
+##HBAM Data and Caserate Caculations
+  - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
+  - Aggregate TRESO population data to CSD level
 ```{r}
 #Adjust HBAM data to Match TRESO population spread
 HBAMhistorical_csd_spread <- HBAMhistorical %>%
@@ -954,7 +960,11 @@ csd_pop <- treso_health_tb %>%
             pop_ped1 = sum(n_ped1_pop),
             pop_ped2 = sum(n_ped2_pop),
             pop_ped3 = sum(n_ped3_pop))
+```
 
+###Provincial Caserate Calculations
+  - Calculate caserates by care types for provincial level disaggregated by age group
+```{r}
 #Provincial Caserates
 cases_total <- HBAMhistorical_csd_spread %>% 
   ungroup(csd) %>%
@@ -1032,12 +1042,6 @@ provincial_caserate_agegroup <- left_join(cases_agegoup, pop_agegroup, by = 'ind
          caserate_ped2,
          caserate_ped3)
 
-# create a column named anything and just fill it with a constant of anything "x"
-# do the same on c_total 
-# join on that column
-
-# join p-total into c-total and then new column in c-total will be the division
-
 #Provincial Caserate by Caretype by Age Group
 cases_ct_agegroup <- HBAMhistorical_csd_spread %>% 
   ungroup(csd) %>% 
@@ -1054,8 +1058,8 @@ cases_ct_agegroup <- HBAMhistorical_csd_spread %>%
             cases_ped3 = sum(cases_ped3)) %>% 
   mutate(index_link = 1)
 
-caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by = 'index_link') %>% 
-    mutate(caserate_tot = cases_tot/pop_tot,
+provincial_caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by = 'index_link') %>% 
+  mutate(caserate_tot = cases_tot/pop_tot,
          caserate_ag1 = cases_ag1/pop_ag1,
          caserate_ag2 = cases_ag2/pop_ag2,
          caserate_ag3 = cases_ag3/pop_ag3,
@@ -1077,12 +1081,72 @@ caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by = 'index_l
          caserate_ped2,
          caserate_ped3)
 
-
 #Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
 csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>% 
   drop_na(pop_tot)
+```
+
+###Census Division (CD) Caserate Calculations
+  - Calculate caserates per care-type disaggregated by age group
+  - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
+  - Note: age groups ped1:ped3 redundant within age group "1", exclude when totalling
+```{r}
+options(scipen = 10, digits = 3)
+
+HBAMhistorical_cd_spread <- HBAMhistorical_csd_spread %>% 
+  mutate(cd = substring(csd, 0,4)) %>% 
+  group_by(cd, caretype) %>% 
+  summarise(cases_ag1 = sum(cases_ag1),
+            cases_ag2 = sum(cases_ag2),
+            cases_ag3 = sum(cases_ag3),
+            cases_ag4 = sum(cases_ag4),
+            cases_ag5 = sum(cases_ag5),
+            cases_ag6 = sum(cases_ag6),
+            cases_ped1 = sum(cases_ped1),
+            cases_ped2 = sum(cases_ped2),
+            cases_ped3 = sum(cases_ped3))
+
+HBAMhistorical_cd_long <- gather(HBAMhistorical_cd_spread, agegroup, totalcases, cases_ag1:cases_ped3) %>% 
+    mutate(agegroup = replace(agegroup, agegroup == 'cases_ag1', 1),
+         agegroup = replace(agegroup, agegroup == 'cases_ag2', 2),
+         agegroup = replace(agegroup, agegroup == 'cases_ag3', 3),
+         agegroup = replace(agegroup, agegroup == 'cases_ag4', 4),
+         agegroup = replace(agegroup, agegroup == 'cases_ag5', 5),
+         agegroup = replace(agegroup, agegroup == 'cases_ag6', 6),
+         agegroup = replace(agegroup, agegroup == 'cases_ped1', 'ped1'),
+         agegroup = replace(agegroup, agegroup == 'cases_ped2', 'ped2'),
+         agegroup = replace(agegroup, agegroup == 'cases_ped3', 'ped3'))
+
+cd_pop <- csd_pop %>% 
+  mutate(cd = substring(csd, 0,4)) %>% 
+  group_by(cd) %>% 
+  summarise(pop_ag1 = sum(pop_ag1),
+            pop_ag2 = sum(pop_ag2),
+            pop_ag3 = sum(pop_ag3),
+            pop_ag4 = sum(pop_ag4),
+            pop_ag5 = sum(pop_ag5),
+            pop_ag6 = sum(pop_ag6),
+            pop_ped1 = sum(pop_ped1),
+            pop_ped2 = sum(pop_ped2),
+            pop_ped3 = sum(pop_ped3))
+
+cd_pop_long <- gather(cd_pop, agegroup, population, pop_ag1:pop_ped3) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == 'pop_ag1', 1),
+         agegroup = replace(agegroup, agegroup == 'pop_ag2', 2),
+         agegroup = replace(agegroup, agegroup == 'pop_ag3', 3),
+         agegroup = replace(agegroup, agegroup == 'pop_ag4', 4),
+         agegroup = replace(agegroup, agegroup == 'pop_ag5', 5),
+         agegroup = replace(agegroup, agegroup == 'pop_ag6', 6),
+         agegroup = replace(agegroup, agegroup == 'pop_ped1', 'ped1'),
+         agegroup = replace(agegroup, agegroup == 'pop_ped2', 'ped2'),
+         agegroup = replace(agegroup, agegroup == 'pop_ped3', 'ped3'))
+
+cd_caserate_ct_agegroup <- left_join(HBAMhistorical_cd_long, cd_pop_long, by = c('cd', 'agegroup')) %>% 
+  filter(!is.na(population)) %>%
+  mutate(caserate = totalcases/population)
 
 ```
+
 
 ## ALC Data
   - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD)
