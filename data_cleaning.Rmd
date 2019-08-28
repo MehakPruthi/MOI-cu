@@ -638,7 +638,21 @@ HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>%
          caretype = Care_Type,
          agegroup = Age_Group, 
          totalcases = Number_of_Cases,
-         csd = CSD)
+         csd = CSD) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
+         agegroup = replace(agegroup, agegroup == '18-44', 2),
+         agegroup = replace(agegroup, agegroup == '45-64', 3),
+         agegroup = replace(agegroup, agegroup == '65-74', 4),
+         agegroup = replace(agegroup, agegroup == '75-84', 5),
+         agegroup = replace(agegroup, agegroup == '>85', 6),
+         agegroup = replace(agegroup, agegroup == '<1', 'ped1'),
+         agegroup = replace(agegroup, agegroup == '1-7', 'ped2'),
+         agegroup = replace(agegroup, agegroup == '8-17', 'ped3'),
+         caretype = replace(caretype, caretype == 'IP', 'AT'),
+         caretype = replace(caretype, caretype == 'CCC', 'CR'),
+         caretype = replace(caretype, caretype == 'Rehab', 'GR'))
+
+saveRDS(HBAMhistorical, file = 'cache/hospitals/HBAMhistorical.rds')
 
 HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
     select(year = Year, 
@@ -926,15 +940,15 @@ dailybedcensus %>%
 HBAMhistorical_csd_spread <- HBAMhistorical %>%
   filter(year == 2016) %>% 
   spread(agegroup, totalcases) %>% 
-  rename('cases_ag1' =  "0-17",
-         'cases_ag2' = "18-44",
-         'cases_ag3' = "45-64",
-         'cases_ag4' = "65-74",
-         'cases_ag5' = "75-84",
-         'cases_ag6' = ">85",
-         'cases_ped1' = "<1",
-         'cases_ped2' = "1-7",
-         'cases_ped3' = "8-17") %>% 
+  rename('cases_ag1' =  "1",
+         'cases_ag2' = "2",
+         'cases_ag3' = "3",
+         'cases_ag4' = "4",
+         'cases_ag5' = "5",
+         'cases_ag6' = "6",
+         'cases_ped1' = "ped1",
+         'cases_ped2' = "ped2",
+         'cases_ped3' = "ped3") %>% 
   group_by(year, csd, caretype) %>% 
   summarise(cases_tot = sum(cases_ag1, cases_ag2, cases_ag3, cases_ag4, cases_ag5, cases_ag6, na.rm = TRUE),
             cases_ag1 = sum(cases_ag1, na.rm = TRUE),
