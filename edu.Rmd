@@ -549,20 +549,46 @@ ggplotly(g5)
 school_tb <- readRDS("output/school_tb_80.rds")
 
 # Join with EQAO Scores
-school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao), by = "sfis")
+school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by = "sfis")
 
 # Filter the school database down
-school_tb_filtered <- filter(school_tb, panel == "Elementary", board.type.name == "English Public", eqao != 0, utilization < 1.5)
+school_tb_filtered <- filter(school_tb, panel == "Elementary", board.type.name == "English Public", eqao.standardized != 0, utilization < 1.5)
 
 # Display schools that has captured a large area and their 2011 ADE
 school_tb_filtered %>%
   arrange(desc(utilization)) %>%
   select(school.name.x, utilization, ade)
 
+
+student_tlfd_90_dist <- readRDS("output/observed_por_pos_90.rds") %>%
+  drop_na(treso.id.por) %>%
+  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+  uncount(enrolment)%>%
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse(travel.time == 0,
+                              euclidean.travel.time,
+                              travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
+  mutate(travel.time = ifelse(compare.travel.time > 30,
+                              euclidean.travel.time,
+                              travel.time)) %>%
+  group_by(sfis) %>%
+  summarise(average.travel.time = mean(travel.time)) 
+
+school_tb_filtered <- left_join(school_tb_filtered, student_tlfd_90_dist, by = "sfis")
+
+
 # Build linear regression dataset with various transformed x, y variables
 linreg <- school_tb_filtered %>%
-  select(ade, utilization, eqao, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age) %>%
+  select(ade, utilization, eqao.standardized, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age, average.travel.time) %>%
   mutate(shape.area_sum = shape.area_sum / 1e6) %>%
+  mutate(n_pop_density = n_pop_sum / shape.area_sum) %>%
   mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
   mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum) %>%
   mutate(n_two_adult_two_child_density = n_two_adult_two_child_sum / shape.area_sum) %>%
@@ -573,8 +599,12 @@ linreg <- school_tb_filtered %>%
   mutate(dummy_large_pop = ifelse(n_pop_sum >= 10e+4, 1, 0)) %>%
   bind_cols(select(school_tb_filtered, sfis, school.name.x))
 
-linreg %>%
-  select(ade, school.name.x, sfis) %>%
+
+
+
+
+linreg <- linreg %>%
+  select(ade, school.name.x, sfis, average.travel.time, utilization, n_pop_density, eqao.standardized) %>%
   filter(ade < 100)
 
 # Exploring the data relationships
@@ -588,15 +618,16 @@ linreg_large <- linreg %>%
   filter(n_sec_pop_density_sqrt >= 5)
 
 # Build models
-mod.small <- lm(utilization ~  eqao, data = linreg_small)
+mod.small <- lm(utilization ~  eqao.standardized, data = linreg_small)
 summary(mod.small)
 #plot(mod.small)
-mod.large <- lm(utilization ~ eqao, data = linreg_large)
+mod.large <- lm(utilization ~ eqao.standardized, data = linreg_large)
 summary(mod.large)
 #plot(mod.large)
-mod <- lm(utilization ~ eqao + n_ele_pop_density, data = linreg)
+mod <- lm(ade ~ average.travel.time + n_pop_density, data = linreg)
 summary(mod)
 plot(mod)
+  
 # mod.base <- lm(ade_2011 ~ n_sec_pop_sum_sqrt, data = linreg)
 # mod.expand <- lm(ade_2011 ~ n_sec_pop_sum_sqrt + n_ele_pop_sum_sqrt, data = linreg)
 # anova(mod.base, mod.expand)
