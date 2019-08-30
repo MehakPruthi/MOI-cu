@@ -580,6 +580,7 @@ caretypes <- healthHBAMprojected %>%
   - Age group filters exclude agegroup index "9 (total)" to prevent double counting
   - Age group filters exclude "7 (Missing)"
   - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
+  - Filter HBAM CSDs to remove origin CSDs not in Ontario
 ```{r, include=FALSE, eval=TRUE}
 #Bed Census Data
 dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
@@ -639,6 +640,8 @@ HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>%
          agegroup = Age_Group, 
          totalcases = Number_of_Cases,
          csd = CSD) %>% 
+  filter(csd < 4600000,
+         csd > 3501000) %>% 
   mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
          agegroup = replace(agegroup, agegroup == '18-44', 2),
          agegroup = replace(agegroup, agegroup == '45-64', 3),
@@ -937,8 +940,8 @@ dailybedcensus %>%
 ```{r}
 #Adjust HBAM data to Match TRESO population spread
 HBAMhistorical_csd_spread <- HBAMhistorical %>%
-  filter(year == 2016) %>% 
   spread(agegroup, totalcases) %>% 
+  filter(year == 2016) %>% 
   rename('cases_ag1' =  "1",
          'cases_ag2' = "2",
          'cases_ag3' = "3",
@@ -1107,32 +1110,27 @@ csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>%
   - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
   - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
       - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
+  - 
 ```{r}
 options(scipen = 10, digits = 3)
 
 HBAMhistorical_cd_spread <- HBAMhistorical_csd_spread %>% 
   mutate(cd = substring(csd, 0,4)) %>% 
   group_by(cd, caretype) %>% 
-  summarise(cases_ag1 = sum(cases_ag1),
+  summarise(cases_ag1 = sum(cases_ag1, cases_ped1, cases_ped2, cases_ped3),
             cases_ag2 = sum(cases_ag2),
             cases_ag3 = sum(cases_ag3),
             cases_ag4 = sum(cases_ag4),
             cases_ag5 = sum(cases_ag5),
-            cases_ag6 = sum(cases_ag6),
-            cases_ped1 = sum(cases_ped1),
-            cases_ped2 = sum(cases_ped2),
-            cases_ped3 = sum(cases_ped3))
+            cases_ag6 = sum(cases_ag6))
 
-HBAMhistorical_cd_long <- gather(HBAMhistorical_cd_spread, agegroup, totalcases, cases_ag1:cases_ped3) %>% 
+HBAMhistorical_cd_long <- gather(HBAMhistorical_cd_spread, agegroup, totalcases, cases_ag1:cases_ag6) %>% 
   mutate(agegroup = replace(agegroup, agegroup == 'cases_ag1', 1),
          agegroup = replace(agegroup, agegroup == 'cases_ag2', 2),
          agegroup = replace(agegroup, agegroup == 'cases_ag3', 3),
          agegroup = replace(agegroup, agegroup == 'cases_ag4', 4),
          agegroup = replace(agegroup, agegroup == 'cases_ag5', 5),
-         agegroup = replace(agegroup, agegroup == 'cases_ag6', 6),
-         agegroup = replace(agegroup, agegroup == 'cases_ped1', 1), #Merge 'ped' age groups into 'ag1' bin
-         agegroup = replace(agegroup, agegroup == 'cases_ped2', 1),
-         agegroup = replace(agegroup, agegroup == 'cases_ped3', 1))
+         agegroup = replace(agegroup, agegroup == 'cases_ag6', 6)) 
 
 cd_pop <- csd_pop %>% 
   mutate(cd = substring(csd, 0,4)) %>% 
@@ -1155,6 +1153,10 @@ cd_pop_long <- gather(cd_pop, agegroup, population, pop_ag1:pop_ag6) %>%
 cd_caserate_ct_agegroup <- left_join(HBAMhistorical_cd_long, cd_pop_long, by = c('cd', 'agegroup')) %>% 
   filter(!is.na(population)) %>%
   mutate(caserate = totalcases/population)
+
+mismatched_cd <- left_join(HBAMhistorical_cd_long, cd_pop_long, by = c('cd', 'agegroup')) %>% 
+  filter(is.na(population)) %>% 
+  summarise(sum(totalcases))
 
 saveRDS(cd_caserate_ct_agegroup, file = 'cache/hospitals/cd_caserates.rds')
 saveRDS(HBAMhistorical_cd_long, file = 'cache/hospitals/hbam_cd.rds')
