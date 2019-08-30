@@ -929,7 +929,6 @@ dailybedcensus %>%
 ##Discharge Data
 ```{r}
 
-
 ```
 
 ##HBAM Data and Caserate Caculations
@@ -1106,7 +1105,8 @@ csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>%
   - Convert HBAM data back to long format
   - Calculate caserates per care-type disaggregated by age group
   - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
-  - Note: age groups ped1:ped3 redundant within age group "1", exclude when totalling
+  - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
+      - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
 ```{r}
 options(scipen = 10, digits = 3)
 
@@ -1124,15 +1124,15 @@ HBAMhistorical_cd_spread <- HBAMhistorical_csd_spread %>%
             cases_ped3 = sum(cases_ped3))
 
 HBAMhistorical_cd_long <- gather(HBAMhistorical_cd_spread, agegroup, totalcases, cases_ag1:cases_ped3) %>% 
-    mutate(agegroup = replace(agegroup, agegroup == 'cases_ag1', 1),
+  mutate(agegroup = replace(agegroup, agegroup == 'cases_ag1', 1),
          agegroup = replace(agegroup, agegroup == 'cases_ag2', 2),
          agegroup = replace(agegroup, agegroup == 'cases_ag3', 3),
          agegroup = replace(agegroup, agegroup == 'cases_ag4', 4),
          agegroup = replace(agegroup, agegroup == 'cases_ag5', 5),
          agegroup = replace(agegroup, agegroup == 'cases_ag6', 6),
-         agegroup = replace(agegroup, agegroup == 'cases_ped1', 'ped1'),
-         agegroup = replace(agegroup, agegroup == 'cases_ped2', 'ped2'),
-         agegroup = replace(agegroup, agegroup == 'cases_ped3', 'ped3'))
+         agegroup = replace(agegroup, agegroup == 'cases_ped1', 1), #Merge 'ped' age groups into 'ag1' bin
+         agegroup = replace(agegroup, agegroup == 'cases_ped2', 1),
+         agegroup = replace(agegroup, agegroup == 'cases_ped3', 1))
 
 cd_pop <- csd_pop %>% 
   mutate(cd = substring(csd, 0,4)) %>% 
@@ -1142,21 +1142,15 @@ cd_pop <- csd_pop %>%
             pop_ag3 = sum(pop_ag3),
             pop_ag4 = sum(pop_ag4),
             pop_ag5 = sum(pop_ag5),
-            pop_ag6 = sum(pop_ag6),
-            pop_ped1 = sum(pop_ped1),
-            pop_ped2 = sum(pop_ped2),
-            pop_ped3 = sum(pop_ped3))
+            pop_ag6 = sum(pop_ag6))
 
-cd_pop_long <- gather(cd_pop, agegroup, population, pop_ag1:pop_ped3) %>% 
+cd_pop_long <- gather(cd_pop, agegroup, population, pop_ag1:pop_ag6) %>% 
   mutate(agegroup = replace(agegroup, agegroup == 'pop_ag1', 1),
          agegroup = replace(agegroup, agegroup == 'pop_ag2', 2),
          agegroup = replace(agegroup, agegroup == 'pop_ag3', 3),
          agegroup = replace(agegroup, agegroup == 'pop_ag4', 4),
          agegroup = replace(agegroup, agegroup == 'pop_ag5', 5),
-         agegroup = replace(agegroup, agegroup == 'pop_ag6', 6),
-         agegroup = replace(agegroup, agegroup == 'pop_ped1', 'ped1'),
-         agegroup = replace(agegroup, agegroup == 'pop_ped2', 'ped2'),
-         agegroup = replace(agegroup, agegroup == 'pop_ped3', 'ped3'))
+         agegroup = replace(agegroup, agegroup == 'pop_ag6', 6))
 
 cd_caserate_ct_agegroup <- left_join(HBAMhistorical_cd_long, cd_pop_long, by = c('cd', 'agegroup')) %>% 
   filter(!is.na(population)) %>%
