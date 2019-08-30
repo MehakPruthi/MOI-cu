@@ -949,7 +949,7 @@ HBAMhistorical_csd_spread <- HBAMhistorical %>%
          'cases_ped2' = "ped2",
          'cases_ped3' = "ped3") %>% 
   group_by(year, csd, caretype) %>% 
-  summarise(cases_tot = sum(cases_ag1, cases_ag2, cases_ag3, cases_ag4, cases_ag5, cases_ag6, na.rm = TRUE),
+  summarise(cases_tot = sum(cases_ag1, cases_ag2, cases_ag3, cases_ag4, cases_ag5, cases_ag6, cases_ped1, cases_ped2, cases_ped3, na.rm = TRUE),
             cases_ag1 = sum(cases_ag1, na.rm = TRUE),
             cases_ag2 = sum(cases_ag2, na.rm = TRUE),
             cases_ag3 = sum(cases_ag3, na.rm = TRUE),
