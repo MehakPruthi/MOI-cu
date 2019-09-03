@@ -749,23 +749,7 @@ euclidean travel time at 30 km/hr) are set to euclidean travel time.
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
 
-generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
-  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  # Combine into one dataframe and plot TLFD
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  return(combined_tlfd)
-}
+
 
 # Read in the observed trips, and focus on elementary/EP
 # Combine with travel time
@@ -801,14 +785,20 @@ tlfd_obs <- sum(observed_trips$value * observed_trips$enrolment) / sum(observed_
 print(paste0("The average travel time to be calibrated to is " , tlfd_obs))
   
 cost <- travel_time_skim_select
-initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-initalpha <- 1/log(sum(cost$value)) + runif(1)/10
+#initbeta <- -1/log(sum(cost$value)) - runif(1)/10
+#initalpha <- 1/log(sum(cost$value)) + runif(1)/10
+initbeta <- -0.13
+initalpha <- 0.52
 beta <- initbeta
 alpha <- initalpha
+max_value = 85
+bin_size = 1
 
-iterations <- 12
+
+iterations <- 20
 for (j in 1:iterations) {
   print(j)
+  
   cfunc <- cost %>%
     mutate(value = value^alpha * exp(beta*value)) %>%
     replace_na(value = 0)
@@ -832,6 +822,10 @@ for (j in 1:iterations) {
   tlfd_sim <- sum(simulated_trips$value * simulated_trips$enrolment) / sum(simulated_trips$enrolment)
   print(paste0("The average travel time of simulated is " , tlfd_sim))
   
+  # Calculate CR Ratio
+  
+ 
+   
   if (j %% 2 == 0) {
     alpha <- alpha * (tlfd_sim/tlfd_obs)
     print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
@@ -839,7 +833,52 @@ for (j in 1:iterations) {
     beta <- beta * (tlfd_sim/tlfd_obs)
     print(paste0("The beta value in this iteriation of the combined function is ", beta))
   }
+  
+    
+  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "obs")
+  
+  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "model")
+  
+  tlfdjoin <- left_join(sim_tlfd, obs_tlfd, by = "bin")%>%
+    replace_na(list(enrolment.x = 0, enrolment.y = 0))%>%
+    mutate(max.enrol = pmax(enrolment.x,enrolment.y))%>%
+    mutate(min.enrol = pmin(enrolment.x,enrolment.y))
+  
+  minsum = sum(tlfdjoin$min.enrol)
+  
+  maxsum = sum(tlfdjoin$max.enrol)
+  
+  CR = minsum/maxsum
+  print(paste0("The CR value for this iteration is ", CR))
+  
 }
+
+generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
+  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "obs")
+  
+  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "model")
+  
+  # Combine into one dataframe and plot TLFD
+  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
+  return(combined_tlfd)
+}
+
 
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, 85, 1)
 
