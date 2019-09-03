@@ -2,25 +2,28 @@
 # For PDF: (OTHER WSP PACKAGES AND SETTINGS CAN BE FOUND IN THE TEMPLATE.TEX FILE MARKED BY "%THESE ARE WSP ADDED")
 # For PDF: (mainfont, sansfont, and other font settings can be set in header-includes. If set there, they apply to the whole document. If they are set outside the YAML, they do not apply to the Title page and TOC)
 # For PDF: client logos and WSP logos set in header-includes: \lhead and \rhead
-# For PDF: project cover page image can be set in \pretitle below
+# For PDF: project cover page image can be set in \pretitle below 
 header-includes: 
 - \usepackage {fontspec} 
 - \setmainfont [BoldFont = MONTSERRAT-MEDIUM.TTF, 
                 ItalicFont = MONTSERRAT-LIGHTITALIC.TTF, 
                 BoldItalicFont = MONTSERRAT-MEDIUMItalic.TTF]{MONTSERRAT-LIGHT.TTF}  
-    \posttitle{\end{center}}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \addtolength{\headheight}{2cm}
+- \lhead{\includegraphics[width=5cm]{moilogo.png}} 
+- \rhead{\includegraphics[width=3cm]{wsplogo.png}} 
+- \fancypagestyle{plain}{\pagestyle{fancy}}   
+- \pretitle{\begin{center}\LARGE\includegraphics[width=15cm]{img_coverpage.png}\\}  
+    \posttitle{\end{center}}  
+
+
 geometry: "left=3cm, right=3cm, top=3cm, bottom=5cm"  
 papersize: letter
 title: \vspace{3cm}\huge Model User Guide
 subtitle: \LARGE Modelling Infrastructure Capacity & Utilization 
 date: "*`r format(Sys.Date(), '%B %d, %Y')`*"  
 output:
-  html_document:
-    number_sections: no
-    template: default
-    toc: no
-    toc_depth: 3
-    toc_float: no
   pdf_document:
     
     latex_engine: xelatex 
@@ -28,6 +31,12 @@ output:
     number_sections: yes
     toc: yes
     toc_depth: 3
+  html_document:
+    number_sections: no
+    template: default
+    toc: no
+    toc_depth: 3
+    toc_float: no
 always_allow_html: yes
 start-page: 1
 ---
