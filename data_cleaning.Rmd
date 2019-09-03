@@ -657,6 +657,16 @@ HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>%
 
 saveRDS(HBAMhistorical, file = 'cache/hospitals/HBAMhistorical.rds')
 
+## Identifying Duplicated Site IDs
+duplicated_siteid <- HBAMhistorical %>% 
+  filter(year == 2016) %>%
+  group_by(siteid, caretype) %>%
+  distinct(siteid) %>% 
+  ungroup(caretype) %>% 
+  add_count(siteid) %>% 
+  filter(n > 1) %>% 
+  distinct(siteid)
+
 HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
     select(year = Year, 
          siteid = Hospital_Site_ID, 
