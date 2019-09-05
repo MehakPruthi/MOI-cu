@@ -32,6 +32,7 @@ source("helpers.R")
   - [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
   - [x] Distribute the students based on the friction
   - [x] Distribute TRESO zones with multiple schools based on EQAO schools
+  - [x] Fix bug resulting from applying the `smart_round()` function
   - [] Validate the distributed patterns
 - Closest School Model
   - [x] Validate if the distributed patterns matches the observed closest school patterns
@@ -848,8 +849,7 @@ ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
-simulated_trips %>%
-  saveRDS(paste0("cache/simulated_trips.rds"))
+saveRDS(simulated_trips, "cache/simulated_trips.rds")
 ```
 
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
@@ -886,6 +886,8 @@ pos_full <- travel_time_skim %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
 
+simulated_trips <- readRDS("cache/simulated_trips.rds")
+
 prop_matrix <- travel_time_skim %>%
   mutate(value = 0.0001) %>%
   left_join(select(simulated_trips, treso.id.por, treso.id.pos, enrolment),
@@ -905,7 +907,6 @@ balance <- function(matrix, tot, axis) {
   sc <- tot / sum 
   sc[is.nan(sc)] <- 0
 
-  
   # MARGIN = 1 indicates rows, MARGIN = 2 indicates columns
   matrix2 <- sweep(matrix, MARGIN = axis, sc, `*`)
   return(matrix2)
@@ -940,7 +941,7 @@ prop_matrix2 <- matrix_balancing(prop_matrix, por_full, pos_full, 1000, 0.001)
 
 ```
 
-```{r timing}
+```{r profiling transpose vs sweep, eval=FALSE, include=FALSE}
 sum <- rowSums(prop_matrix)
 sc <- por_full / sum
 sc <- as.vector(sc)
@@ -959,11 +960,11 @@ MyTimerSweep=summaryRprof(tmp)$sampling.time
 unlink(tmp)
 ```
 
-Obtain the balanced POR-POS trip list
+Save the balanced POR-POS trip list
 
 ```{r trip list}
-trip_list <- melt(prop_matrix2) %>%
-  filter(value != 0)
+# Save the full matrix as a long trip list
+trip_list <- melt(prop_matrix2)
 colnames(trip_list) <- c('treso.id.por', 'treso.id.pos', 'trips')
 
 saveRDS(trip_list, "cache/trip_list.rds")
@@ -1003,23 +1004,28 @@ print(paste0("There are ", nrow(filter(pos_school, length(eqao.weight.list) == 1
 trip_list <- readRDS(paste0("cache/trip_list.RDS")) %>%
   left_join(pos_school, by = "treso.id.pos")
 
-# TODO there is some error here.
 # Apply bucket rounding to chunks of data by POS
 results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
 
 # Convert the output of by() to a dataframe
-results2 <- t(sapply(results, I))
-df <- data.frame(t(as.data.frame(results2)))
-colnames(df) <- "trips.rounded"
-df2 <- unnest(df, trips.rounded)
+results2 <- sapply(results, I)
+colnames(results2) <- colnames(prop_matrix2)
+rownames(results2) <- rownames(prop_matrix2)
 
-trip_list2 <- arrange(trip_list, treso.id.pos) %>%
-  cbind(df2)
+df <- results2 %>%
+  melt()
+colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+
+trip_list2 <- bind_cols(trip_list, df) %>%
+  filter(enrolment.rounded != 0) %>%
+  select(-treso.id.por1, -treso.id.pos1)
 
 plan(multiprocess)
 results <- future_apply(trip_list2, 1, sample_by_row)
 results_tb = t(as.data.table(results))
 trip_list_schools <- cbind(trip_list2, results_tb)
+
+saveRDS(trip_list_schools, "output/trip_list_schools.rds")
 ```
 
 Validate the assigned trips are matching with known closest scool probability
