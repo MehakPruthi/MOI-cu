@@ -691,7 +691,12 @@ hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>%
 saveRDS(hospitallocations, file = 'cache/hospitals/hospitallocations.rds')
 
 # Historical HBAM Master Dataset
-HBAMhistorical_master <- left_join(HBAMhistorical, hospitallocations, by = c('siteid', 'caretype')) %>% 
+HBAMhistorical_master <- HBAMhistorical %>% 
+  mutate(caretype = replace(caretype, caretype == "ER", "AM"),
+         caretype = replace(caretype, caretype == "DS", "AM")) %>% 
+  group_by(siteid, caretype, agegroup, csd) %>% 
+  summarise(totalcases = sum(totalcases)) %>% 
+  left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
   filter(!is.na(lat))
 
 saveRDS(HBAMhistorical_master, file = 'cache/hospitals/hbamhistorical_master.rds')
@@ -958,11 +963,6 @@ dailybedcensus %>%
   distinct(type)
 ```
 
-##Discharge Data
-```{r}
-
-```
-
 ##HBAM Data and Caserate Caculations
   - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
   - Aggregate TRESO population data to CSD level
@@ -1011,6 +1011,10 @@ csd_pop <- treso_health_tb %>%
             pop_ped1 = sum(n_ped1_pop),
             pop_ped2 = sum(n_ped2_pop),
             pop_ped3 = sum(n_ped3_pop))
+
+#Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
+csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>% 
+  drop_na(pop_tot)
 ```
 
 ###Provincial Caserate Calculations
@@ -1132,9 +1136,7 @@ provincial_caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by
          caserate_ped2,
          caserate_ped3)
 
-#Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
-csd_caserates <- left_join(HBAMhistorical_csd_spread, csd_pop, by = 'csd') %>% 
-  drop_na(pop_tot)
+
 ```
 
 ###Census Division (CD) Caserate Calculations
