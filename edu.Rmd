@@ -786,10 +786,10 @@ tlfd_obs <- sum(observed_trips$value * observed_trips$enrolment) / sum(observed_
 print(paste0("The average travel time to be calibrated to is " , tlfd_obs))
   
 cost <- travel_time_skim_select
-#initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-#initalpha <- 1/log(sum(cost$value)) + runif(1)/10
-initbeta <- -0.13
-initalpha <- 0.52
+initbeta <- -1/log(sum(cost$value)) - runif(1)/10
+initalpha <- 1/log(sum(cost$value)) + runif(1)/10
+#initbeta <- -0.13
+#initalpha <- 0.52
 beta <- initbeta
 alpha <- initalpha
 max_value = 85
@@ -1049,10 +1049,10 @@ pos_school_weight_2 <- pos_school_weight_2 %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
 
-print(paste0("There are ", nrow(filter(pos_school, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
+print(paste0("There are ", nrow(filter(pos_school_weight_2, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_2, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
 trip_list <- readRDS(paste0("cache/trip_list.RDS")) %>%
-  left_join(pos_school, by = "treso.id.pos")
+  left_join(pos_school_weight_2, by = "treso.id.pos")
 
 # Apply bucket rounding to chunks of data by POS
 results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
@@ -1086,11 +1086,11 @@ school_sfis_2017 <- readRDS("cache/school_sfis_2017.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   filter(panel == "Elementary", board_type_name == "English Public")
 
-simulated_compare <- readRDS("cache/trip_list.rds") %>%
-  mutate(simulated_ade = trips * school.weight) %>%
-  group_by(sfis, school.name, dsb.index) %>%
+simulated_compare <- readRDS("output/trip_list_schools.rds") %>%
+  mutate(simulated_ade = enrolment.rounded * school.weight.prob.list) %>%
+  group_by(sfis.list, school.name.list, dsb.index.ist) %>%
   summarise(simulated_ade = sum(simulated_ade)) %>%
-  left_join(select(school_sfis_2017, sfis, ade), by = "sfis") %>%
+  left_join(select(school_sfis_2017, sfis, ade), by = c("sfis.list" = "sfis")) %>%
   rename(ade_2017 = ade) %>%
   mutate(ade_2017_to_sim_diff = ade_2017 - simulated_ade)%>%
   mutate(perc_ade_diff = (simulated_ade - ade_2017)/ade_2017) %>%
