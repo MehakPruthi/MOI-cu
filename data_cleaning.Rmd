@@ -581,8 +581,10 @@ caretypes <- healthHBAMprojected %>%
   - Age group filters exclude "7 (Missing)"
   - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
   - Filter HBAM CSDs to remove origin CSDs not in Ontario
+  - Join HBAM with Asset data to establish master ID list
+  
 ```{r, include=FALSE, eval=TRUE}
-#Bed Census Data
+# Bed Census Data
 dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
   drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
   select(facilityid = FACILITY_NO,
@@ -631,7 +633,7 @@ hospitaldischarges <- read_csv('input/health/cap.MOH_Discharges.csv') %>%
   mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
   filter(agegroup != 7)
 
-#HBAM Data
+# HBAM Historical
 HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>% 
   select(year = Year, 
          siteid = Hospital_Site_ID,
@@ -640,6 +642,8 @@ HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>%
          agegroup = Age_Group, 
          totalcases = Number_of_Cases,
          csd = CSD) %>% 
+  filter(year == 2016) %>% 
+  select(-year) %>% 
   filter(csd < 4600000,
          csd > 3501000) %>% 
   mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
@@ -667,6 +671,32 @@ duplicated_siteid <- HBAMhistorical %>%
   filter(n > 1) %>% 
   distinct(siteid)
 
+# Health Asset Inventory
+hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>% 
+  select(lhin = LHIN,
+         lhinlocation = Location,
+         name = Name,
+         caretype = Type,
+         siteid = 'Master Number',
+         facilityid = 'Facility Number',
+         hospitalcorp = 'Provider Legal Name',
+         address = 'Address Line 1',
+         city = City,
+         pcode = 'Postal Code',
+         lat = latitude,
+         long = longitude) %>% 
+  left_join(select(HBAMhistorical, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+  distinct()
+
+saveRDS(hospitallocations, file = 'cache/hospitals/hospitallocations.rds')
+
+# Historical HBAM Master Dataset
+HBAMhistorical_master <- left_join(HBAMhistorical, hospitallocations, by = c('siteid', 'caretype')) %>% 
+  filter(!is.na(lat))
+
+saveRDS(HBAMhistorical_master, file = 'cache/hospitals/hbamhistorical_master.rds')
+
+# HBAM Projected
 HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
     select(year = Year, 
          siteid = Hospital_Site_ID, 
@@ -675,6 +705,9 @@ HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>%
          agegroup = Age_Group, 
          totalcases = Number_of_Cases,
          lengthofstay = Length_of_Stay)
+
+# Projected HBAM Master Dataset
+
 
 #LHIN Data
 populationLHIN <- read_csv('input/health/dbo.Population_LHIN.csv')
@@ -686,6 +719,7 @@ ALCcases <- read_csv('input/health/cap.ALCCases.csv')
 ALCdesignations <- read_csv('input/health/cap.ALCDesignations.csv')
 ALCdischargedest <- read_csv('input/health/cap.ALCDischargeDestination.csv')
 ALCinpatientbedtype <- read_csv('input/health/cap.ALCInpatientBedType.csv')
+
 #ALC Datasets
 ALCannualvolume <- read_csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
   select(year = Year,
@@ -744,25 +778,10 @@ ALCmostappropriate <- ALCmostappropriate %>%
 #CIHI Data
 # CIHIhospitalbeds <- read.csv('input.health/dbo.CIHI_Hospital_Beds.csv')
 
-#Health Asset Inventory
-hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>% 
-  select(lhin = LHIN,
-         lhinlocation = Location,
-         name = Name,
-         type = Type,
-         siteid = 'Master Number',
-         facilityid = 'Facility Number',
-         hospitalcorp = 'Provider Legal Name',
-         address = 'Address Line 1',
-         city = City,
-         pcode = 'Postal Code',
-         lat = latitude,
-         long = longitude)
 
-saveRDS(hospitallocations, file = 'cache/hospitals/hospitallocations.rds')
 
 #CCO Linkage Table
-idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>% 
+ALC_idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>% 
   select(lhin = WTISLHINNum,
          name = MNSName,
          type = MNSType,
@@ -771,21 +790,21 @@ idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>%
          facilityid = MNSFacNum)
 
 #Test SiteID/Fac ID Linkages
-idlinkage <- left_join(hospitallocations, idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+ALC_idlinkage <- left_join(hospitallocations, idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
 
 #Identify Mismatched Site IDs
-mismatchedids <- idlinkage %>% 
+ALC_mismatchedids <- idlinkage %>% 
   filter(is.na(type.cco))
 
-mismatchedids %>% 
+ALC_mismatchedids %>% 
   group_by(type.moh) %>%
   count()
 
-idlinkage %>% 
+ALC_idlinkage %>% 
   count(type.cco %in% type.moh)
 
 #Filter out Mismatched IDs
-hospital_id_master <- idlinkage %>% 
+hospital_ALC_master <- idlinkage %>% 
   filter(!is.na(type.cco)) %>% 
   group_by(siteid, facilityid, type.moh, name.moh) %>% 
   distinct()
@@ -949,9 +968,13 @@ dailybedcensus %>%
   - Aggregate TRESO population data to CSD level
 ```{r}
 #Adjust HBAM data to Match TRESO population spread
-HBAMhistorical_csd_spread <- HBAMhistorical %>%
+HBAMhistorical_csd_spread <- HBAMhistorical_master %>%
+  select(siteid,
+         caretype,
+         agegroup,
+         totalcases,
+         csd) %>% 
   spread(agegroup, totalcases) %>% 
-  filter(year == 2016) %>% 
   rename('cases_ag1' =  "1",
          'cases_ag2' = "2",
          'cases_ag3' = "3",
@@ -961,7 +984,7 @@ HBAMhistorical_csd_spread <- HBAMhistorical %>%
          'cases_ped1' = "ped1",
          'cases_ped2' = "ped2",
          'cases_ped3' = "ped3") %>% 
-  group_by(year, csd, caretype) %>% 
+  group_by(csd, caretype) %>% 
   summarise(cases_tot = sum(cases_ag1, cases_ag2, cases_ag3, cases_ag4, cases_ag5, cases_ag6, cases_ped1, cases_ped2, cases_ped3, na.rm = TRUE),
             cases_ag1 = sum(cases_ag1, na.rm = TRUE),
             cases_ag2 = sum(cases_ag2, na.rm = TRUE),
