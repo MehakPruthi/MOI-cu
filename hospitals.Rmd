@@ -18,7 +18,6 @@ library(tictoc)
 library(gridExtra)
 library(future.apply)
 library(FNN)
-source("helpers.R")
 ```
 
 ## To-Do List
@@ -83,7 +82,6 @@ travel_time_skim <- travel_time_skim_square %>%
   mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest])
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
-
 ```
 
 ## Convert TRESO data to long format
@@ -460,7 +458,7 @@ at_matrix_long <- at_prop_matrix %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-at_csd_sum <- left_join(at_matrix_long, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+at_csd_matrix <- left_join(at_matrix_long, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -479,11 +477,12 @@ at_origin_sum <- at_cd_origin %>%
 
 at_cd_caserate_ratio <- at_prop_sum/at_origin_sum
 
-at_cd_hbam_test <- left_join(at_hbam_matrix, at_csd_sum, by = c('csd'='csduid', 'treso.id.pos'='destination'), suffix = c('.hb', '.c'))
-
-at_cd_hbam_test %>% 
-  ungroup() %>% 
-  summarise(sum(trips.hb), sum(trips.c, na.rm = TRUE))
+# Calculate Difference between simulated matrix and base HBAM matrix
+at_comp_matrix <- left_join(at_csd_matrix, at_hbam_matrix, by = c('destination' = 'treso.id.pos', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+  replace_na(list(trips.hbam = 0.0000001)) %>% 
+  mutate(diff = (trips.csd - trips.hbam),
+         perc.diff = (trips.csd - trips.hbam)/trips.hbam)
+  
 ```
 
 ### CR Matrix
@@ -499,7 +498,7 @@ cr_matrix_long <- cr_prop_matrix %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-cr_csd_sum <- left_join(cr_matrix_long, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+cr_csd_matrix <- left_join(cr_matrix_long, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -517,6 +516,12 @@ cr_origin_sum <- cr_origin %>%
   summarise(sum(o_trips))
 
 cr_cd_caserate_ratio <- cr_prop_sum/cr_origin_sum
+
+# Calculate Difference between simulated matrix and base HBAM matrix
+cr_comp_matrix <- left_join(cr_csd_matrix, cr_hbam_matrix, by = c('destination' = 'treso.id.pos', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+  replace_na(list(trips.hbam = 0.0000001)) %>% 
+  mutate(diff = (trips.csd - trips.hbam),
+         perc.diff = (trips.csd - trips.hbam)/trips.hbam)
 ```
 
 ### GR Matrix
@@ -550,6 +555,12 @@ gr_origin_sum <- gr_origin %>%
   summarise(sum(o_trips))
 
 gr_cd_casertace_ratio <- gr_prop_sum/gr_origin_sum
+
+# Calculate Difference between simulated matrix and base HBAM matrix
+gr_comp_matrix <- left_join(gr_csd_matrix, gr_hbam_matrix, by = c('destination' = 'treso.id.pos', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+  replace_na(list(trips.hbam = 0.0000001)) %>% 
+  mutate(diff = (trips.csd - trips.hbam),
+         perc.diff = (trips.csd - trips.hbam)/trips.hbam)
   
 ```
 
@@ -584,6 +595,12 @@ mh_origin_sum <- mh_origin %>%
   summarise(sum(o_trips))
 
 mh_cd_caserate_ratio <- mh_prop_sum/mh_origin_sum
+
+# Calculate Difference between simulated matrix and base HBAM matrix
+mh_comp_matrix <- left_join(mh_csd_matrix, mh_hbam_matrix, by = c('destination' = 'treso.id.pos', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+  replace_na(list(trips.hbam = 0.0000001)) %>% 
+  mutate(diff = (trips.csd - trips.hbam),
+         perc.diff = (trips.csd - trips.hbam)/trips.hbam)
 ```
 
 ### AM Matrix
@@ -617,5 +634,11 @@ am_origin_sum <- am_origin %>%
   summarise(sum(o_trips))
 
 am_cd_caserate_ratio <- am_prop_sum/am_origin_sum
+
+# Calculate Difference between simulated matrix and base HBAM matrix
+am_comp_matrix <- left_join(am_csd_matrix, am_hbam_matrix, by = c('destination' = 'treso.id.pos', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+  replace_na(list(trips.hbam = 0.0000001)) %>% 
+  mutate(diff = (trips.csd - trips.hbam),
+         perc.diff = (trips.csd - trips.hbam)/trips.hbam)
 ```
 
