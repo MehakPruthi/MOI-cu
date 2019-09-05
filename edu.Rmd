@@ -1010,38 +1010,50 @@ saveRDS(trip_list, "cache/trip_list.rds")
 Distribute each the POS demand to the individual schools
 
 ```{r distribute POS demand} 
+
+ 
 pos_school <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
   filter(panel == "Elementary", board_type_name == "English Public") %>%
   group_by(sfis, school.name) %>%
   summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
+  left_join(select(school_sfis_2017, sfis, otg), by = "sfis") %>%
   left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
+  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE))) 
 
+# get treso zone otg totals
 pos_school_weight <- pos_school %>%
   group_by(treso.id.pos) %>%
-  summarise(eqao.total = sum(eqao.standardized))
+  summarise(otg.total = sum(otg)) 
 
-pos_school <- left_join(pos_school, pos_school_weight, by = "treso.id.pos") %>%
-  mutate(eqao.weight = eqao.standardized / eqao.total) %>%
-  select(treso.id.pos, sfis, school.name, dsb.index, eqao.weight) %>%
+pos_school_weight_2 <- left_join(pos_school, pos_school_weight, by = "treso.id.pos") %>%
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+
+# get treso zone school.weight totals
+pos_school_weight_3 <- pos_school_weight_2 %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight)) 
+
+pos_school_weight_2 <- pos_school_weight_2 %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
     sfis.list = paste(sfis, collapse = ","),
     school.name.list = paste(school.name, collapse = ","),
     dsb.index.ist = paste(dsb.index, collapse = ","),
-    eqao.weight.list = paste(eqao.weight, collapse = ",")
+    school.weight.prob.list = paste(school.weight.prob, collapse = ",")
   ) %>%
   rowwise() %>%
-  mutate(eqao.weight.list = list(as.numeric(unlist(strsplit(eqao.weight.list, ","))))) %>%
+  mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
 
-print(paste0("There are ", nrow(filter(pos_school, length(eqao.weight.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school, length(eqao.weight.list) != 1)), " TRESO zones with multiple schools."))
+print(paste0("There are ", nrow(filter(pos_school, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
 trip_list <- readRDS(paste0("cache/trip_list.RDS")) %>%
   left_join(pos_school, by = "treso.id.pos")
-
 # TODO there is some error here.
 # Apply bucket rounding to chunks of data by POS
 results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
@@ -1059,12 +1071,48 @@ plan(multiprocess)
 results <- future_apply(trip_list2, 1, sample_by_row)
 results_tb = t(as.data.table(results))
 trip_list_schools <- cbind(trip_list2, results_tb)
+  
+
+#change this to trip_list_schools here and in "Compare simulated ADE to 2017 ADE by school" section below
+saveRDS(trip_list, "cache/trip_list.rds")
 ```
+
+Compare simulated ADE to 2017 ADE by school
+
+```{r simulated to observed comparison by school}
+
+school_sfis_2017 <- readRDS("cache/school_sfis_2017.rds") %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  filter(panel == "Elementary", board_type_name == "English Public")
+
+
+simulated_compare <- readRDS("cache/trip_list.rds") %>%
+  mutate(simulated_ade = trips * school.weight) %>%
+  group_by(sfis, school.name, dsb.index) %>%
+  summarise(simulated_ade = sum(simulated_ade)) %>%
+  left_join(select(school_sfis_2017, sfis, ade), by = "sfis") %>%
+  rename(ade_2017 = ade) %>%
+  mutate(ade_2017_to_sim_diff = ade_2017 - simulated_ade)%>%
+  mutate(perc_ade_diff = (simulated_ade - ade_2017)/ade_2017) %>%
+  mutate(rounded_perc = round(perc_ade_diff, 2))
+  
+avg_perc <- mean(simulated_compare$rounded_perc)
+print(paste0("The average percent change between simulated and 2017 observed ADE for English Public Elementary schools is ", round(avg_perc, 2)))
+
+
+```
+
+
+
 
 Validate the assigned trips are matching with known closest scool probability
 
 ```{r validate gravity model}
 
+
+
+# Review paul's code on obtaining closest school probabilities
+# Apply it to the newly assgined POR-POS trip list
 ```
 
 ### Closest School Probability Choice
