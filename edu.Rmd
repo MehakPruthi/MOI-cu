@@ -819,8 +819,7 @@ ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
-simulated_trips %>%
-  saveRDS(paste0("cache/simulated_trips.rds"))
+saveRDS(simulated_trips, "cache/simulated_trips.rds")
 ```
 
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
@@ -856,6 +855,8 @@ pos_full <- travel_time_skim %>%
   replace_na(list(enrolment = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
+
+simulated_trips <- readRDS("cache/simulated_trips.rds")
 
 prop_matrix <- travel_time_skim %>%
   mutate(value = 0.0001) %>%
@@ -978,7 +979,6 @@ results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simpli
 
 # Convert the output of by() to a dataframe
 results2 <- sapply(results, I)
-# Return the TRESO zone numbers to the rounded matrix
 colnames(results2) <- colnames(prop_matrix2)
 rownames(results2) <- rownames(prop_matrix2)
 
@@ -986,9 +986,9 @@ df <- results2 %>%
   melt()
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
-# Consider using rbind after sorting instead of left_join()
-trip_list2 <- left_join(trip_list, df, by=c("treso.id.por", "treso.id.pos")) %>%
-  filter(trips != 0)
+trip_list2 <- bind_cols(trip_list, df) %>%
+  filter(enrolment.rounded != 0) %>%
+  select(-treso.id.por1, -treso.id.pos1)
 
 plan(multiprocess)
 results <- future_apply(trip_list2, 1, sample_by_row)
