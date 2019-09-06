@@ -122,7 +122,7 @@ rm(hhld_tb, socio_economic_tb, hhld_structure)
 
 # Education Data cleaning
  
-- clean the school forecast data.
+- Clean the school forecast data.
 - Then, clean school capacity and historical demand data
 - Combine together 
 - Clean the student postal code data
@@ -198,6 +198,35 @@ print(paste0('A total of ', num_schools_from_school_sfis, ' unique schools are c
 # Clean global variables
 rm(num_schools_from_student_post, num_schools_from_school_sfis)
 ```
+
+## Create historical education dataset
+
+- The historical trends of ADE is a valuable
+
+```{r historical education data, echo=FALSE}
+# The school capacity dataset contains the correct lat/long for schools
+schoolCapHistorical <- schoolCap %>%
+  select(year = Sch_yr, 
+         dsb.index = DSB_Index, 
+         board.name = BoardName, 
+         panel = Panel, 
+         sfis = `SFIS_ID`,
+         school.name = `FacilityName`, 
+         ade = ADE,
+         otg = OTG,
+         status = Status, 
+         dataset.id = dataSetID) %>%
+  mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
+  filter(status == "Open", dataset.id == 2) %>%
+  # Remove schools with capacity of 0
+  filter(otg != 0, ade != 0) %>%
+  # Remove schools with ADE that is less than 50
+  filter(ade >= 50) %>%
+  select(year, sfis, ade, otg, utilization) %>%
+  saveRDS("input/edu/school_historical_capacity.rds")
+
+```
+
 
 ## Calculate School Catchment Lengths
 
