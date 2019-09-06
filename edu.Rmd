@@ -1087,13 +1087,16 @@ school_sfis_2017 <- readRDS("cache/school_sfis_2017.rds") %>%
   filter(panel == "Elementary", board_type_name == "English Public")
 
 simulated_compare <- readRDS("output/trip_list_schools.rds") %>%
-  mutate(simulated_ade = enrolment.rounded * school.weight.prob.list) %>%
-  group_by(sfis.list, school.name.list, dsb.index.ist) %>%
-  summarise(simulated_ade = sum(simulated_ade)) %>%
-  left_join(select(school_sfis_2017, sfis, ade), by = c("sfis.list" = "sfis")) %>%
+  unnest(results_tb) %>%
+  mutate(enrol.value = 1) %>%
+  #mutate(simulated_ade = enrolment.rounded * school.weight.prob.list) %>%
+  rename(sfis = results_tb) %>%
+  group_by(sfis, school.name.list, dsb.index.ist) %>%
+  summarise(sim.enrol.sum = sum(enrol.value)) %>%
+  left_join(select(school_sfis_2017, sfis, ade), by = "sfis") %>%
   rename(ade_2017 = ade) %>%
-  mutate(ade_2017_to_sim_diff = ade_2017 - simulated_ade)%>%
-  mutate(perc_ade_diff = (simulated_ade - ade_2017)/ade_2017) %>%
+  mutate(ade_2017_to_sim_diff = ade_2017 - sim.enrol.sum)%>%
+  mutate(perc_ade_diff = (sim.enrol.sum - ade_2017)/ade_2017) %>%
   mutate(rounded_perc = round(perc_ade_diff, 2))
   
 avg_perc <- mean(simulated_compare$rounded_perc)
