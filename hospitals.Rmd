@@ -225,22 +225,26 @@ calcases_cd_destination_ped <- destination_trips_ped %>%
 at_hbam_matrix_ad <- HBAMhistorical_master_ad %>% 
   filter(caretype == 'AT') %>% 
   group_by(csd, treso_zone) %>% 
-  summarise(trips = sum(totalcases))
+  summarise(trips = sum(totalcases)) %>% 
+  mutate(trips = trips/365)
 
 cr_hbam_matrix_ad <- HBAMhistorical_master_ad %>% 
   filter(caretype == 'CR') %>% 
   group_by(csd, treso_zone) %>% 
-  summarise(trips = sum(totalcases))
+  summarise(trips = sum(totalcases)) %>% 
+  mutate(trips = trips/365)
 
 gr_hbam_matrix_ad <- HBAMhistorical_master_ad %>% 
   filter(caretype == 'GR') %>% 
   group_by(csd, treso_zone) %>% 
-  summarise(trips = sum(totalcases))
+  summarise(trips = sum(totalcases)) %>% 
+  mutate(trips = trips/365)
 
 mh_hbam_matrix_ad <- HBAMhistorical_master_ad %>% 
   filter(caretype == 'MH') %>% 
   group_by(csd, treso_zone) %>% 
-  summarise(trips = sum(totalcases))
+  summarise(trips = sum(totalcases)) %>% 
+  mutate(trips = trips/365)
 
 am_hbam_matrix_ad <- HBAMhistorical_master_ad %>% 
   filter(caretype == 'AM') %>% 
@@ -282,6 +286,31 @@ am_hbam_matrix_ped <- HBAMhistorical_master_ped %>%
   summarise(trips = sum(totalcases)) %>% 
   mutate(trips = trips/365)
 
+```
+
+```{r}
+
+#For Loop to create HBAM Matrices for each care-type
+for (ct in caretypes) {
+  
+  hbam_matrix_ad <- HBAMhistorical_master_ad %>%
+    filter(caretype == toupper(ct)) %>% 
+    group_by(csd, treso_zone) %>% 
+    summarise(trips = sum(totalcases)) %>% 
+    mutate(trips = trips/365)
+  
+  saveRDS(hbam_matrix_ad, file = paste0('cache/hospitals/', ct, "_hbam_matrix_ad.rds"))
+  
+  hbam_matrix_ped <- HBAMhistorical_master_ped %>% 
+    filter(caretype == toupper(ct)) %>% 
+    group_by(csd, treso_zone) %>% 
+    summarise(trips = sum(totalcases)) %>% 
+    mutate(trips = trips/365)
+  
+  saveRDS(hbam_matrix_ped, file = paste0('cache/hospitals/', ct, "_hbam_matrix_ped.rds"))
+}
+
+rm(hbam_matrix_ad, hbam_matrix_ped)
 ```
 
 ## Origin Caseload Calculation
@@ -390,14 +419,14 @@ at_destination_ped <- destination_trips_ped %>%
 
 at_origin_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(at_cd_origin_ped, by = c('orig' = 'treso_zone')) %>% 
+  left_join(at_origin_ped, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
 at_destination_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(at_cd_destination_ped, by = c('dest' = 'treso_zone')) %>% 
+  left_join(at_destination_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -605,6 +634,45 @@ am_destination_full_ped <- travel_time_skim %>%
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
+```
+
+```{r}
+
+caretypes = c("at", "cr", "gr", "mh", "am")
+age_groups = c("ad", "ped")
+
+for (ct in caretypes) {
+    origin_ad <- origin_trips_ad %>% 
+      filter(caretype == toupper(ct)) %>% 
+      ungroup() %>% 
+      select(-caretype, -cd)
+    
+    saveRDS(origin_ad, file = paste0("cache/hospitals/", ct, "_origin_ad.rds"))
+    
+    destination_ad <- destination_trips_ad %>% 
+      filter(caretype == toupper(ct)) %>% 
+      select(-caretype)
+    
+    saveRDS(destination_ad, file = paste0("cache/hospitals/", ct, "_destination_ad.rds"))
+    
+    origin_full_ad <- travel_time_skim %>% 
+      distinct(orig) %>% 
+      left_join(origin_ad, by = c('orig' = 'treso_zone')) %>% 
+      replace_na(list(o_trips = 0)) %>%
+      column_to_rownames(var = "orig") %>%
+      data.matrix()
+    
+    saveRDS(origin_full_ad, file = paste0("cache/hospitals/", ct, "_origin_full_ad.rds"))
+    
+    destination_full_ad <- travel_time_skim %>% 
+      distinct(dest) %>% 
+      left_join(destination_ad, by = c('dest' = 'treso_zone')) %>% 
+      replace_na(list(d_trips = 0)) %>%
+      column_to_rownames(var = "dest") %>%
+      data.matrix()
+    
+     saveRDS(destination_full_ad, file = paste0("cache/hospitals/", ct, "_destination_full_ad.rds"))
+    }
 ```
 
 ## Travel Demand Matricies 
