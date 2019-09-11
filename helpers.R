@@ -30,6 +30,75 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   return(d)
 }
 
+# Two dimensional balancing matrix
+balance_2d <- function(matrix, tot, axis) {
+  if (axis == 1) {
+    sum <- rowSums(matrix)
+  } else if (axis == 2) {
+    sum <- colSums(matrix)
+  }
+  sc <- tot / sum 
+  sc[is.nan(sc)] <- 0
+  
+  # MARGIN = 1 indicates rows, MARGIN = 2 indicates columns
+  matrix2 <- sweep(matrix, MARGIN = axis, sc, `*`)
+  return(matrix2)
+}
+
+calc_error <- function(matrix, a, b) {
+  row_sum <- sum(abs(a - rowSums(matrix)))
+  col_sum <- sum(abs(b - colSums(matrix)))
+  return(row_sum + col_sum)
+}
+
+matrix_balancing <- function(matrix, a, b, totals_to_use = "raise", max_iterations = 10000, rel_error = 0.0001) {
+  valid_totals_to_use = c("rows", "columns", "average", "raise")
+  if (!(totals_to_use %in% valid_totals_to_use)) {
+    stop("totals_to_use is invalid, not one of ('rows', 'columns', 'average', 'raise')")
+  }
+  
+  # Scale the column and row totals, if specified
+  a_sum = sum(a)
+  b_sum = sum(b)
+  print(paste0("Sum of a is: ", sum(a), ". Sum of b is: ", sum(b), "."))
+  
+  if (!(a_sum == b_sum)) {
+    if (totals_to_use == "rows") {
+      b = b * (a_sum / b_sum)
+      print("Scaled b to the row totals")
+    } else if (totals_to_use == "columns") {
+      a = a * (b_sum / a_sum)
+      print("Scaled a to the column totals")
+    } else if (totals_to_use == "average") {
+      avg_sum = 0.5 * (a_sum + b_sum)
+      a = a * (avg_sum / a_sum)
+      b = b * (avg_sum / b_sum)
+      print("Scaled a and b to the average totals")
+    } else {
+      stop("a and b vector totals do not match")
+    }
+  } 
+  
+  print(paste0("Sum of scaled a is: ", sum(a), ". Sum of scaled b is: ", sum(b), "."))
+  
+  error <- 1.0
+  i <- 0
+  init_error <- calc_error(matrix, a, b)
+  matrix2 <- matrix
+  
+  while (error > rel_error) {
+    if (i > max_iterations) {
+      print("Matrix balancing did not converge within iteration limit")
+      break
+    }
+    matrix2 <- balance(matrix2, a, 1)
+    matrix2 <- balance(matrix2, b, 2)
+    error <- calc_error(matrix2, a, b) / init_error
+    i <- i + 1
+  }
+  return(matrix2)
+}
+
 # Bucket rounding
 # [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
 smart_round <- function(x, digits = 0) {
