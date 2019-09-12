@@ -910,7 +910,7 @@ annualizationfactor <- dailybedcensus %>%
   group_by(siteid,
            type,
            year) %>% 
-  left_join(censusentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
+  left_join(dailyentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
   mutate(remainingdays = 365 - entrycount,
          atbedsaf = mean(atbeds, na.rm = TRUE, trim = 1)*remainingdays,
          mhbedsaf = mean(mhbeds, na.rm = TRUE, trim = 1)*remainingdays,
@@ -939,7 +939,7 @@ hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid'
          grbeds,
          srbeds,
          patientbeds,
-         staffedbed)
+         staffedbeds)
 
 #Physcial Capacity
 Hospitalphyscap <- dailybedcensus %>% 
