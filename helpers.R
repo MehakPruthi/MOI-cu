@@ -121,9 +121,9 @@ sample_by_row <- function(row) {
   
   if (length(x) == 1) {
     # Quirk 
-    prob = c(rep(0, x - 1), row["eqao.weight.list"][[1]])
+    prob = c(rep(0, x - 1), row["school.weight.prob.list"][[1]])
   } else {
-    prob = row["eqao.weight.list"][[1]]
+    prob = row["school.weight.prob.list"][[1]]
   }
   list(sample(x, size=size, replace=TRUE, prob=prob))
 }
