@@ -753,9 +753,11 @@ euclidean travel time at 30 km/hr) are set to euclidean travel time.
 
 Eight segments are completed, one for each panel + board_type combination
 
-####- English Public Primary:
+####- English Public Elementary:
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
+
+#Alpha, Beta, CR, & avg. TT at the bottom of this chunk
 
 # Read in the observed trips, and focus on elementary/EP
 # Combine with travel time
@@ -793,13 +795,12 @@ print(paste0("For English Public Elementary, the average travel time to be calib
 cost <- travel_time_skim_select_EPE
 initbeta <- -1/log(sum(cost$value)) - runif(1)/10
 initalpha <- 1/log(sum(cost$value)) + runif(1)/10
-#initbeta <- -0.13
-#initalpha <- 0.52
 beta <- initbeta
 alpha <- initalpha
 max_value = 85
 bin_size = 1
 
+#20 iterations used
 
 iterations <- 20
 for (j in 1:iterations) {
@@ -830,8 +831,6 @@ for (j in 1:iterations) {
   
   # Calculate CR Ratio
   
- 
-   
   if (j %% 2 == 0) {
     alpha <- alpha * (tlfd_sim/tlfd_obs)
     print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
@@ -955,23 +954,7 @@ prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por_full, pos_full, con
 
 ```
 
-```{r profiling transpose vs sweep, eval=FALSE, include=FALSE}
-sum <- rowSums(prop_matrix_EPE)
-sc <- por_full / sum
-sc <- as.vector(sc)
 
-Rprof(tmp <- tempfile(),interval = 0.001)
-t(t(prop_matrix2_EPE) * sc) # first option
-Rprof()
-MyTimerTranspose=summaryRprof(tmp)$sampling.time
-unlink(tmp)
-
-Rprof(tmp <- tempfile(),interval = 0.001)
-sweep(prop_matrix2_EPE, MARGIN = 1, sc, `*`) # sweep option
-Rprof()
-MyTimerSweep=summaryRprof(tmp)$sampling.time
-unlink(tmp)
-```
 
 Save the balanced POR-POS trip list
 
@@ -1001,17 +984,9 @@ pos_school_weight_EPE <- pos_school_EPE %>%
   summarise(otg.total = sum(otg)) 
 
 pos_school_weight_2_EPE <- left_join(pos_school_EPE, pos_school_weight_EPE, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
   mutate(school.weight.prob = (otg/otg.total)) 
 
-# get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
-
 pos_school_weight_3_EPE <- pos_school_weight_2_EPE %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -1073,15 +1048,8 @@ simulated_compare_EPE <- readRDS("output/trip_list_schools_EPE.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) #%>%
-  # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  # mutate(ratio_sim = sim.enrol.sum/otg) %>%
-  # mutate(ratio_obs = sum.enrolment/otg) %>%
-  # filter(ratio_sim >= 1) %>%
-  # filter(ratio_obs <1)
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
   
-
-
 avg_perc <- mean(simulated_compare_EPE$rounded_perc_diff)
 
 print(paste0("The average percent change between simulated and 2017 observed ADE for English Public Elementary schools is ", round(avg_perc, 2)))
@@ -1098,10 +1066,7 @@ ggplot(data=simulated_compare_EPE.data) +
   #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - English Public", title="Simulated vs. Observed Demand (2017)") #+
-  #geom_point(data = subset(simulated_compare.data, group=="Central"),
-             #aes(x=x, y=y),
-             #colour = "red")
-  #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
+
 
 ```
 
@@ -2413,7 +2378,7 @@ simulated_compare_FPE <- readRDS("output/trip_list_schools_FPE.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) #%>%
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) %>%
   # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
   # mutate(ratio_sim = sim.enrol.sum/otg) %>%
   # mutate(ratio_obs = sum.enrolment/otg) %>%
