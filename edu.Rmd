@@ -903,7 +903,7 @@ saveRDS(simulated_trips_EPE, "cache/simulated_trips_EPE.rds")
 # Observed average travel time: 6.49770853866524
 ```
 
-2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+1D balance the POR using the calibrated cfunc stored in simulated trips
 
 ```{r distribute POR and POS}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -951,7 +951,7 @@ prop_matrix_EPE <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-prop_matrix2_EPE <- matrix_balancing(prop_matrix_EPE, por_full, pos_full, "rows", 1000, 0.001)
+prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por_full, pos_full, constrained = TRUE)
 
 ```
 
@@ -1092,10 +1092,10 @@ ggplot(data=simulated_compare_EPE.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 0.75) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - English Public", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
@@ -1302,7 +1302,7 @@ prop_matrix_EPS <- travel_time_skim %>%
   data.matrix()
 
 
-prop_matrix2_EPS <- matrix_balancing(prop_matrix_EPS, por_full, pos_full, "rows", 1000, 0.001)
+prop_matrix2_EPS <- matrix_balancing_1d(prop_matrix_EPS, por_full, pos_full, constrained = TRUE)
 
 ```
 
@@ -1425,16 +1425,18 @@ ggplot(data=simulated_compare_EPS.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 0.75) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - English Public", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
              #aes(x=x, y=y),
              #colour = "red")
   #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
+
+
 
 ```
 
@@ -1635,8 +1637,7 @@ prop_matrix_ECE <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-
-prop_matrix2_ECE <- matrix_balancing(prop_matrix_ECE, por_full, pos_full, "rows", 1000, 0.001)
+prop_matrix2_ECE <- matrix_balancing_1d(prop_matrix_ECE, por_full, pos_full, constrained = TRUE)
 
 ```
 
@@ -1759,10 +1760,10 @@ ggplot(data=simulated_compare_ECE.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - English Catholic", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
@@ -1922,7 +1923,7 @@ saveRDS(simulated_trips_ECS, "cache/simulated_trips_ECS.rds")
 #Observed Average Travel Time: 7.33100370241489
 ```
 
-2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
 ```{r distribute POR and POS}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -1971,8 +1972,7 @@ prop_matrix_ECS <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-
-prop_matrix2_ECS <- matrix_balancing(prop_matrix_ECS, por_full, pos_full, "rows", 1000, 0.001)
+prop_matrix2_ECS <- matrix_balancing_1d(prop_matrix_ECS, por_full, pos_full, constrained = TRUE)
 
 ```
 
@@ -2095,10 +2095,10 @@ ggplot(data=simulated_compare_ECS.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  #facet_wrap(~ mof_region, scale = "fixed") +
+  facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - English Catholic", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
@@ -2259,7 +2259,7 @@ saveRDS(simulated_trips_FPE, "cache/simulated_trips_FPE.rds")
 #Observed Average Travel Time: 7.8844979227484
 ```
 
-2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
 ```{r distribute POR and POS}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -2307,8 +2307,8 @@ prop_matrix_FPE <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
+prop_matrix2_FPE <- matrix_balancing_1d(prop_matrix_FPE, por_full, pos_full, constrained = TRUE)
 
-prop_matrix2_FPE <- matrix_balancing(prop_matrix_FPE, por_full, pos_full, "rows", 1000, 0.001)
 
 ```
 
@@ -2425,23 +2425,6 @@ simulated_compare_FPE <- readRDS("output/trip_list_schools_FPE.rds") %>%
 avg_perc <- mean(simulated_compare_FPE$rounded_perc_diff)
 
 print(paste0("The average percent change between simulated and 2017 observed ADE for French Public Elementary schools is ", round(avg_perc, 2)))
-
-
-simulated_compare_FPE.data <- data.frame("y" = simulated_compare_FPE$rounded_perc_diff, "x" = simulated_compare_FPE$sim_enrol.diff_to_ade_2017, "mof_region" = simulated_compare_FPE$mof_region)
-ggplot(data=simulated_compare_FPE.data) +
-  
-  geom_hline(yintercept = 0, colour="pink", size=1) + 
-  geom_vline(xintercept = 0, colour="pink", size=1) +
-  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
-  coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  #facet_wrap(~ mof_region, scale = "fixed") +
-  theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - French Public", title="Simulated vs. Observed Demand (2017)") #+
-  #geom_point(data = subset(simulated_compare.data, group=="Central"),
-             #aes(x=x, y=y),
-             #colour = "red")
-  #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
 
 ```
 
@@ -2595,7 +2578,7 @@ saveRDS(simulated_trips_FPS, "cache/simulated_trips_FPS.rds")
 #Observed Average Travel Time: 12.0141642941271
 ```
 
-2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
 ```{r distribute POR and POS}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -2643,8 +2626,8 @@ prop_matrix_FPS <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
+prop_matrix2_FPS <- matrix_balancing_1d(prop_matrix_FPS, por_full, pos_full, constrained = TRUE)
 
-prop_matrix2_FPS <- matrix_balancing(prop_matrix_FPS, por_full, pos_full, "rows", 1000, 0.001)
 
 ```
 
@@ -2769,16 +2752,19 @@ ggplot(data=simulated_compare_FPS.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - French Public", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
              #aes(x=x, y=y),
              #colour = "red")
   #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
+
+
+
 
 ```
 
@@ -2933,7 +2919,7 @@ saveRDS(simulated_trips_FCS, "cache/simulated_trips_FCS.rds")
 #Observed Average Travel Time: 10.7673474062775
 ```
 
-2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+1D balance the POR and weight by POS  using the calibrated cfunc stored in simulated trips
 
 ```{r distribute POR and POS}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -2981,8 +2967,8 @@ prop_matrix_FCS <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
+prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por_full, pos_full, constrained = TRUE)
 
-prop_matrix2_FCS <- matrix_balancing(prop_matrix_FCS, por_full, pos_full, "rows", 1000, 0.001)
 
 ```
 
@@ -3106,16 +3092,17 @@ ggplot(data=simulated_compare_FCS.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 0.75) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - French Catholic", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
              #aes(x=x, y=y),
              #colour = "red")
   #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
+
 
 ```
 
@@ -3317,8 +3304,9 @@ prop_matrix_FCE <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
+prop_matrix2_FCE <- matrix_balancing_1d(prop_matrix_FCE, por_full, pos_full, constrained = TRUE)
 
-prop_matrix2_FCE <- matrix_balancing(prop_matrix_FCE, por_full, pos_full, "rows", 1000, 0.001)
+
 
 ```
 
@@ -3442,16 +3430,18 @@ ggplot(data=simulated_compare_FCE.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 0.75) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - French Catholic", title="Simulated vs. Observed Demand (2017)") #+
   #geom_point(data = subset(simulated_compare.data, group=="Central"),
              #aes(x=x, y=y),
              #colour = "red")
   #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
+
+
 
 ```
 
@@ -3677,7 +3667,7 @@ result_school2 <- result_school %>%
   group_by(sfis) %>%
   summarise (enrolment.assigned = sum(enrolment.assigned)) %>%
   left_join(join_table, by = "sfis") %>%
-  filter(panel =="Secondary", board_type_name == "French Public") %>%
+  filter(panel =="Elementary", board_type_name == "French Catholic") %>%
   mutate(closest_school_to_observed_enrol = enrolment.assigned - sum.obs.enrolment)%>%
   mutate(perc_ade_diff = ((enrolment.assigned - sum.obs.enrolment)/sum.obs.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
@@ -3692,12 +3682,12 @@ ggplot(data=result_school2.data) +
   
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - French Public", title="Closest School vs. Observed Demand (2017)")
+  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - French Catholic", title="Closest School vs. Observed Demand (2017)")
 
 
 
