@@ -753,7 +753,7 @@ euclidean travel time at 30 km/hr) are set to euclidean travel time.
 
 Eight segments are completed, one for each panel + board_type combination
 
-####- English Public Elementary:
+####- English Public Elementary: 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
 

@@ -30,7 +30,6 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   return(d)
 }
 
-# Two dimensional balancing matrix
 balance <- function(matrix, tot, axis) {
   if (axis == 1) {
     sum <- rowSums(matrix)
@@ -51,13 +50,72 @@ calc_error <- function(matrix, a, b) {
   return(row_sum + col_sum)
 }
 
-matrix_balancing <- function(matrix, a, b, totals_to_use = "raise", max_iterations = 10000, rel_error = 0.0001) {
+matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
+  '
+  One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
+  applied to the propensity matrix, it can be supplied in argument `weight`. The `axis` argument determine which
+  direction to balance the matrix, 1 indicates rows (origin) and 2 indicates columns (destination). The 
+  `constrained` flag determines if the weighting vector is used as a hard limit or as a boolean value to 
+  prevent trips to be sent. 
+  
+  Inputs: Propensity matrix, Totals to balance against, Weights to scale against, Axis direction, Constraint flag
+  Ouput: Balanced matrix
+  '
+  # Check if `axis` is 1 or 2
+  if (!(axis %in% c(1, 2))) {
+    stop("`axis` value is invalid, not one of (1, 2)")
+  }
+  
+  # Check if weigth vector is supplied
+  if (missing(weight)) {
+    print("`weight` was not supplied, 1D balancing done without any scaling")
+    tot = a
+    matrix2 <- balance(matrix, tot, axis)
+  } else {
+    print("`weight` was supplied, 1D balancing done with scaling")
+    tot = a
+    # If `axis` is 1, balance the matrix against the rows but scale against the columns
+    if (axis == 1) {
+      sum = colSums(matrix)
+      axis_to_scale = 2
+    } 
+    # If `axis` is 2, balance the matrix against the columns but scale against the rows
+    else if (axis == 2) {
+      sum = rowSums(matrix)
+      axis_to_scale = 1
+    }
+    # Normalize the propensity matrix to ensure the scaled probailitiy does not exceed 1
+    matrix_norm = sweep(matrix, MARGIN = axis_to_scale, sum, `/`)
+    
+    # If constrained, scale the matrix to the values of the weight vector
+    # It not constrained, apply a boolean value to the matrix
+    if (!(constrained)) {
+      weight = ifelse(weight == 0.0, 0, 1)
+    }
+    # Scale the normalized propensity matrix to the weight vector
+    matrix_scaled = sweep(matrix_norm, MARGIN = axis_to_scale, weight, `*`)
+    
+    # 1D balance against the tot vector on the specified axis
+    matrix2 <- balance(matrix_scaled, tot, axis)
+  }
+  
+  return(matrix2)
+}
+
+matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_iterations = 10000, rel_error = 0.0001) {
+  '
+  Two dimensional matrix balancing.
+  
+  Inputs: Propensity matrix, Origin totals to balance against, Destination totals to balance against, 
+          The method of matching the totals, Maximum iterations to be used, Relative error to be required
+  Ouput: Balanced matrix
+  '
   valid_totals_to_use = c("rows", "columns", "average", "raise")
   if (!(totals_to_use %in% valid_totals_to_use)) {
     stop("totals_to_use is invalid, not one of ('rows', 'columns', 'average', 'raise')")
   }
   
-  # Scale the column and row totals, if specified
+  # Match the column and row totals, if not matching already and specified
   a_sum = sum(a)
   b_sum = sum(b)
   print(paste0("Sum of a is: ", sum(a), ". Sum of b is: ", sum(b), "."))
