@@ -26,14 +26,13 @@ source("helpers.R")
 - General Tasks
   - [] Utilization vs travel time
   - [x] Utilization vs EQAO
-  - [] Recalculate the closest school theory by using travel time
   - [] Improve Haversine function to mimic manhattan travel
 - Gravity Model
   - [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
-  - [x] Distribute the students based on the friction
-  - [x] Distribute TRESO zones with multiple schools based on EQAO schools
+  - [x] 1D distribute the students based on the calibrated cost function and weighting from OTG
+  - [x] Distribute TRESO zones with multiple schools based on OTG of schools
   - [x] Fix bug resulting from applying the `smart_round()` function
-  - [] Validate the distributed patterns
+  - [x] Validate the distributed patterns
 - Closest School Model
   - [x] Validate if the distributed patterns matches the observed closest school patterns
   - [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
@@ -88,10 +87,10 @@ g <- school_sfis_2017 %>%
   left_join(school_board_def, by = c("dsb.index" = "dsb")) %>%
   group_by(dsb.index, panel) %>%
   summarise(
-    utilization.total = mean(utilization.total),
+    utilization = mean(utilization),
     board_type_name = first(board_type_name)
   ) %>%
-  ggplot(aes(x = dsb.index, y = utilization.total, fill = board_type_name)) +
+  ggplot(aes(x = dsb.index, y = utilization, fill = board_type_name)) +
   geom_col(position = "dodge") +
   labs(x = "DSB", y = "Average Utilization", fill = "Board Type") +
   theme_minimal()
@@ -100,7 +99,7 @@ g <- ggplotly(g)
 g
 ```
 
-- Plot a chart of the entire dataset with students and schools
+- Plot a map of the entire dataset with students and schools
 
 ```{r plotting shapefiles, echo = FALSE}
 student_xy <- create_student_xy(student_travel_90)
@@ -247,8 +246,8 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
 - Build a buffer with the travel distance and capture any school within that buffer
 - Make sure the school is from `school_sfis`
 - Calculate the distance to all the schools within its travel distance buffer
-  - if no school exist then this student is travelling to closest (labelled 1)
-  - if there are schools within this buffer, then the label a value equal in rank (2 - n)
+  - if no school exist then this student is travelling to closest (1)
+  - if there are schools within this buffer, then the label a value equal in rank (>=2)
 
 ```{r calculate closest school, eval = FALSE, echo = FALSE}
 student_xy_90 <- student_travel_90 %>%
@@ -275,8 +274,6 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   datalist <- list()
   datalist <- foreach(i = 1:nrow(student_buffered@data), .combine = rbind,
                   .options.snow = opts, .packages=c("sp", "tidyverse", "rgeos")) %dopar% {
-  # datalist <- foreach(i = 1:10, .combine = rbind, 
-  #                 .options.snow = opts, .packages=c("sp", "tidyverse", "rgeos")) %dopar% {
     # Select the buffer
     buffer <- student_buffered[student_buffered@data$id == i, ]
     
@@ -403,10 +400,8 @@ closest_school_summary <- closest_school %>%
    mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), "")) %>%
    saveRDS("output/closest_school_summary.rds")
 
-rm(closest_school, closest_school_summary, school_mof)
+rm(closest_school, closest_school_summary)
 ```
-
-
 
 
 ```{r plot closest school results, fig.height = 12, fig.width = 10, echo=FALSE}
@@ -442,7 +437,7 @@ rm(g, g_subtotal)
 ## Travel Time TLFD plots
 
 The intra-zonal travel times from TRESO is 0, this required some extra work to take care of. 
-The current assumption is intra-zonal trips which are less than or equal to 2.5 km in length
+The assumption is intra-zonal trips which are less than or equal to 2.5 km in length
 are performed by walking at an average speed of 5 km/hr. 
 Intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
 Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and 
@@ -483,7 +478,7 @@ student_tlfd_90 <- student_tlfd_90 %>%
 
 summary(student_tlfd_90$travel.time)
 
-#ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
+ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
 g <- plot_travel_time_tlfd(student_tlfd_90)
 plot(g)
 ```
@@ -496,17 +491,13 @@ plot(g)
 - Build linear regression 
 - Explore other segmentations
 
-```{r data exploration}
-# Choose the catchment area to explore
+```{r data exploration, echo=FALSE}
 school_tb <- readRDS("output/school_tb_90.rds") %>%
   mutate(shape.area_sum = shape.area_sum / 1e6) %>%
   mutate(n_pop_density = n_pop_sum / shape.area_sum) %>%
   mutate(n_sec_pop_density = n_sec_pop_sum / shape.area_sum) %>%
   mutate(n_ele_pop_density = n_ele_pop_sum / shape.area_sum)
 
-# Join with EQAO Scores
-school_tb <- left_join(school_tb, select(eqao_2017, sfis, eqao.standardized), by = "sfis") %>%
-  filter(is.na(eqao.standardized))
 summary(school_tb$ade)
 
 g1 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = ade)) +
@@ -533,17 +524,11 @@ g4 <- ggplot(filter(school_tb, panel == "Secondary"), aes(x = attend_school_sum,
   theme_minimal() +
   labs(x = "Attend School", y = "ADE")
 
-g5 <- ggplot(filter(school_tb, panel == "Secondary", mof.region == "East"), aes(x = eqao.standardized, y = ade, label=school.name.x)) +
-  geom_point(alpha = 0.5) +
-  facet_grid(rows = vars(mof.region), cols = vars(board.type.name), scales = "free") +
-  theme_minimal() +
-  labs(x = "EQAO", y = "ADE")
 
 ggplotly(g1)
 ggplotly(g2)
 ggplotly(g3)
 ggplotly(g4)
-ggplotly(g5)
 
 ```
 
@@ -587,7 +572,6 @@ student_tlfd_90_dist <- readRDS("output/observed_por_pos_90.rds") %>%
 
 school_tb_filtered <- left_join(school_tb_filtered, student_tlfd_90_dist, by = "sfis")
 
-
 # Build linear regression dataset with various transformed x, y variables
 linreg <- school_tb_filtered %>%
   select(ade, utilization, eqao.standardized, starts_with("n_"), starts_with("occu_"), starts_with("deg_"), attend_school_sum, shape.area_sum, mean.income, mean.age, average.travel.time) %>%
@@ -602,9 +586,6 @@ linreg <- school_tb_filtered %>%
   ) %>%
   mutate(dummy_large_pop = ifelse(n_pop_sum >= 10e+4, 1, 0)) %>%
   bind_cols(select(school_tb_filtered, sfis, school.name.x))
-
-
-
 
 
 linreg <- linreg %>%
@@ -644,14 +625,17 @@ plot(mod)
 ### Gravity model
 
 - Implement sampling procedure
-  - Create sampling proportions at CSD level for each board type
-  - For each TRESO zone, distribute the population of students by board type of CSD
-  - Then for each board type, distribute the POR to POS using TLFD (This may require a K factor to calibrate)
-  - Then for each POS, distribute to the individual schools based on EQAO and OTG
-  - Re-check the probability of closest school theory
+  - Create sampling proportions of stduent board type at the CSD level
+  - For each TRESO zone, calculate the students of each board type by applying the sampling proportions
+- Calibrate cost functions
+  - For each board type, calibrate a cost function that matches the observed TLFD
+- Distribution
+  - 1D distribute the observed POR to POS using the calibrated cost fuction and OTG as weights
+  - Then for each POS, if there are multiple schools further distribute to the individual schools based on EQAO
+  - Re-check the distribution with observation and the closest school theory
 - There are two versions, one is contrained by capacity and another that doesn't have capacity constrains
 
-The board type sampling procedure is calculated at the CSD level.
+The board type sampling proportions are calculated at the CSD level and applied at TRESO level.
   
 ```{r sampling board type, echo=FALSE, fig.width=10, fig.height=8}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -712,7 +696,7 @@ secondary_board_type_sample_spread <- board_type_sample %>%
 
 board_type_sample_spread <- rbind(elementary_board_type_sample_spread, secondary_board_type_sample_spread)
 
-# Get the student data over TRESO zones
+# Apply the board sampling probabilities to the students
 treso_level_sampling <- observed_por_pos_90 %>%
   select(treso.id.por, enrolment, panel, csduid) %>%
   left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
@@ -740,9 +724,11 @@ treso_level_sampling <- observed_por_pos_90 %>%
 treso_level_sampling_elementary_ep <- filter(treso_level_sampling, panel == "Elementary") %>%
   select(treso.id.por, panel, csduid, csdname, `English Public`, `English Catholic`,
          `French Public`, `French Catholic`)
+
+rm(board_type_sample, elementary_board_type_sample_spread, secondary_board_type_sample_spread, board_type_sample_spread)
 ```
 
-The TLFD estimation includes some assumptions made for intra-zonal travel times and extremely large travel times.
+The TLFD estimation has some assumptions made for intra-zonal travel times and extremely large travel times.
 
 The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of. 
 The current assumption is intra-zonal trips which are less than or equal to 2.5 km in length
@@ -751,48 +737,22 @@ Intra-zonal trips more than 2.5 km in length are performed by driving at an aver
 Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and 
 euclidean travel time at 30 km/hr) are set to euclidean travel time.
 
-Eight segments are completed, one for each panel + board_type combination
+##### Estimate Friction Function Coefficients
 
-####- English Public Elementary: 
+- The estimated `alpha` and `beta` values are saved in .csv file in cache
 
-```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
+```{r estimate tlfd friction function, echo=FALSE, eval=FALSE, fig.width=10, fig.height=8}
 
-#Alpha, Beta, CR, & avg. TT at the bottom of this chunk
-
-# Read in the observed trips, and focus on elementary/EP
-# Combine with travel time
-observed_trips_EPE <- readRDS("output/observed_por_pos_90.rds") %>%
-  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
-  drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  
-  filter(panel == "Elementary", board_type_name == "English Public") %>%
-  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-  # intra-zonal trip assumptions
-  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                        euclidean.dist / 5 * 60,
-                                        euclidean.dist / 30 * 60)) %>%
-  mutate(value = ifelse(value == 0,
-                        euclidean.travel.time,
-                        value)) %>%
-  mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(value > 30,
-                        euclidean.travel.time,
-                        value)) %>%
-  group_by(treso.id.por, treso.id.pos) %>%
-  summarise(value = weighted.mean(value, enrolment),
-            euclidean.dist = weighted.mean(euclidean.dist, enrolment),
-            enrolment = sum(enrolment))
-
-travel_time_skim_select_EPE <- select(observed_trips_EPE, treso.id.por, treso.id.pos, value)
+observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          panel_id = "Elementary", board_id = "English Public")
 
 # Calculate observed average trip travel time
-tlfd_obs <- sum(observed_trips_EPE$value * observed_trips_EPE$enrolment) / sum(observed_trips_EPE$enrolment)
+tlfd_obs <- sum(observed_trips$value * observed_trips$enrolment) / sum(observed_trips$enrolment)
 print(paste0("For English Public Elementary, the average travel time to be calibrated to is " , tlfd_obs))
-  
-cost <- travel_time_skim_select_EPE
+
+# Setup parameters for the cost function iteration
+cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
 initbeta <- -1/log(sum(cost$value)) - runif(1)/10
 initalpha <- 1/log(sum(cost$value)) + runif(1)/10
 beta <- initbeta
@@ -800,37 +760,18 @@ alpha <- initalpha
 max_value = 85
 bin_size = 1
 
-#20 iterations used
-
+# Iterate through the alpha and beta
 iterations <- 20
 for (j in 1:iterations) {
   print(j)
   
-  cfunc <- cost %>%
-    mutate(value = value^alpha * exp(beta*value)) %>%
-    replace_na(value = 0)
-  
-  cfunc_rowsums <- cfunc %>%
-    group_by(treso.id.por) %>%
-    summarise(rowsum = sum(value))
-  
-  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
-    mutate(prob_scaled = value / rowsum) %>%
-    select(treso.id.por, treso.id.pos, prob_scaled)
-  
-  simulated_trips_EPE <- select(observed_trips_EPE, treso.id.por, enrolment, value) %>%
-    group_by(treso.id.por) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    left_join(t, by = "treso.id.por") %>%
-    mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(travel_time_skim_select_EPE, by = c("treso.id.por", "treso.id.pos"))
-  
+  # Calculate the simulated trips
+  simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha, beta)
+
   # Calculate simulated average trip lengths
-  tlfd_sim <- sum(simulated_trips_EPE$value * simulated_trips_EPE$enrolment) / sum(simulated_trips_EPE$enrolment)
+  tlfd_sim <- sum(simulated_trips$value * simulated_trips$enrolment) / sum(simulated_trips$enrolment)
   print(paste0("The average travel time of simulated is " , tlfd_sim))
-  
-  # Calculate CR Ratio
-  
+
   if (j %% 2 == 0) {
     alpha <- alpha * (tlfd_sim/tlfd_obs)
     print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
@@ -839,72 +780,69 @@ for (j in 1:iterations) {
     print(paste0("The beta value in this iteriation of the combined function is ", beta))
   }
   
-    
-  obs_tlfd <- select(observed_trips_EPE, treso.id.por, treso.id.pos, enrolment, value) %>%
+  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
     mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
     group_by(bin) %>%
     summarise(enrolment = sum(enrolment)) %>%
     transform(., flag = "obs")
   
-  sim_tlfd <- select(simulated_trips_EPE, treso.id.por, treso.id.pos, enrolment, value) %>%
+  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
     mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
     group_by(bin) %>%
     summarise(enrolment = sum(enrolment)) %>%
     transform(., flag = "model")
   
-  tlfdjoin <- left_join(sim_tlfd, obs_tlfd, by = "bin")%>%
-    replace_na(list(enrolment.x = 0, enrolment.y = 0))%>%
-    mutate(max.enrol = pmax(enrolment.x,enrolment.y))%>%
-    mutate(min.enrol = pmin(enrolment.x,enrolment.y))
+  join_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size) %>%
+    spread(flag, enrolment) %>%
+    mutate(max.enrol = pmax(obs, model), min.enrol = pmin(obs, model))
   
-  minsum = sum(tlfdjoin$min.enrol)
-  
-  maxsum = sum(tlfdjoin$max.enrol)
-  
-  CR = minsum/maxsum
-  print(paste0("The CR value for this iteration is ", CR))
-  
+  # Calculate the coincidence ratio
+  minsum = sum(join_tlfd$min.enrol)
+  maxsum = sum(join_tlfd$max.enrol)
+  cr = minsum/maxsum
+  print(paste0("The CR value for this iteration is ", cr))
 }
 
-generate_tlfd <- function(observed_trips_EPE, simulated_trips_EPE, max_value=85, bin_size=1) {
-  obs_tlfd <- select(observed_trips_EPE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_EPE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  # Combine into one dataframe and plot TLFD
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  return(combined_tlfd)
-}
+rm(observed_trips, simulated_trips, obs_tlfd, sim_tlfd, join_tlfd, minsum, maxsum, CR, tlfd_sim, tlfd_obs)
 
+```
 
-combined_tlfd <- generate_tlfd(observed_trips_EPE, simulated_trips_EPE, 85, 1)
+#### English Public Elementary
+
+Generate the simulated trips using the estimated `alpha` and `beta` values 
+
+```{r simulate english public elementary trips, eval=FALSE, echo=FALSE}
+
+panel_id = "Elementary"
+board_id = "English Public"
+max_value = 85
+bin_size = 1
+
+observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          panel_id = panel_id, board_id = board_id)
+
+cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
+
+tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
+alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
+beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
+
+simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   geom_line(size = 1) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
-saveRDS(simulated_trips_EPE, "cache/simulated_trips_EPE.rds")
-
-
-#alpha: 0.109975007710853
-#beta: -0.0883606111493988
-#cr: 0.821382426165921
-# simualted average travel time:  6.46776866680929
-# Observed average travel time: 6.49770853866524
+# Save the simulated trip list
+saveRDS(simulated_trips, "cache/simulated_trips_EPE.rds")
 ```
 
 1D balance the POR using the calibrated cfunc stored in simulated trips
 
-```{r distribute POR and POS}
+```{r distribute english public elementary POR}
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
   drop_na(treso.id.por) %>%
@@ -912,19 +850,19 @@ observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
 
-por_total_EPE <- observed_por_pos_90 %>%
+por_total <- observed_por_pos_90 %>%
   filter(panel == "Elementary", board_type_name == "English Public") %>%
   group_by(treso.id.por) %>%
   summarise(enrolment = sum(enrolment))
 
 por_full <- travel_time_skim %>%
   distinct(orig) %>%
-  left_join(por_total_EPE, by = c("orig" = "treso.id.por")) %>%
+  left_join(por_total, by = c("orig" = "treso.id.por")) %>%
   replace_na(list(enrolment = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-pos_total_EPE <- observed_por_pos_90 %>%
+pos_total <- observed_por_pos_90 %>%
   left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
   filter(panel == "Elementary", board_type_name == "English Public") %>%
   distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
@@ -933,7 +871,7 @@ pos_total_EPE <- observed_por_pos_90 %>%
 
 pos_full <- travel_time_skim %>%
   distinct(dest) %>%
-  left_join(pos_total_EPE, by = c("dest" = "treso.id.pos")) %>%
+  left_join(pos_total, by = c("dest" = "treso.id.pos")) %>%
   replace_na(list(otg = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -952,19 +890,13 @@ prop_matrix_EPE <- travel_time_skim %>%
 
 prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por_full, pos_full, constrained = TRUE)
 
-```
-
-
-
-Save the balanced POR-POS trip list
-
-```{r trip list}
-# Save the full matrix as a long trip list
+# Save the balanced POR-POS trip list
 trip_list_EPE <- melt(prop_matrix2_EPE)
 colnames(trip_list_EPE) <- c('treso.id.por', 'treso.id.pos', 'trips')
 
-saveRDS(trip_list_EPE, "cache/trip_list_EPE.rds")
+saveRDS(trip_list_EPE, "cache/balanced_trip_list_EPE.rds")
 ```
+
 Distribute each the POS demand to the individual schools
 
 ```{r distribute POS demand} 
@@ -1071,7 +1003,7 @@ ggplot(data=simulated_compare_EPE.data) +
 ```
 
 
-####- English Public Secondary
+#### English Public Secondary
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
 
@@ -1094,7 +1026,7 @@ observed_trips_EPS <- readRDS("output/observed_por_pos_90.rds") %>%
                         euclidean.travel.time,
                         value)) %>%
   mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(value > 30,
+  mutate(value = ifelse(compare.travel.time > 30,
                         euclidean.travel.time,
                         value)) %>%
   group_by(treso.id.por, treso.id.pos) %>%
@@ -1406,7 +1338,7 @@ ggplot(data=simulated_compare_EPS.data) +
 ```
 
 
-##### English Catholic Elementary
+#### English Catholic Elementary
 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
@@ -1740,7 +1672,7 @@ ggplot(data=simulated_compare_ECE.data) +
 
 
 
-##### English Catholic Secondary
+#### English Catholic Secondary
 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
@@ -2075,7 +2007,7 @@ ggplot(data=simulated_compare_ECS.data) +
 
 
 
-##### French Public Elementary
+#### French Public Elementary
 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
@@ -2394,7 +2326,7 @@ print(paste0("The average percent change between simulated and 2017 observed ADE
 ```
 
 
-##### French Public Secondary
+#### French Public Secondary
 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
@@ -2735,7 +2667,7 @@ ggplot(data=simulated_compare_FPS.data) +
 
 
 
-##### French Catholic Secondary
+#### French Catholic Secondary
 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
@@ -3072,7 +3004,7 @@ ggplot(data=simulated_compare_FCS.data) +
 ```
 
 
-##### French Catholic Elementary
+#### French Catholic Elementary
 
 
 ```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}

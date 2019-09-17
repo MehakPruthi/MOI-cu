@@ -51,16 +51,22 @@ calc_error <- function(matrix, a, b) {
 }
 
 matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
-  '
-  One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
-  applied to the propensity matrix, it can be supplied in argument `weight`. The `axis` argument determine which
-  direction to balance the matrix, 1 indicates rows (origin) and 2 indicates columns (destination). The 
-  `constrained` flag determines if the weighting vector is used as a hard limit or as a boolean value to 
-  prevent trips to be sent. 
   
-  Inputs: Propensity matrix, Totals to balance against, Weights to scale against, Axis direction, Constraint flag
-  Ouput: Balanced matrix
-  '
+  #' One dimensional balances a matrix
+  #' 
+  #' One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
+  #' applied to the propensity matrix, it can be supplied in argument `weight`. The `axis` argument determine which
+  #' direction to balance the matrix, 1 indicates rows (origin) and 2 indicates columns (destination). The 
+  #' `constrained` flag determines if the weighting vector is used as a hard limit or as a boolean value to 
+  #' prevent trips to be sent. 
+  #' 
+  #' @param matrix The propensity matrix
+  #' @param a The totals to balance against
+  #' @param weight The weight vector to scale against
+  #' @param axis The direction to perform the balance
+  #' @param constrianed A flag to determine if the weight is to be used as a constraint or not
+  #' @return One dimentionally balanced matrix
+  
   # Check if `axis` is 1 or 2
   if (!(axis %in% c(1, 2))) {
     stop("`axis` value is invalid, not one of (1, 2)")
@@ -157,6 +163,87 @@ matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_itera
   return(matrix2)
 }
 
+# Calculate the simulated trips based on alpha and beta values
+calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
+  cfunc <- cost %>%
+    mutate(value = value^alpha * exp(beta*value)) %>%
+    replace_na(value = 0)
+  
+  cfunc_rowsums <- cfunc %>%
+    group_by(treso.id.por) %>%
+    summarise(rowsum = sum(value))
+  
+  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
+    mutate(prob_scaled = value / rowsum) %>%
+    select(treso.id.por, treso.id.pos, prob_scaled)
+  
+  simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
+    group_by(treso.id.por) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    left_join(t, by = "treso.id.por") %>%
+    mutate(enrolment = enrolment * prob_scaled) %>%
+    left_join(cost, by = c("treso.id.por", "treso.id.pos"))
+  
+  return(simulated_trips)
+}
+
+# Read observed trips and apply intra-zonal assumptions to travel time
+read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
+                                panel_id = "Elementary", board_id = "English Public") {
+  #'
+  #'
+  #'
+  #'
+  
+  # Check if panel and board_type_name are valid
+  if (!(panel_id %in% c("Elementary", "Secondary")) | !(board_id %in% c("English Public", "English Catholic", "French Public", "French Catholic"))) {
+    stop("`panel` or `board_type_name` is not valid!")
+  }
+  
+  observed_trips <- readRDS(filepath) %>%
+    # Drop NAs in POR, it didn't overlay on the TRESO shapefile
+    drop_na(treso.id.por) %>%
+    left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+    left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
+    left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+    # Filter the user selected panel and board type name
+    filter(panel == panel_id, board_type_name == board_id) %>%
+    
+    # Join with travel_time_skim
+    left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+    # intra-zonal trip assumptions
+    mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                          euclidean.dist / 5 * 60,
+                                          euclidean.dist / 30 * 60)) %>%
+    mutate(value = ifelse(value == 0, euclidean.travel.time, value)) %>%
+    mutate(compare.travel.time = value - euclidean.travel.time) %>%
+    mutate(value = ifelse(compare.travel.time > 30, euclidean.travel.time, value)) %>%
+    group_by(treso.id.por, treso.id.pos) %>%
+    summarise(value = weighted.mean(value, enrolment),
+              euclidean.dist = weighted.mean(euclidean.dist, enrolment),
+              enrolment = sum(enrolment))
+  
+  return(observed_trips)
+}
+
+generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
+  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "obs")
+  
+  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    group_by(bin) %>%
+    summarise(enrolment = sum(enrolment)) %>%
+    transform(., flag = "model")
+  
+  # Combine into one dataframe and plot TLFD
+  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
+  return(combined_tlfd)
+}
+
 # Bucket rounding
 # [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
 smart_round <- function(x, digits = 0) {
@@ -184,82 +271,6 @@ sample_by_row <- function(row) {
     prob = row["school.weight.prob.list"][[1]]
   }
   list(sample(x, size=size, replace=TRUE, prob=prob))
-}
-
-# Gravity model 
-furness <- function(cmat, observed_matrix){
-  
-  '
-  This function conducts furnessing or two dimensional balancing
-  
-  Inputs: cost function, observed matrix
-  Output: balanced matrix
-  '
-  
-  #' row sum of cost function matrix
-  skim_trow <- as.data.frame(rowSums(cmat))
-  #' row sum of observed matrix
-  obs_tatt <- as.data.frame(rowSums(observed_matrix))
-  
-  #' row balancing factors
-  rowbal <- obs_tatt/skim_trow
-  colnames(rowbal) <- 'ratio'
-  # rowbal1 <- do.call('cbind', replicate(ncol(observed_matrix), rowbal, 
-  #                                       simplify = FALSE))
-  
-  #first iteration
-  cfunc1 <- cmat*rowbal$ratio
-  
-  #' col sum of cost function matrix
-  skim_tcol <- as.data.frame(colSums(cfunc1))
-  #' col sum of observed matrix
-  obs_tprod <- as.data.frame(colSums(observed_matrix))
-  
-  #' column balancing factors
-  colbal <- obs_tprod/skim_tcol
-  colnames(colbal) <- 'ratio'
-  # colbal1 <- do.call('rbind', replicate(nrow(observed_matrix), colbal, 
-  #                                       simplify = FALSE))
-  
-  # next iteration. Transpose the matrix to allow multiplying by the column ratios.
-  # once done retranspose the matrix before running the row balancing
-  cfunc1 <- t(cfunc1)*colbal$ratio
-  cfunc1 <- t(cfunc1)
-  
-  return(cfunc1)
-} 
-
-# Plot TLFD with OD skim 
-generate_tlfd <- function(observed_trips, simulated_trips, dist_matrix) {
-  
-  # Cuts the the length into 50 bins
-  dist_matrix <- transform(dist_matrix, km_bin = cut(dist_matrix$value, 50))
-  
-  # Merge with dsitance matrix
-  obs_tlfd <- merge(observed_trips, dist_matrix, by = c('orig', 'dest')) %>%
-    group_by(km_bin) %>%
-    summarise(trips = sum(trips)) %>%
-    transform(flag = 'obs')
-  
-  # Prepare the simulated trips to merge with distance
-  sim_tlfd <- as.data.frame(simulated_trips) %>%
-    transform(orig = rownames()) %>%
-    # collapse the dataframe
-    melt(id.vars = c('orig')) %>%
-    transform(variable = substring(.$variable, 2)) %>%
-    filter(value > 0)
-  colnames(sim_tlfd) <- c('orig', 'dest', 'trips')
-  
-  # Merge with distance matrix
-  sim_tlfd <- merge(sim_tlfd, dist_matrix, by = c('orig', 'dest')) %>%
-    group_by(km_bin) %>%
-    summarise(trips = sum(trips)) %>%
-    transform(flag = 'model')
-  
-  # Combine the observed and simulated tlfd into one datframe
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  
-  return(combined_tlfd)
 }
 
 # Plot TLFD with segmentation
