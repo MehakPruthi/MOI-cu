@@ -950,7 +950,7 @@ prop_matrix_EPE <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por_full, pos_full, constrained = TRUE)
+prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por_full, pos_full, constrained = TRUE) 
 
 ```
 
@@ -983,10 +983,36 @@ pos_school_weight_EPE <- pos_school_EPE %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_EPE <- left_join(pos_school_EPE, pos_school_weight_EPE, by = "treso.id.pos") %>%
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# pos_school_weight_3_EPE <- pos_school_weight_2_EPE %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
 pos_school_weight_2_EPE <- left_join(pos_school_EPE, pos_school_weight_EPE, by = "treso.id.pos") %>%
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
+
+# get treso zone school.weight totals
+pos_school_weight_3 <- pos_school_weight_2_EPE %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_EPE <- pos_school_weight_2_EPE %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -998,6 +1024,10 @@ pos_school_weight_3_EPE <- pos_school_weight_2_EPE %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
+
   
 print(paste0("For English Public Elementary, there are ", nrow(filter(pos_school_weight_3_EPE, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_EPE, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
@@ -1298,18 +1328,45 @@ pos_school_weight_EPS <- pos_school_EPS %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_EPS <- left_join(pos_school_EPS, pos_school_weight_EPS, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_EPS <- pos_school_weight_2_EPS %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
+
 pos_school_weight_2_EPS <- left_join(pos_school_EPS, pos_school_weight_EPS, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_EPS %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_EPS <- pos_school_weight_2_EPS %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -1321,7 +1378,10 @@ pos_school_weight_3_EPS <- pos_school_weight_2_EPS %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
-  
+
+
+
+
 print(paste0("For English Public Secondary, there are ", nrow(filter(pos_school_weight_3_EPS, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_EPS, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
 trip_list_EPS <- readRDS(paste0("cache/trip_list_EPS.RDS")) %>%
@@ -1633,18 +1693,42 @@ pos_school_weight_ECE <- pos_school_ECE %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_ECE <- left_join(pos_school_ECE, pos_school_weight_ECE, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_ECE <- pos_school_weight_2_ECE %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
 pos_school_weight_2_ECE <- left_join(pos_school_ECE, pos_school_weight_ECE, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_ECE %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_ECE <- pos_school_weight_2_ECE %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -1968,18 +2052,46 @@ pos_school_weight_ECS <- pos_school_ECS %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_ECS <- left_join(pos_school_ECS, pos_school_weight_ECS, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_ECS <- pos_school_weight_2_ECS %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
+
+
 pos_school_weight_2_ECS <- left_join(pos_school_ECS, pos_school_weight_ECS, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_ECS %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_ECS <- pos_school_weight_2_ECS %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -1991,6 +2103,9 @@ pos_school_weight_3_ECS <- pos_school_weight_2_ECS %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
   
 print(paste0("For English Catholic Secondary, there are ", nrow(filter(pos_school_weight_3_ECS, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_ECS, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
@@ -2305,18 +2420,45 @@ pos_school_weight_FPE <- pos_school_FPE %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_FPE <- left_join(pos_school_FPE, pos_school_weight_FPE, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_FPE <- pos_school_weight_2_FPE %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
+
 pos_school_weight_2_FPE <- left_join(pos_school_FPE, pos_school_weight_FPE, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_FPE %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_FPE <- pos_school_weight_2_FPE %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -2328,6 +2470,8 @@ pos_school_weight_3_FPE <- pos_school_weight_2_FPE %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
   
 print(paste0("For French Public Elementary, there are ", nrow(filter(pos_school_weight_3_FPE, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FPE, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
@@ -2378,7 +2522,7 @@ simulated_compare_FPE <- readRDS("output/trip_list_schools_FPE.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) %>%
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) #%>%
   # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
   # mutate(ratio_sim = sim.enrol.sum/otg) %>%
   # mutate(ratio_obs = sum.enrolment/otg) %>%
@@ -2624,18 +2768,45 @@ pos_school_weight_FPS <- pos_school_FPS %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_FPS <- left_join(pos_school_FPS, pos_school_weight_FPS, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_FPS <- pos_school_weight_2_FPS %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+  
+
+
+
 pos_school_weight_2_FPS <- left_join(pos_school_FPS, pos_school_weight_FPS, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_FPS %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_FPS <- pos_school_weight_2_FPS %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -2647,7 +2818,11 @@ pos_school_weight_3_FPS <- pos_school_weight_2_FPS %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
-  
+
+
+
+
+
 print(paste0("For French Public Secondary, there are ", nrow(filter(pos_school_weight_3_FPS, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FPS, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
 trip_list_FPS <- readRDS(paste0("cache/trip_list_FPS.RDS")) %>%
@@ -2965,18 +3140,45 @@ pos_school_weight_FCS <- pos_school_FCS %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_FCS <- left_join(pos_school_FCS, pos_school_weight_FCS, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_FCS <- pos_school_weight_2_FCS %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
+
 pos_school_weight_2_FCS <- left_join(pos_school_FCS, pos_school_weight_FCS, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_FCS %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_FCS <- pos_school_weight_2_FCS %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -2988,6 +3190,10 @@ pos_school_weight_3_FCS <- pos_school_weight_2_FCS %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
+
   
 print(paste0("For French Catholic Secondary, there are ", nrow(filter(pos_school_weight_3_FCS, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FCS, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
@@ -3303,18 +3509,44 @@ pos_school_weight_FCE <- pos_school_FCE %>%
   group_by(treso.id.pos) %>%
   summarise(otg.total = sum(otg)) 
 
+# pos_school_weight_2_FCE <- left_join(pos_school_FCE, pos_school_weight_FCE, by = "treso.id.pos") %>%
+#   #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+#   mutate(school.weight.prob = (otg/otg.total)) 
+# 
+# # get treso zone school.weight totals
+# # pos_school_weight_3 <- pos_school_weight_2 %>%
+# #   group_by(treso.id.pos) %>%
+# #   summarise(school.weight.total = sum(school.weight)) 
+# 
+# pos_school_weight_3_FCE <- pos_school_weight_2_FCE %>%
+#   #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+#   #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+#   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+#   group_by(treso.id.pos) %>%
+#   summarise(
+#     sfis.list = paste(sfis, collapse = ","),
+#     school.name.list = paste(school.name, collapse = ","),
+#     dsb.index.ist = paste(dsb.index, collapse = ","),
+#     school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+#   ) %>%
+#   rowwise() %>%
+#   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+#   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
 pos_school_weight_2_FCE <- left_join(pos_school_FCE, pos_school_weight_FCE, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
+  mutate(school.weight = eqao.standardized * (otg/otg.total)) 
+  #mutate(school.weight.prob = (otg/otg.total)) 
 
 # get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
+pos_school_weight_3 <- pos_school_weight_2_FCE %>%
+  group_by(treso.id.pos) %>%
+  summarise(school.weight.total = sum(school.weight))
 
 pos_school_weight_3_FCE <- pos_school_weight_2_FCE %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
+  left_join(pos_school_weight_3, by = "treso.id.pos") %>%
+  mutate(school.weight.prob = school.weight/school.weight.total) %>%
   select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
   group_by(treso.id.pos) %>%
   summarise(
@@ -3326,6 +3558,9 @@ pos_school_weight_3_FCE <- pos_school_weight_2_FCE %>%
   rowwise() %>%
   mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
   mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+
+
+
   
 print(paste0("For French Catholic Elementary, there are ", nrow(filter(pos_school_weight_3_FCE, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FCE, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
