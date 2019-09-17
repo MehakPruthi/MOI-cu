@@ -1,0 +1,404 @@
+---
+# For PDF: (OTHER WSP PACKAGES AND SETTINGS CAN BE FOUND IN THE TEMPLATE.TEX FILE MARKED BY "%THESE ARE WSP ADDED")
+# For PDF: (mainfont, sansfont, and other font settings can be set in header-includes. If set there, they apply to the whole document. If they are set outside the YAML, they do not apply to the Title page and TOC)
+# For PDF: client logos and WSP logos set in header-includes: \lhead and \rhead
+# For PDF: project cover page image can be set in \pretitle below
+header-includes: 
+- \usepackage {fontspec} 
+- \setmainfont [BoldFont = MONTSERRAT-MEDIUM.TTF, 
+                ItalicFont = MONTSERRAT-LIGHTITALIC.TTF, 
+                BoldItalicFont = MONTSERRAT-MEDIUMItalic.TTF]{MONTSERRAT-LIGHT.TTF}  
+    \posttitle{\end{center}}
+geometry: "left=3cm, right=3cm, top=3cm, bottom=5cm"  
+papersize: letter
+title: \vspace{3cm}\huge Model User Guide
+subtitle: \LARGE Modelling Infrastructure Capacity & Utilization 
+date: "*`r format(Sys.Date(), '%B %d, %Y')`*"  
+output:
+  html_document:
+    number_sections: no
+    template: default
+    toc: no
+    toc_depth: 3
+    toc_float: no
+  pdf_document:
+    
+    latex_engine: xelatex 
+    template: template.tex 
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+always_allow_html: yes
+start-page: 1
+---
+
+
+```{r setup, include=FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(kableExtra); library(png); 
+
+```  
+
+```{r tinytex for pdf, include=FALSE}
+options(tinytex.verbose = TRUE)
+```
+
+```{r html cover page logo and image setup, echo=FALSE}
+htmltools::img(src = knitr::image_uri("moilogo.png"), # (For HTML: Client Logo goes here)
+               alt = 'clientlogo',
+               style = 'position:absolute; top:0; right:0;left:-20; padding:10px;') 
+
+htmltools::img(src = knitr::image_uri("img_coverpage.png"),  # (For HTML: Cover picture goes here)
+               alt = 'coverpage',
+               style = 'position: relative; top:50; right:50; padding:10px;')
+```
+
+[//]: # (THIS IS A COMMENT: This template is intended to streamline the PDF and html production process. No setting changes are required when knitting to PDF or html with the exception of headers. If a tabset is needed for all level 1 headers, then you need to change level 1 headers to level 2, level 2 to level 3, etc.. as follows: normal: ---- #Intro, ##Intro_subheader 1, ###Intro_subsub 1 etc.. ---- Header 1 as tabset: # {.tabset .tabset-fade}, ##Intro, ###Intro_subheader 1, ####Intro_subsub 1 etc..   when kniting to PDF, header numbering should be in normal setting without tabsets)
+
+
+# {.tabset .tabset-fade}
+
+
+## System Requirements
+The visualization tool and respective methodology are written in R and developed, processed, and run in RStudio with the support of indepedent third-party packages. R is a statistical computing programming language while RStudio uses R to develop statistical and visualization programs. RStudio must be used alongside R to function properly and is supported by a large number of packages, higher quality graphics, and a workspace management interface. To view the R code and run the visualization tool, system requirements include:
+
+* R
+* RStudio
+* 3rd Party Packages
+* Web Browser
+* Compatible Hardware System
+
+### Software Requirements   
+
+#### R & RStudio  
+R version 3.6.1 was used in the production of the tool and respective code. Future versions of R may have changes that render usage incompatible or problematic, however it is anticipated that fixes would be readily available and easy to implement. Backward compatibility with previous R versions was not tested.
+
+RStudio version 1.2+ is required to adequetly and accuratly render the maps in RStudio Viewer. Previous RStudio versions face difficulty with map layer rendering. If the intent is to solely run the visualization to ol, using a web browser is an alternative to RStudio. RStudio requires R verion 3.0.1+ and the following operating system requirements: 
+
+* Windows 7+ (64-bit)
+* macOS 10.12+ (64-bit)
+* Other Operating Systems see <https://www.rstudio.com/products/rstudio/download/>
+
+#### Packages  
+A number of packages are used to develop and run the tool. The following table lists the required R/RStudio packages by operational category (i.e. whether the user requires running the tool or accessing the tool/code backend).
+
+```{r echo=FALSE,}
+pkg_tbl <- data.frame(
+Package = c("shiny", "tidyverse", "leaflet", "maps", "RColorBrewer", "DT", "dplyr","shinydashboard", "shinyjs", "shinyBS", "shinywidgets", "htmlwidgets", "sf", "rgeos", "rmapshaper"),
+Description = c(
+"Web Application Framework for R",
+"Data Manipulation, Exploration, and Visualization Package",
+"Interactive Web Maps with the JavaScript 'Leaflet' Library",
+"Geographical Maps",
+"ColorBrewer Palettes",
+"A Wrapper of the JavaScript Library 'DataTables'",
+"Grammar of Data Manipulation",
+"Create Dashboards for Shiny",
+"Shiny User Experience Improvement",
+"Twitter Bootstrap Components for Shiny",
+"Custom Inputs Widgets for Shiny",
+"HTML Widgets for R",
+"Simple Features for R",
+"Interface to Geometry Engine",
+"Client for 'mapshaper' for 'Geospatial' Operations"
+),
+Version = c("1.3.2", "1.2.1", "2.0.2" , "3.3.0", "1.1-2", "0.8", "0.8.3", "0.7.1", "1.0", "0.61","0.4.8",  "1.3",  "0.7-7", "0.5-1", "0.4.1"),
+Build = c("3.6.1", "3.6.1","3.6.1","3.6.1","3.6.0", "3.6.1", "3.6.1","3.6.1", "3.6.1","3.6.1","3.6.1", "3.6.1", "3.6.1","3.6.1","3.6.1")
+)
+
+kable(pkg_tbl, caption="Required Packages by Operational Category", booktabs = T) %>%
+  kable_styling(full_width = T, latex_options = "scale_down") %>%
+  pack_rows("Tool Run",1,6)%>%
+  pack_rows("Tool/Code Backend",7,15) %>%
+  column_spec(1, bold = T, color = "red", width = "12em") %>%
+  column_spec(2, width = "28em") %>%
+  column_spec(3, width = "5em") %>%
+  column_spec(4, width = "5em")
+  
+```
+
+### Hardware Requirements  
+
+RStudio version 1.2+ requires a 64-bit operating system, and works exclusively with the 64 bit version of R. If the user is on a 32 bit system or needs the 32 bit version of R, an older version of RStudio can be used but may cause issues rendering maps.
+
+## System Setup 
+### Why R/RStudio
+R and RStudio were selected as the main programs to build the visualization tool due to the availability R Shiny. R Shiny is a package to build interactive web applications from R. Other available Dashboard Tools were explored for applicability and result visualzation display and interface (such as ArcGIS Online, Tableau, etc...). RShiny was selected as the primary package of use due to the large benefits presented in meeting project goals and objectives and include:
+
+* *Tight Interagation with the Model*
+  + R Shiny is developed by the same team that develops RStudio thereby ensuring compatability. 
+  + Confidence that R shiny will be able to quickly and adequetly support future developments of R.
+  + Other 3rd party dashboard tools might have API changes or updates outside of the user’s control, potentially leading to incompatibility issues in the future.  
+$~$
+* *Double Service as a Graphical User Interface (GUI)*
+  + Need for the visualization tool to also be a way for the user to run scenarios that might not have been pre-computed.
+  + R Shiny is able to run the R code directly, opposed to other dashboard tools.  
+$~$
+* *Flexibility and Malleability*
+  + R Shiny has built-in widgets for most dashboard needs that can be extended further with html, CSS, and JavaScript code.
+  + R Shiny applications can host transportation statistics (maps, origin-destination flows) along with graphical statistics (charts, graphs, and tables).
+  + Other dashboard tools become more rigid as applications are customized.
+
+Nonetheless, as with any package or tool there are downsides. R Shiny is more difficult to implement than other dashboard tools because it is created with code and there are no drag-and-drop interfaces to build R shiny apps. However, for the goals and objectives of this project, the benefits of using R Shiny outweigh this downside.
+
+### R Setup
+R is a free software environment for statistical computing and graphics. The following steps detail the download process of R:
+
+1. Visit <https://cran.r-project.org/mirrors.html>
+2. Scroll down to Canada and select a mirror closest to your location
+3. Download the R version compatible with your operating system and select the base subdirectory
+4. Once download is complete, run the Installer
+
+The Installer might prompt for an administrator account, however is expected to download regardless of account status.
+
+### RStudio Setup
+RStudio is a also a free software and can be downloaded by following the below steps:
+
+1. Visit <https://www.rstudio.com/products/rstudio/download/#download>
+2. Scroll down to the "Installers for Supported Platforms" section
+3. Select the RStudio version compatible with your operating system
+4. Depending on the System Administrator setting, an administrator account may be required to run the installer
+
+### R Package Download & Loading
+
+For a list of packages to download, visit section [1.1.2](#packages).
+
+To run the tool on a local RStudio setup, packages listed under "Tool Run" in [1.1.2](#packages) need to be installed, whereas to manipulate the tool/code backend, packages under "Tool/Code Backend" are used. To download packages, run the following script in the RStudio console:
+
+```{r package install, eval=FALSE}
+install.packages("shiny")
+```
+The above example installs the 'shiny' package. The following approach can be used for all packages requiring installation.
+
+To load packages on a local system if they are not loaded automatically, run the following script in the RStudio console:
+
+```{r package load, eval=FALSE}
+library(shiny)
+```
+The above example loads the 'shiny' package and can be used to load all required packages.
+
+## Visualization Tool Run
+### Project Setup & Loading
+#### Database Link & Loading
+### Run Tool
+#### Steps
+#### Choices/User Input
+### Scenario Testing {.tabset .tabset-fade .tabset-pills} 
+#### Education
+#### Health
+#### Justice
+
+## Modeller Scripts & Approaches
+### Processing Scripts
+### Run-Time Scripts
+### Organizational Scripts
+
+## Model Inputs
+### Data Updates & New Data
+### TRESO
+### Model Inputs Table {.tabset .tabset-fade .tabset-pills} 
+#### Education {.tabset .tabset-fade} 
+##### Tables
+```{r education table inputs, echo=FALSE,}
+#Paul to add MOF data
+
+edu_input_tbl <- data.frame(
+
+"Table Name" = c("eqao_2017_2018", "sch_enr_pcode", "PCCF_Ont_2018", "school_assets", "school_assets_portables", "school_board_types", "school_capacity", "school_forecast","school_historical_ade", "treso"),  
+
+"Alternative Name" = c("eqao_2017_2018", "EDU_enrol_SCH_Pcode", "PCCF", "AssetInventoryEDU", "AssetInventoryEDUPortable", "EDU_DSBIndex", "EDU_School_Cap", "EDU_Forecast_Ext","school_historical_ade", "treso"),  
+
+Description = c(
+"School EQAO 2017-2018 Scores",
+"Student Six-Digit Postal Code Data",
+"Student Latitude-Longitude & Postal Code Data",
+"School Asset Inventory Data",
+"School Portable Asset Inventory Data",
+"District School Board Data",
+"School Capacity Data",
+"EDU Forecast ADE",
+"Historical School ADE",
+"TRESO Shape File & Inter-Zonal Travel Time Skims"
+),
+
+"Last Update" = c("2017-2018", "2017", "2018", "2016" , "2017", "N/A", "2017", "2017", "2017", "N/A"),
+
+"Contact" = c("EDU", "EDU", "EDU", "MOI" , "MOI", "EDU", "EDU", "EDU", "EDU", "WSP")
+)
+
+kable(edu_input_tbl, caption="Education Model Input Tables", booktabs = T) %>%
+  kable_styling(full_width = T, latex_options = "scale_down") %>%
+  column_spec(1, bold = T, color = "red") %>%
+  column_spec(2, bold = T)
+```
+##### Attributes
+```{r education attributes, echo=FALSE,}
+edu_att <- data.frame(
+
+Attribute = c("'Sch_yr' / 'SCH_YR' / 'Sch_YR'", 
+              "'DSB_Index' / 'DSBINDEX' / 'dsbindex'",  
+              "'SFIS_ID' / 'SFIS'", 
+              "'FacilityName' / 'School.Name'", 
+              "'ADE'", 
+              "'Latitude'", 
+              "'longitude'",
+              "'dataSetID'",
+              "'BSID'", 
+              "'Student Postal Code' / 'PostalCode'",
+              
+              "'OTG'", 
+              "'Status'", 
+              "'BoardName'", 
+              "'Panel'", 
+              
+              "'Enrolment'", 
+              "'Lat'", 
+              "'LONG'", 
+              "'Ret_Date'", 
+              
+              "'CurrentUse'", 
+              "'GFA_m2'", 
+              "'NumberOfUnits'", 
+              
+              "'School Number'", 
+              "'School Type'", 
+              "'School Level'", 
+              "'School Language'", 
+              "3rd Grade to 10th Grade EQAO Scores"),
+
+
+Description = c("Assessment Year for School Capacity, ADE Forecast, School Enrollment Postal Code, and Portable Data Tables", 
+                "District School Board Index for School Capacity, ADE Forecast, School Enrollment Postal Code, and Portable Data Tables", 
+                "School Site ID for School Capacity, ADE Forecast, and Portable Data Tables", 
+                "School Name for School Capacity, ADE Forecast, School Enrollment Postal Code, and Portable Data Tables", 
+                "ADE in School Capacity and ADE Forecast Data Tables", 
+                "School Latitude Location for School Capacity and EQAO Data Tables", 
+                "School Longitude Location for School Capacity and EQAO Data Tables",
+                "Dataset ID for School Capacity and Portable Data Tables",
+                "School Building ID for ADE Forecast and Student Postal Code Data Tables", 
+                "Student Home Postal Code for School Enrollment Postal Code and PCCF Data Tables",
+                
+                "OTG", 
+                "School Status (Open, Closed, etc..)", 
+                "School Board Name", 
+                "School Panel",
+                
+                "Enrolment Value in School Enrollment Postal Code Data Table", 
+                "Student Latitude Location in PCCF Data Table", 
+                "Student Longitude Location in PCCF Data Table", 
+                "Retirement Date in PCCF Data Table", 
+                
+                "Current Portable Use", 
+                "Gross Floor Area (m2)", 
+                "Number of Portables", 
+                
+                "School Number: BSID Equivelant", 
+                "School Type (Public, Private)", 
+                "School Level: Panel Equivelant", 
+                "School Primary Language", 
+                "School EQAO Scores by Grade")
+
+
+)
+
+kable(edu_att, caption="Education Model Attribute List", booktabs = T) %>%
+  kable_styling(full_width = T, latex_options = "scale_down") %>%
+  pack_rows("Recurring Attributes",1,10)%>%
+  pack_rows("School Capacity-Specific Attributes",11,14) %>%
+  pack_rows("Student Postal Code-Specific Attributes",15,18) %>%
+  pack_rows("Portable-Specific Attributes",19,21) %>%
+  pack_rows("EQAO-Specific Attributes",22,26) %>%
+  column_spec(1, bold = T, color = "red", width = "12em") %>%
+  column_spec(2, width = "28em")
+
+  
+```
+##### Filters
+
+Exclusions represent the filtering criteria for data tables. They can range from filtering a data set to reflect the most relevant data to filtering a data set to reflect the most recent conditions. Data set filters include:
+
+- School Capacity:
+  - Filtered by 2017 year;
+  - Filtered by school status as 'Open';
+  - Filtered by dataset.id = 2 to reflect the most recent data set;and
+  - Filtered by available school longitude and latitude.
+  
+- Forecast ADE:
+  - Filtered by 2017 year;and
+  - Filtered by available bsid (different from zero).
+
+- School Enrollement Student Postal Code:
+  - Filtered by 2017 year.
+
+- Portables:
+  - Filtered by portable use to discount cafe, child care, administration, other, commercial, general, best start, and staff uses;
+  - Filtered by dataset.id = 2;
+  - Filtered by 2017 year;and
+  - Filtered by area.m2 > 0.
+
+- EQAO:
+  - Filtered to only include public and catholic school types.
+  
+- School Assets:
+  - Filtered by DataSetId = 2;
+  - Filtered by school status as 'Open'; and
+  - Filtered by 'Panel' = 'School'.
+
+##### Exclusions & Data Cleaning 
+
+Exclusions & Data cleaning refer to the processes of manipulating, reducing, and/or matching the datasets. Exclusions prepares the data sets by removing entries that don't fulfill a certain criteria. Data Cleaning refers to reducing observations by removing data outliers, anamolies, or inaccuracies. Exclusions and data cleaning processes include:
+
+- School Capacity
+  - Removed schools with capacity and/or ADE of zero (0);and
+  - Removed schools with ADE less than 50.
+
+- Forecast ADE:
+  - Removed schools that do not have a corresponding forecast.
+ 
+- In combining capacity datasets with forecast datasets, six schools were excluded due to data mismatch.
+
+- School Enrollement Student Postal Code:
+  - In combining student postal code data with latitude/longitude information, 0.9% of student data were excluded;and
+  - Remove postal codes with number of characters not equal to six.
+  
+- School Catchment Area:
+  - Removed entries from combined school, student, and postal data that do not have student longitude and latitude values; and
+  - Students travelling extremly far distances are excluded to limit error when calculating school catchment areas - for each school, students outside the whiskers of a typical boxplot are removed such that:
+    - The end of whiskers is defined as [Q_1 - 1.5*IQR, Q_3 + 1.5IQR], and IQR is the difference between Q_3 and Q_1; and
+    - This resulted in an exclusion of 134,036 students leading to a remaining student balance of 1,802,617.
+  
+- School Capacity, Forecast, and School Enrollement Student Postal Code combined table:
+  - Removed Enrolment/ADE ratios that are less than or equal to 0.8 and greater than or equal to 1.02 (ratio <= 0.8 | ratio >= 1.02); and
+  - In combining data sets, 3.81% of data were flagged.
+
+- Portable Data:
+  - Applied assumption that portable units are rounded to 0.75, such that a protable with 1.8 units is rounded 2 units and a portable with
+1.7 units is rounded to 1 unit.
+  
+- EQAO:
+  - Removed not reported (N/R), no data (N/D), or suppressed (SP) school EQAO entries.
+
+- TRESO:
+  - Dropped por TRESO zone id's (treso.id.por) that do not overlay with the TRESO zones shapefile
+
+
+#### Health {.tabset .tabset-fade} 
+##### Tables
+##### Attributes
+##### Exclusions
+##### Data Cleaning
+#### Justice {.tabset .tabset-fade} 
+##### Tables
+##### Attributes
+##### Exclusions
+##### Data Cleaning
+
+## Backend Variable Changes {.tabset .tabset-fade .tabset-pills} 
+### Education
+### Health
+### Justice
+
+## Model Outputs {.tabset .tabset-fade .tabset-pills} 
+### Education
+### Health
+### Justice

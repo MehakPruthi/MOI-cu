@@ -16,7 +16,7 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   #d = [2r][arcsin(sqrt(hav(lat2 - lat1)+cos(lat1)*cos(lat2)*hav(long2 - long1))]
   #d = [2r][arcsin(sqrt(sin^2((lat2 - lat1)/2)+cos(lat1)*cos(lat2)*sin^2((long2 - long1)/2)))]
   '
-
+  
   earthRadius <- 6378.1 #in km
   lat1Rad <- convertDegrees(lat1)
   lat2Rad <- convertDegrees(lat2)
@@ -179,9 +179,9 @@ sample_by_row <- function(row) {
   
   if (length(x) == 1) {
     # Quirk 
-    prob = c(rep(0, x - 1), row["eqao.weight.list"][[1]])
+    prob = c(rep(0, x - 1), row["school.weight.prob.list"][[1]])
   } else {
-    prob = row["eqao.weight.list"][[1]]
+    prob = row["school.weight.prob.list"][[1]]
   }
   list(sample(x, size=size, replace=TRUE, prob=prob))
 }
@@ -316,7 +316,7 @@ plot_travel_time_tlfd <- function(tlfd) {
     labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
     theme_grey() +
     coord_cartesian(xlim = c(-1, 30))
-
+  
   g3 <- tlfd %>%
     filter(startsWith(board_type_name, 'English')) %>%
     ggplot(aes(travel.time, color = as.factor(mof_region))) +
@@ -325,7 +325,7 @@ plot_travel_time_tlfd <- function(tlfd) {
     labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
     theme_grey() +
     coord_cartesian(xlim = c(-1, 30))
-
+  
   g4 <- tlfd %>%
     filter(startsWith(board_type_name, 'French')) %>%
     ggplot(aes(travel.time, color = as.factor(mof_region))) +
@@ -334,7 +334,7 @@ plot_travel_time_tlfd <- function(tlfd) {
     labs(title = 'Travel Time', x = 'time (min)', color = 'Geographic Location') +
     theme_grey() +
     coord_cartesian(xlim = c(-1, 30))
-
+  
   g <- arrangeGrob(g1, g2, g3, g4, nrow = 4)
 }
 
@@ -359,13 +359,13 @@ create_student_xy <- function(student_travel) {
     mutate(id = row_number())
   
   coordinates(student_spdf) <- c('long', 'lat')
-
+  
   # Project the student and school points from lat/long to TRESO's LCC specification
   proj4string(student_spdf) <- CRS('+proj=longlat +datum=WGS84')
   treso_projarg = treso_shp@proj4string@projargs
   
   student_xy <- spTransform(student_spdf, CRS(treso_projarg))
-
+  
   return(student_xy)
 }
 
@@ -524,7 +524,7 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   '
   # First summarise data that is calculated with `mean()` or `first()`
   # I think using purr, one could summarise different columns with different functions in one go
-
+  
   school_tb_temp <- as_tibble(buffered_df) %>%
     left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c('treso.id' = 'treso_zone')) %>%
     left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
