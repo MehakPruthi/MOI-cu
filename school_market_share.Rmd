@@ -1,0 +1,112 @@
+---
+title: "school_market_share"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(weights)
+library(RODBC)
+library(scales)
+source("helpers.R")
+```
+
+# School Market Share Analysis - 2007 to 2011
+## Education Data cleaning
+ 
+- Clean school capacity and historical demand data
+
+```{r education data cleaning, echo=FALSE}
+# The school capacity dataset contains the correct lat/long for schools
+schoolEnrol <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
+schoolEnrolSlim <- schoolEnrol %>%
+  select(year = Sch_yr, 
+         dsb.index = DSB_Index, 
+         board.name = BoardName, 
+         panel = Panel, 
+         sfis = `SFIS_ID`,
+         school.name = `FacilityName`, 
+         ade = ADE,
+         otg = OTG, 
+         school.lat = `Latitude`, 
+         school.long = `longitude`, 
+         status = Status, 
+         dataset.id = dataSetID) %>%
+  arrange(year, dsb.index, panel, sfis) %>%
+  mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
+  filter(year == 2007 | year == 2011 | year == 2017, status == "Open", dataset.id == 2)
+  # Remove schools with capacity of 0
+  #filter(otg != 0, ade != 0) %>%
+
+# Clean global variables
+rm(schoolEnrol2011, schoolEnrol2017)
+```
+
+## Calculate 2007 Market Share by School
+- Grouped by DSB Index, Panel
+
+```{r}
+schoolEnrol2007 <- schoolEnrolSlim %>%
+  filter(year == 2007) %>%
+  group_by(dsb.index, panel) %>%
+  mutate(board.enrol = sum(ade)) %>%
+  mutate(market.share2007 = ade / board.enrol) %>%
+  ungroup()
+```
+
+## Join 2007 Market Shares to 2011 and 2017 Enrolment Data
+- Estimates enrolment by school in 2011 and 2017 based on market share of that school within its board in 2007, using 2011 and 2017 board enrolment projections
+
+```{r}
+schoolEnrol2011 <- schoolEnrolSlim %>%
+  filter(year == 2011) %>%
+  left_join(select(schoolEnrol2007, sfis, market.share2007), by = c('sfis')) %>%
+  group_by(year, dsb.index, panel) %>%
+  mutate(board.enrol = sum(ade)) %>%
+  ungroup() %>%
+  mutate(enrol2011.by2007MS = market.share2007 * board.enrol) %>%
+  mutate(MSerror2011 = abs(ade - enrol2011.by2007MS) / ade, MSerrorPercent2011 = 
+         percent(abs(ade - enrol2011.by2007MS) / ade, accuracy = 1)) %>%
+  
+  # Calculate unweighted mean error
+    # Find average enrolment differences for each year
+    # Omit NaN and NA values using na.rm = TRUE
+    # Omit Inf values by converting them to NA, and therefore caught by na.rm = TRUE
+  group_by(panel) %>%
+  mutate(avg2011EnrolDiff = mean(MSerror2011*is.finite(MSerror2011), na.rm = TRUE)) %>%
+  ungroup()
+
+# Repeat above for 2017
+schoolEnrol2017 <- schoolEnrolSlim %>%
+  filter(year == 2017) %>%
+  left_join(select(schoolEnrol2007, sfis, market.share2007), by = c('sfis')) %>%
+  group_by(year, dsb.index, panel) %>%
+  mutate(board.enrol = sum(ade)) %>%
+  ungroup() %>%
+  mutate(enrol2017.by2007MS = market.share2007 * board.enrol) %>%
+  mutate(MSerror2017 = abs(ade - enrol2017.by2007MS) / ade, MSerrorPercent2017 = 
+         percent(abs(ade - enrol2017.by2007MS) / ade, accuracy = 1)) %>%
+  
+  # Calculate unweighted mean error
+    # Find average enrolment differences for each year
+    # Omit NaN and NA values using na.rm = TRUE
+    # Omit Inf values by converting them to NA, and therefore caught by na.rm = TRUE
+  group_by(panel) %>%
+  mutate(avg2017EnrolDiff = mean(MSerror2017*is.finite(MSerror2017), na.rm = TRUE)) %>%
+  ungroup()
+  
+```
+
+## Join 2011 Results to 2017 Results and Compare; Save / output results
+
+```{r}
+schoolEnrol20112017 <- schoolEnrol2011 %>%
+  select(dsb.index, sfis, school.name, panel, ade2011 = ade, enrol2011.by2007MS) %>%
+  left_join(select(schoolEnrol2017, sfis, ade, enrol2017.by2007MS), by = c('sfis')) %>%
+  rename(ade2017 = ade) %>%
+  mutate(enrol2011diff = ade2011 - enrol2011.by2007MS, enrol2017diff = ade2017 - enrol2017.by2007MS) %>%
+  arrange(sfis) %>%
+  saveRDS("cache/school_2007_market_share.rds")
+
+```
