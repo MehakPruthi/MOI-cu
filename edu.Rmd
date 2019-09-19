@@ -949,7 +949,7 @@ Compare simulated ADE to Observed ADE by school for gravity model and for closes
 
 ```{r english public elementary results comparison}
 
-panel_id = "Secondary"
+panel_id = "Elementary"
 board_id = "English Public"
 
 observed_enrol_EPE <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -2460,10 +2460,6 @@ ggplot(data=result_school2.data) +
   #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - French Catholic", title="Closest School vs. Observed Demand (2017)")
-
-
-
-
 ```
 
 ```{r tlfd of closest school probability, echo=FALSE, eval=FALSE}
