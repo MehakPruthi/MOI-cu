@@ -850,7 +850,7 @@ saveRDS(simulated_trips, "cache/simulated_trips_EPE.rds")
 
 1D balance the POR using the calibrated cfunc stored in simulated trips
 
-```{r distribute english public elementary POR}
+```{r distribute english public elementary POR, echo=FALSE, eval=FALSE}
 # Create the full list of POR and POS TRESO zones once and save it in output
 por_full <- travel_time_skim %>%
   distinct(orig)
@@ -911,7 +911,7 @@ saveRDS(trip_list_EPE, "cache/balanced_trip_list_EPE.rds")
 
 Distribute each the POS demand to the individual schools
 
-```{r distribute english public elementary POS demand}
+```{r distribute english public elementary POS demand, echo=FALSE, eval=FALSE}
 pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
                                              eqao_2017, panel_id = panel_id, board_id = board_id)
   
@@ -947,11 +947,15 @@ saveRDS(trip_list_schools_EPE, "output/trip_list_schools_EPE.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r english public elementary results comparison}
+
+panel_id = "Secondary"
+board_id = "English Public"
+
 observed_enrol_EPE <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == "Elementary", board_type_name == "English Public") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(sfis)%>%
   summarise (sum.enrolment = sum(enrolment))
 
@@ -1030,7 +1034,7 @@ saveRDS(simulated_trips, "cache/simulated_trips_EPS.rds")
 
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
 
-```{r distribute english public secondary POR}
+```{r distribute english public secondary POR, echo=FALSE, eval=FALSE}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/por_full.rds")
 pos_full <- readRDS("output/pos_full.rds")
@@ -1086,7 +1090,7 @@ saveRDS(trip_list_EPS, "cache/balanced_trip_list_EPS.rds")
 
 Distribute each the POS demand to the individual schools
 
-```{r distribute english public secondary POS demand} 
+```{r distribute english public secondary POS demand, echo=FALSE, eval=FALSE} 
 pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
                                              eqao_2017, panel_id = panel_id, board_id = board_id)
   
@@ -1122,7 +1126,11 @@ saveRDS(trip_list_schools_EPS, "output/trip_list_schools_EPS.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r  english public secondary results comparison}
+
+panel_id = "Secondary"
+board_id = "English Public"
+
 observed_enrol_EPS <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
@@ -1163,7 +1171,7 @@ ggplot(data=simulated_compare_EPS.data) +
 
 #### English Catholic Elementary
 
-```{r simulate english catholic secondary trips, eval=FALSE, echo=FALSE}
+```{r simulate english catholic elementary trips, eval=FALSE, echo=FALSE}
 
 panel_id = "Elementary"
 board_id = "English Catholic"
@@ -1202,7 +1210,7 @@ saveRDS(simulated_trips, "cache/simulated_trips_ECE.rds")
 
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
 
-```{r distribute english catholic elementary POR}
+```{r distribute english catholic elementary POR, echo=FALSE, eval=FALSE}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/por_full.rds")
 pos_full <- readRDS("output/pos_full.rds")
@@ -1258,7 +1266,7 @@ saveRDS(trip_list_ECE, "cache/balanced_trip_list_ECE.rds")
 
 Distribute each the POS demand to the individual schools
 
-```{r distribute english public secondary POS demand} 
+```{r distribute english catholic elementary POS demand, echo=FALSE, eval=FALSE} 
 pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
                                              eqao_2017, panel_id = panel_id, board_id = board_id)
   
@@ -1294,7 +1302,11 @@ saveRDS(trip_list_schools_ECE, "output/trip_list_schools_ECE.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r english catholic elementary results comparison}
+
+panel_id = "Elementary"
+board_id = "English Catholic"
+
 observed_enrol_ECE <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
@@ -1374,7 +1386,7 @@ saveRDS(simulated_trips, "cache/simulated_trips_ECS.rds")
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
-```{r distribute english catholic elementary POR}
+```{r distribute english catholic secondary POR, echo=FALSE, eval=FALSE}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/por_full.rds")
 pos_full <- readRDS("output/pos_full.rds")
@@ -1430,7 +1442,7 @@ saveRDS(trip_list_ECS, "cache/balanced_trip_list_ECS.rds")
 
 Distribute each the POS demand to the individual schools
 
-```{r distribute english public secondary POS demand} 
+```{r distribute english catholic secondary POS demand, echo=FALSE, eval=FALSE} 
 pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
                                              eqao_2017, panel_id = panel_id, board_id = board_id)
   
@@ -1466,11 +1478,15 @@ saveRDS(trip_list_schools_ECS, "output/trip_list_schools_ECS.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r english catholic secondary results comparison}
+
+panel_id = "Secondary"
+board_id = "English Catholic"
+
 observed_enrol_ECS <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == "Secondary", board_type_name == "English Catholic") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(sfis)%>%
   summarise (sum.enrolment = sum(enrolment))
 
@@ -1484,192 +1500,73 @@ simulated_compare_ECS <- readRDS("output/trip_list_schools_ECS.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) #%>%
-  # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  # mutate(ratio_sim = sim.enrol.sum/otg) %>%
-  # mutate(ratio_obs = sum.enrolment/otg) %>%
-  # filter(ratio_sim >= 1) %>%
-  # filter(ratio_obs <1)
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
   
-
-
 avg_perc <- mean(simulated_compare_ECS$rounded_perc_diff)
 
-print(paste0("The average percent change between simulated and 2017 observed ADE for English Catholic Secondary schools is ", round(avg_perc, 2)))
+print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
 
-
-simulated_compare_ECS.data <- data.frame("y" = simulated_compare_ECS$rounded_perc_diff, "x" = simulated_compare_ECS$sim_enrol.diff_to_ade_2017, "mof_region" = simulated_compare_ECS$mof_region)
+simulated_compare_ECS.data <- data.frame("y" = simulated_compare_ECS$rounded_perc_diff,
+                                         "x" = simulated_compare_ECS$sim_enrol.diff_to_ade_2017,
+                                         "mof_region" = simulated_compare_ECS$mof_region)
 ggplot(data=simulated_compare_ECS.data) +
-  
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
   geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
   #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  facet_wrap(~ mof_region, scale = "fixed") +
+  #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - English Catholic", title="Simulated vs. Observed Demand (2017)") #+
-  #geom_point(data = subset(simulated_compare.data, group=="Central"),
-             #aes(x=x, y=y),
-             #colour = "red")
-  #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
-
+  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
+       subtitle="Secondary - English Catholic", title="Simulated vs. Observed Demand (2017)")
 ```
-
-
 
 #### French Public Elementary
 
+```{r simulate french public elementary trips, eval=FALSE, echo=FALSE}
 
-```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
-
-# Read in the observed trips, and focus on elementary/EP
-# Combine with travel time
-observed_trips_FPE <- readRDS("output/observed_por_pos_90.rds") %>%
-  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
-  drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  
-  filter(panel == "Elementary", board_type_name == "French Public") %>%
-  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-  # intra-zonal trip assumptions
-  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                        euclidean.dist / 5 * 60,
-                                        euclidean.dist / 30 * 60)) %>%
-  mutate(value = ifelse(value == 0,
-                        euclidean.travel.time,
-                        value)) %>%
-  mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(value > 30,
-                        euclidean.travel.time,
-                        value)) %>%
-  group_by(treso.id.por, treso.id.pos) %>%
-  summarise(value = weighted.mean(value, enrolment),
-            euclidean.dist = weighted.mean(euclidean.dist, enrolment),
-            enrolment = sum(enrolment))
-
-travel_time_skim_select_FPE <- select(observed_trips_FPE, treso.id.por, treso.id.pos, value)
-
-# Calculate observed average trip travel time
-tlfd_obs <- sum(observed_trips_FPE$value * observed_trips_FPE$enrolment) / sum(observed_trips_FPE$enrolment)
-print(paste0("For French Public Elementary, the average travel time to be calibrated to is " , tlfd_obs))
-  
-cost <- travel_time_skim_select_FPE
-initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-initalpha <- 1/log(sum(cost$value)) + runif(1)/10
-beta <- initbeta
-alpha <- initalpha
+panel_id = "Elementary"
+board_id = "French Public"
 max_value = 85
 bin_size = 1
 
+observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          panel_id = panel_id, board_id = board_id)
 
-iterations <- 20
-for (j in 1:iterations) {
-  print(j)
-  
-  cfunc <- cost %>%
-    mutate(value = value^alpha * exp(beta*value)) %>%
-    replace_na(value = 0)
-  
-  cfunc_rowsums <- cfunc %>%
-    group_by(treso.id.por) %>%
-    summarise(rowsum = sum(value))
-  
-  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
-    mutate(prob_scaled = value / rowsum) %>%
-    select(treso.id.por, treso.id.pos, prob_scaled)
-  
-  simulated_trips_FPE <- select(observed_trips_FPE, treso.id.por, enrolment, value) %>%
-    group_by(treso.id.por) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    left_join(t, by = "treso.id.por") %>%
-    mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(travel_time_skim_select_FPE, by = c("treso.id.por", "treso.id.pos"))
-  
-  # Calculate simulated average trip lengths
-  tlfd_sim <- sum(simulated_trips_FPE$value * simulated_trips_FPE$enrolment) / sum(simulated_trips_FPE$enrolment)
-  print(paste0("The average travel time of simulated is " , tlfd_sim))
-  
-  # Calculate CR Ratio
-  
- 
-   
-  if (j %% 2 == 0) {
-    alpha <- alpha * (tlfd_sim/tlfd_obs)
-    print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
-  } else {
-    beta <- beta * (tlfd_sim/tlfd_obs)
-    print(paste0("The beta value in this iteriation of the combined function is ", beta))
-  }
-  
-    
-  obs_tlfd <- select(observed_trips_FPE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FPE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  tlfdjoin <- left_join(sim_tlfd, obs_tlfd, by = "bin")%>%
-    replace_na(list(enrolment.x = 0, enrolment.y = 0))%>%
-    mutate(max.enrol = pmax(enrolment.x,enrolment.y))%>%
-    mutate(min.enrol = pmin(enrolment.x,enrolment.y))
-  
-  minsum = sum(tlfdjoin$min.enrol)
-  
-  maxsum = sum(tlfdjoin$max.enrol)
-  
-  CR = minsum/maxsum
-  print(paste0("The CR value for this iteration is ", CR))
-  
-}
+cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
 
-generate_tlfd <- function(observed_trips_FPE, simulated_trips_FPE, max_value=85, bin_size=1) {
-  obs_tlfd <- select(observed_trips_FPE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FPE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  # Combine into one dataframe and plot TLFD
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  return(combined_tlfd)
-}
+tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
+alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
+beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 
-
-combined_tlfd <- generate_tlfd(observed_trips_FPE, simulated_trips_FPE, 85, 1)
+simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   geom_line(size = 1) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("FP/Elem - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
 
-saveRDS(simulated_trips_FPE, "cache/simulated_trips_FPE.rds")
+tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
+  mutate(max.enrol = pmax(obs, model)) %>%
+  mutate(min.enrol = pmin(obs, model))
+minsum = sum(tlfdjoin$min.enrol)
+maxsum = sum(tlfdjoin$max.enrol)
+CR = minsum/maxsum
+print(paste0("The CR value for this iteration is ", CR))
 
-#Final Alpha/Beta values
-#alpha = 0.160267956628693
-#beta = -0.165874573133361
-#CR: 0.945281237301516
-#Simulated Average Travel Time: 7.89803976295508
-#Observed Average Travel Time: 7.8844979227484
+# Save the simulated trip list
+saveRDS(simulated_trips, "cache/simulated_trips_FPE.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
-```{r distribute POR and POS}
+```{r distribute french public elementary POR, echo=FALSE, eval=FALSE}
+# Read the saved full list of POR and POS TRESO zones once and save it in output
+por_full <- readRDS("output/por_full.rds")
+pos_full <- readRDS("output/pos_full.rds")
+
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
   drop_na(treso.id.por) %>%
@@ -1677,30 +1574,24 @@ observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
 
-por_total_FPE <- observed_por_pos_90 %>%
-  filter(panel == "Elementary", board_type_name == "French Public") %>%
+por <- observed_por_pos_90 %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(treso.id.por) %>%
-  summarise(enrolment = sum(enrolment))
-
-por_full <- travel_time_skim %>%
-  distinct(orig) %>%
-  left_join(por_total_FPE, by = c("orig" = "treso.id.por")) %>%
+  summarise(enrolment = sum(enrolment)) %>%
+  right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
-  column_to_rownames(var = "orig") %>%
+  column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
-pos_total_FPE <- observed_por_pos_90 %>%
+pos <- observed_por_pos_90 %>%
   left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  filter(panel == "Elementary", board_type_name == "French Public") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
   group_by(treso.id.pos) %>%
-  summarise(otg = sum(otg))
-
-pos_full <- travel_time_skim %>%
-  distinct(dest) %>%
-  left_join(pos_total_FPE, by = c("dest" = "treso.id.pos")) %>%
-  replace_na(list(otg = 0)) %>%
-  column_to_rownames(var = "dest") %>%
+  summarise(otg = sum(otg)) %>% 
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
 simulated_trips_FPE <- readRDS("cache/simulated_trips_FPE.rds")
@@ -1711,79 +1602,38 @@ prop_matrix_FPE <- travel_time_skim %>%
             by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
   mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
   select(-enrolment) %>%
-  spread(key = dest, value=value) %>%
+  spread(key=dest, value=value) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
+saveRDS(prop_matrix_FPE, "output/prop_matrix_FPE.rds")
 
-prop_matrix2_FPE <- matrix_balancing_1d(prop_matrix_FPE, por_full, pos_full, constrained = TRUE)
+# 1D balacne the matrix
+prop_matrix2_FPE <- matrix_balancing_1d(prop_matrix_FPE, por, pos, constrained=TRUE)
 
-
-```
-
-
-Save the balanced POR-POS trip list
-
-```{r trip list}
-# Save the full matrix as a long trip list
+# Save the balanced POR-POS trip list
 trip_list_FPE <- melt(prop_matrix2_FPE)
 colnames(trip_list_FPE) <- c('treso.id.por', 'treso.id.pos', 'trips')
-
-saveRDS(trip_list_FPE, "cache/trip_list_FPE.rds")
+saveRDS(trip_list_FPE, "cache/balanced_trip_list_FPE.rds")
 ```
+
 Distribute each the POS demand to the individual schools
 
-```{r distribute POS demand} 
-pos_school_FPE <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  filter(panel == "Elementary", board_type_name == "French Public") %>%
-  group_by(sfis, school.name) %>%
-  summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
-  left_join(select(school_sfis_2017, sfis, otg), by = "sfis") %>%
-  left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE))) 
-
-# get treso zone otg totals
-pos_school_weight_FPE <- pos_school_FPE %>%
-  group_by(treso.id.pos) %>%
-  summarise(otg.total = sum(otg)) 
-
-pos_school_weight_2_FPE <- left_join(pos_school_FPE, pos_school_weight_FPE, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
-
-# get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
-
-pos_school_weight_3_FPE <- pos_school_weight_2_FPE %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
-  select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
-  group_by(treso.id.pos) %>%
-  summarise(
-    sfis.list = paste(sfis, collapse = ","),
-    school.name.list = paste(school.name, collapse = ","),
-    dsb.index.ist = paste(dsb.index, collapse = ","),
-    school.weight.prob.list = paste(school.weight.prob, collapse = ",")
-  ) %>%
-  rowwise() %>%
-  mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
-  mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+```{r distribute french public elementary POS demand, echo=FALSE, eval=FALSE} 
+pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
+                                             eqao_2017, panel_id = panel_id, board_id = board_id)
   
-print(paste0("For French Public Elementary, there are ", nrow(filter(pos_school_weight_3_FPE, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FPE, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
+print(paste0("For ", panel_id, "-", board_id, ", there are ", nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
-trip_list_FPE <- readRDS(paste0("cache/trip_list_FPE.RDS")) %>%
-  left_join(pos_school_weight_3_FPE, by = "treso.id.pos")
+trip_list_FPE <- readRDS(paste0("cache/balanced_trip_list_FPE.rds")) %>%
+  left_join(pos_school_weight, by = "treso.id.pos")
 
-# Apply bucket rounding to chunks of data by POS
+# Apply bucket rounding to chunks of data by TRESO POS
 results_FPE <- by(trip_list_FPE$trips, trip_list_FPE[c("treso.id.pos")], smart_round, simplify = TRUE)
 
 # Convert the output of by() to a dataframe
 results2_FPE <- sapply(results_FPE, I)
 colnames(results2_FPE) <- colnames(prop_matrix2_FPE)
-rownames(results2_FPE) <- rownames(prop_matrix2_FPE)  
+rownames(results2_FPE) <- rownames(prop_matrix2_FPE)
 
 df <- results2_FPE %>%
   melt()
@@ -1793,9 +1643,10 @@ trip_list2_FPE <- bind_cols(trip_list_FPE, df) %>%
   filter(enrolment.rounded != 0) %>%
   select(-treso.id.por1, -treso.id.pos1)
 
+# Sample the schools by weight
 plan(multiprocess)
 results_FPE <- future_apply(trip_list2_FPE, 1, sample_by_row)
-results_tb_FPE = t(as.data.table(results_FPE))
+results_tb_FPE <- t(as.data.table(results_FPE))
 trip_list_schools_FPE <- cbind(trip_list2_FPE, results_tb_FPE)
 
 saveRDS(trip_list_schools_FPE, "output/trip_list_schools_FPE.rds")
@@ -1803,11 +1654,15 @@ saveRDS(trip_list_schools_FPE, "output/trip_list_schools_FPE.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r french public elementary results comparison}
+
+panel_id = "Elementary"
+board_id = "French Public"
+
 observed_enrol_FPE <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == "Elementary", board_type_name == "French Public") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(sfis)%>%
   summarise (sum.enrolment = sum(enrolment))
 
@@ -1821,174 +1676,73 @@ simulated_compare_FPE <- readRDS("output/trip_list_schools_FPE.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) %>%
-  # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  # mutate(ratio_sim = sim.enrol.sum/otg) %>%
-  # mutate(ratio_obs = sum.enrolment/otg) %>%
-  # filter(ratio_sim >= 1) %>%
-  # filter(ratio_obs <1)
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
   
-
-
 avg_perc <- mean(simulated_compare_FPE$rounded_perc_diff)
 
-print(paste0("The average percent change between simulated and 2017 observed ADE for French Public Elementary schools is ", round(avg_perc, 2)))
+print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
 
+simulated_compare_FPE.data <- data.frame("y" = simulated_compare_FPE$rounded_perc_diff,
+                                         "x" = simulated_compare_FPE$sim_enrol.diff_to_ade_2017,
+                                         "mof_region" = simulated_compare_FPE$mof_region)
+ggplot(data=simulated_compare_FPE.data) +
+  geom_hline(yintercept = 0, colour="pink", size=1) + 
+  geom_vline(xintercept = 0, colour="pink", size=1) +
+  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
+  #facet_wrap(~ mof_region, scale = "fixed") +
+  theme(legend.position = "none") + 
+  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
+       subtitle="Elementary - French Public", title="Simulated vs. Observed Demand (2017)")
 ```
-
 
 #### French Public Secondary
 
+```{r simulate french public secondary trips, eval=FALSE, echo=FALSE}
 
-```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
-
-# Read in the observed trips, and focus on elementary/EP
-# Combine with travel time
-observed_trips_FPS <- readRDS("output/observed_por_pos_90.rds") %>%
-  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
-  drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  
-  filter(panel == "Secondary", board_type_name == "French Public") %>%
-  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-  # intra-zonal trip assumptions
-  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                        euclidean.dist / 5 * 60,
-                                        euclidean.dist / 30 * 60)) %>%
-  mutate(value = ifelse(value == 0,
-                        euclidean.travel.time,
-                        value)) %>%
-  mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(value > 30,
-                        euclidean.travel.time,
-                        value)) %>%
-  group_by(treso.id.por, treso.id.pos) %>%
-  summarise(value = weighted.mean(value, enrolment),
-            euclidean.dist = weighted.mean(euclidean.dist, enrolment),
-            enrolment = sum(enrolment))
-
-travel_time_skim_select_FPS <- select(observed_trips_FPS, treso.id.por, treso.id.pos, value)
-
-# Calculate observed average trip travel time
-tlfd_obs <- sum(observed_trips_FPS$value * observed_trips_FPS$enrolment) / sum(observed_trips_FPS$enrolment)
-print(paste0("For French Public Secondary, the average travel time to be calibrated to is " , tlfd_obs))
-  
-cost <- travel_time_skim_select_FPS
-initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-initalpha <- 1/log(sum(cost$value)) + runif(1)/10
-beta <- initbeta
-alpha <- initalpha
+panel_id = "Secondary"
+board_id = "French Public"
 max_value = 85
 bin_size = 1
 
+observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          panel_id = panel_id, board_id = board_id)
 
-iterations <- 20
-for (j in 1:iterations) {
-  print(j)
-  
-  cfunc <- cost %>%
-    mutate(value = value^alpha * exp(beta*value)) %>%
-    replace_na(value = 0)
-  
-  cfunc_rowsums <- cfunc %>%
-    group_by(treso.id.por) %>%
-    summarise(rowsum = sum(value))
-  
-  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
-    mutate(prob_scaled = value / rowsum) %>%
-    select(treso.id.por, treso.id.pos, prob_scaled)
-  
-  simulated_trips_FPS <- select(observed_trips_FPS, treso.id.por, enrolment, value) %>%
-    group_by(treso.id.por) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    left_join(t, by = "treso.id.por") %>%
-    mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(travel_time_skim_select_FPS, by = c("treso.id.por", "treso.id.pos"))
-  
-  # Calculate simulated average trip lengths
-  tlfd_sim <- sum(simulated_trips_FPS$value * simulated_trips_FPS$enrolment) / sum(simulated_trips_FPS$enrolment)
-  print(paste0("The average travel time of simulated is " , tlfd_sim))
-  
-  # Calculate CR Ratio
-  
- 
-   
-  if (j %% 2 == 0) {
-    alpha <- alpha * (tlfd_sim/tlfd_obs)
-    print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
-  } else {
-    beta <- beta * (tlfd_sim/tlfd_obs)
-    print(paste0("The beta value in this iteriation of the combined function is ", beta))
-  }
-  
-    
-  obs_tlfd <- select(observed_trips_FPS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FPS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  tlfdjoin <- left_join(sim_tlfd, obs_tlfd, by = "bin")%>%
-    replace_na(list(enrolment.x = 0, enrolment.y = 0))%>%
-    mutate(max.enrol = pmax(enrolment.x,enrolment.y))%>%
-    mutate(min.enrol = pmin(enrolment.x,enrolment.y))
-  
-  minsum = sum(tlfdjoin$min.enrol)
-  
-  maxsum = sum(tlfdjoin$max.enrol)
-  
-  CR = minsum/maxsum
-  print(paste0("The CR value for this iteration is ", CR))
-  
-}
+cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
 
-generate_tlfd <- function(observed_trips_FPS, simulated_trips_FPS, max_value=85, bin_size=1) {
-  obs_tlfd <- select(observed_trips_FPS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FPS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  # Combine into one dataframe and plot TLFD
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  return(combined_tlfd)
-}
+tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
+alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
+beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 
-
-combined_tlfd <- generate_tlfd(observed_trips_FPS, simulated_trips_FPS, 85, 1)
+simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   geom_line(size = 1) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("FP/Sec - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
 
-saveRDS(simulated_trips_FPS, "cache/simulated_trips_FPS.rds")
+tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
+  mutate(max.enrol = pmax(obs, model)) %>%
+  mutate(min.enrol = pmin(obs, model))
+minsum = sum(tlfdjoin$min.enrol)
+maxsum = sum(tlfdjoin$max.enrol)
+CR = minsum/maxsum
+print(paste0("The CR value for this iteration is ", CR))
 
-#Final Alpha/Beta values
-#alpha = 0.0772272932157199
-#beta = -0.0872442231124019
-#CR: 894112110823475
-#Simulated Average Travel Time: 11.6171674929108
-#Observed Average Travel Time: 12.0141642941271
+# Save the simulated trip list
+saveRDS(simulated_trips, "cache/simulated_trips_FPS.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
-```{r distribute POR and POS}
+```{r distribute french public secondary POR, echo=FALSE, eval=FALSE}
+# Read the saved full list of POR and POS TRESO zones once and save it in output
+por_full <- readRDS("output/por_full.rds")
+pos_full <- readRDS("output/pos_full.rds")
+
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
   drop_na(treso.id.por) %>%
@@ -1996,30 +1750,24 @@ observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
 
-por_total_FPS <- observed_por_pos_90 %>%
-  filter(panel == "Secondary", board_type_name == "French Public") %>%
+por <- observed_por_pos_90 %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(treso.id.por) %>%
-  summarise(enrolment = sum(enrolment))
-
-por_full <- travel_time_skim %>%
-  distinct(orig) %>%
-  left_join(por_total_FPS, by = c("orig" = "treso.id.por")) %>%
+  summarise(enrolment = sum(enrolment)) %>%
+  right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
-  column_to_rownames(var = "orig") %>%
+  column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
-pos_total_FPS <- observed_por_pos_90 %>%
+pos <- observed_por_pos_90 %>%
   left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  filter(panel == "Secondary", board_type_name == "French Public") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
   group_by(treso.id.pos) %>%
-  summarise(otg = sum(otg))
-
-pos_full <- travel_time_skim %>%
-  distinct(dest) %>%
-  left_join(pos_total_FPS, by = c("dest" = "treso.id.pos")) %>%
-  replace_na(list(otg = 0)) %>%
-  column_to_rownames(var = "dest") %>%
+  summarise(otg = sum(otg)) %>% 
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
 simulated_trips_FPS <- readRDS("cache/simulated_trips_FPS.rds")
@@ -2030,79 +1778,38 @@ prop_matrix_FPS <- travel_time_skim %>%
             by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
   mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
   select(-enrolment) %>%
-  spread(key = dest, value=value) %>%
+  spread(key=dest, value=value) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
+saveRDS(prop_matrix_FPS, "output/prop_matrix_FPS.rds")
 
-prop_matrix2_FPS <- matrix_balancing_1d(prop_matrix_FPS, por_full, pos_full, constrained = TRUE)
+# 1D balacne the matrix
+prop_matrix2_FPS <- matrix_balancing_1d(prop_matrix_FPS, por, pos, constrained=TRUE)
 
-
-```
-
-Save the balanced POR-POS trip list
-
-```{r trip list}
-# Save the full matrix as a long trip list
+# Save the balanced POR-POS trip list
 trip_list_FPS <- melt(prop_matrix2_FPS)
 colnames(trip_list_FPS) <- c('treso.id.por', 'treso.id.pos', 'trips')
-
-saveRDS(trip_list_FPS, "cache/trip_list_FPS.rds")
+saveRDS(trip_list_FPS, "cache/balanced_trip_list_FPS.rds")
 ```
 
 Distribute each the POS demand to the individual schools
 
-```{r distribute POS demand} 
-pos_school_FPS <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  filter(panel == "Secondary", board_type_name == "French Public") %>%
-  group_by(sfis, school.name) %>%
-  summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
-  left_join(select(school_sfis_2017, sfis, otg), by = "sfis") %>%
-  left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE))) 
-
-# get treso zone otg totals
-pos_school_weight_FPS <- pos_school_FPS %>%
-  group_by(treso.id.pos) %>%
-  summarise(otg.total = sum(otg)) 
-
-pos_school_weight_2_FPS <- left_join(pos_school_FPS, pos_school_weight_FPS, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
-
-# get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
-
-pos_school_weight_3_FPS <- pos_school_weight_2_FPS %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
-  select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
-  group_by(treso.id.pos) %>%
-  summarise(
-    sfis.list = paste(sfis, collapse = ","),
-    school.name.list = paste(school.name, collapse = ","),
-    dsb.index.ist = paste(dsb.index, collapse = ","),
-    school.weight.prob.list = paste(school.weight.prob, collapse = ",")
-  ) %>%
-  rowwise() %>%
-  mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
-  mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+```{r distribute french public secondary POS demand, echo=FALSE, eval=FALSE} 
+pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
+                                             eqao_2017, panel_id = panel_id, board_id = board_id)
   
-print(paste0("For French Public Secondary, there are ", nrow(filter(pos_school_weight_3_FPS, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FPS, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
+print(paste0("For ", panel_id, "-", board_id, ", there are ", nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
-trip_list_FPS <- readRDS(paste0("cache/trip_list_FPS.RDS")) %>%
-  left_join(pos_school_weight_3_FPS, by = "treso.id.pos")
+trip_list_FPS <- readRDS(paste0("cache/balanced_trip_list_FPS.rds")) %>%
+  left_join(pos_school_weight, by = "treso.id.pos")
 
-# Apply bucket rounding to chunks of data by POS
+# Apply bucket rounding to chunks of data by TRESO POS
 results_FPS <- by(trip_list_FPS$trips, trip_list_FPS[c("treso.id.pos")], smart_round, simplify = TRUE)
 
 # Convert the output of by() to a dataframe
 results2_FPS <- sapply(results_FPS, I)
 colnames(results2_FPS) <- colnames(prop_matrix2_FPS)
-rownames(results2_FPS) <- rownames(prop_matrix2_FPS)  
+rownames(results2_FPS) <- rownames(prop_matrix2_FPS)
 
 df <- results2_FPS %>%
   melt()
@@ -2112,9 +1819,10 @@ trip_list2_FPS <- bind_cols(trip_list_FPS, df) %>%
   filter(enrolment.rounded != 0) %>%
   select(-treso.id.por1, -treso.id.pos1)
 
+# Sample the schools by weight
 plan(multiprocess)
 results_FPS <- future_apply(trip_list2_FPS, 1, sample_by_row)
-results_tb_FPS = t(as.data.table(results_FPS))
+results_tb_FPS <- t(as.data.table(results_FPS))
 trip_list_schools_FPS <- cbind(trip_list2_FPS, results_tb_FPS)
 
 saveRDS(trip_list_schools_FPS, "output/trip_list_schools_FPS.rds")
@@ -2122,11 +1830,15 @@ saveRDS(trip_list_schools_FPS, "output/trip_list_schools_FPS.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r french public secondary results comparison}
+
+panel_id = "Secondary"
+board_id = "French Public"
+
 observed_enrol_FPS <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == "Secondary", board_type_name == "French Public") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(sfis)%>%
   summarise (sum.enrolment = sum(enrolment))
 
@@ -2140,533 +1852,73 @@ simulated_compare_FPS <- readRDS("output/trip_list_schools_FPS.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, otg, sfis), by = "sfis")
-  # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  # mutate(ratio_sim = sim.enrol.sum/otg) %>%
-  # mutate(ratio_obs = sum.enrolment/otg) %>%
-  # filter(ratio_sim >= 1) %>%
-  # filter(ratio_obs <1)
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
   
-
-
 avg_perc <- mean(simulated_compare_FPS$rounded_perc_diff)
 
-print(paste0("The average percent change between simulated and 2017 observed ADE for French Public Secondary schools is ", round(avg_perc, 2)))
+print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
 
-
-simulated_compare_FPS.data <- data.frame("y" = simulated_compare_FPS$rounded_perc_diff, "x" = simulated_compare_FPS$sim_enrol.diff_to_ade_2017, "mof_region" = simulated_compare_FPS$mof_region)
+simulated_compare_FPS.data <- data.frame("y" = simulated_compare_FPS$rounded_perc_diff,
+                                         "x" = simulated_compare_FPS$sim_enrol.diff_to_ade_2017,
+                                         "mof_region" = simulated_compare_FPS$mof_region)
 ggplot(data=simulated_compare_FPS.data) +
-  
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
   #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - French Public", title="Simulated vs. Observed Demand (2017)") #+
-  #geom_point(data = subset(simulated_compare.data, group=="Central"),
-             #aes(x=x, y=y),
-             #colour = "red")
-  #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
-
-
-
-
+  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
+       subtitle="Secondary - French Public", title="Simulated vs. Observed Demand (2017)")
 ```
-
-
-
-#### French Catholic Secondary
-
-
-```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
-
-# Read in the observed trips, and focus on elementary/EP
-# Combine with travel time
-observed_trips_FCS <- readRDS("output/observed_por_pos_90.rds") %>%
-  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
-  drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  
-  filter(panel == "Secondary", board_type_name == "French Catholic") %>%
-  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-  # intra-zonal trip assumptions
-  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                        euclidean.dist / 5 * 60,
-                                        euclidean.dist / 30 * 60)) %>%
-  mutate(value = ifelse(value == 0,
-                        euclidean.travel.time,
-                        value)) %>%
-  mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(value > 30,
-                        euclidean.travel.time,
-                        value)) %>%
-  group_by(treso.id.por, treso.id.pos) %>%
-  summarise(value = weighted.mean(value, enrolment),
-            euclidean.dist = weighted.mean(euclidean.dist, enrolment),
-            enrolment = sum(enrolment))
-
-travel_time_skim_select_FCS <- select(observed_trips_FCS, treso.id.por, treso.id.pos, value)
-
-# Calculate observed average trip travel time
-tlfd_obs <- sum(observed_trips_FCS$value * observed_trips_FCS$enrolment) / sum(observed_trips_FCS$enrolment)
-print(paste0("For French Catholic Secondary, the average travel time to be calibrated to is " , tlfd_obs))
-  
-cost <- travel_time_skim_select_FCS
-initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-initalpha <- 1/log(sum(cost$value)) + runif(1)/10
-beta <- initbeta
-alpha <- initalpha
-max_value = 85
-bin_size = 1
-
-
-iterations <- 20
-for (j in 1:iterations) {
-  print(j)
-  
-  cfunc <- cost %>%
-    mutate(value = value^alpha * exp(beta*value)) %>%
-    replace_na(value = 0)
-  
-  cfunc_rowsums <- cfunc %>%
-    group_by(treso.id.por) %>%
-    summarise(rowsum = sum(value))
-  
-  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
-    mutate(prob_scaled = value / rowsum) %>%
-    select(treso.id.por, treso.id.pos, prob_scaled)
-  
-  simulated_trips_FCS <- select(observed_trips_FCS, treso.id.por, enrolment, value) %>%
-    group_by(treso.id.por) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    left_join(t, by = "treso.id.por") %>%
-    mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(travel_time_skim_select_FCS, by = c("treso.id.por", "treso.id.pos"))
-  
-  # Calculate simulated average trip lengths
-  tlfd_sim <- sum(simulated_trips_FCS$value * simulated_trips_FCS$enrolment) / sum(simulated_trips_FCS$enrolment)
-  print(paste0("The average travel time of simulated is " , tlfd_sim))
-  
-  # Calculate CR Ratio
-  
- 
-   
-  if (j %% 2 == 0) {
-    alpha <- alpha * (tlfd_sim/tlfd_obs)
-    print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
-  } else {
-    beta <- beta * (tlfd_sim/tlfd_obs)
-    print(paste0("The beta value in this iteriation of the combined function is ", beta))
-  }
-  
-    
-  obs_tlfd <- select(observed_trips_FCS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FCS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  tlfdjoin <- left_join(sim_tlfd, obs_tlfd, by = "bin")%>%
-    replace_na(list(enrolment.x = 0, enrolment.y = 0))%>%
-    mutate(max.enrol = pmax(enrolment.x,enrolment.y))%>%
-    mutate(min.enrol = pmin(enrolment.x,enrolment.y))
-  
-  minsum = sum(tlfdjoin$min.enrol)
-  
-  maxsum = sum(tlfdjoin$max.enrol)
-  
-  CR = minsum/maxsum
-  print(paste0("The CR value for this iteration is ", CR))
-  
-}
-
-generate_tlfd <- function(observed_trips_FCS, simulated_trips_FCS, max_value=85, bin_size=1) {
-  obs_tlfd <- select(observed_trips_FCS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FCS, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  # Combine into one dataframe and plot TLFD
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  return(combined_tlfd)
-}
-
-
-combined_tlfd <- generate_tlfd(observed_trips_FCS, simulated_trips_FCS, 85, 1)
-
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
-  theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("FP/Sec - alpha: ", alpha, " beta: ", beta))
-
-saveRDS(simulated_trips_FCS, "cache/simulated_trips_FCS.rds")
-
-#Final Alpha/Beta values
-#alpha = 0.206351395084993
-#beta = -0.157466893361841
-#CR: 0.942119770994744
-#Simulated Average Travel Time: 10.9024428527545
-#Observed Average Travel Time: 10.7673474062775
-```
-
-1D balance the POR and weight by POS  using the calibrated cfunc stored in simulated trips
-
-```{r distribute POR and POS}
-observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
-  select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
-  drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
-
-por_total_FCS <- observed_por_pos_90 %>%
-  filter(panel == "Secondary", board_type_name == "French Catholic") %>%
-  group_by(treso.id.por) %>%
-  summarise(enrolment = sum(enrolment))
-
-por_full <- travel_time_skim %>%
-  distinct(orig) %>%
-  left_join(por_total_FCS, by = c("orig" = "treso.id.por")) %>%
-  replace_na(list(enrolment = 0)) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-
-pos_total_FCS <- observed_por_pos_90 %>%
-  left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  filter(panel == "Secondary", board_type_name == "French Catholic") %>%
-  distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
-  group_by(treso.id.pos) %>%
-  summarise(otg = sum(otg))
-
-pos_full <- travel_time_skim %>%
-  distinct(dest) %>%
-  left_join(pos_total_FCS, by = c("dest" = "treso.id.pos")) %>%
-  replace_na(list(otg = 0)) %>%
-  column_to_rownames(var = "dest") %>%
-  data.matrix()
-
-simulated_trips_FCS <- readRDS("cache/simulated_trips_FCS.rds")
-
-prop_matrix_FCS <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_FCS, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key = dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-
-prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por_full, pos_full, constrained = TRUE)
-
-
-```
-
-
-Save the balanced POR-POS trip list
-
-```{r trip list}
-# Save the full matrix as a long trip list
-trip_list_FCS <- melt(prop_matrix2_FCS)
-colnames(trip_list_FCS) <- c('treso.id.por', 'treso.id.pos', 'trips')
-
-saveRDS(trip_list_FCS, "cache/trip_list_FCS.rds")
-```
-Distribute each the POS demand to the individual schools
-
-```{r distribute POS demand} 
-pos_school_FCS <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  filter(panel == "Secondary", board_type_name == "French Catholic") %>%
-  group_by(sfis, school.name) %>%
-  summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
-  left_join(select(school_sfis_2017, sfis, otg), by = "sfis") %>%
-  left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE))) 
-
-# get treso zone otg totals
-pos_school_weight_FCS <- pos_school_FCS %>%
-  group_by(treso.id.pos) %>%
-  summarise(otg.total = sum(otg)) 
-
-pos_school_weight_2_FCS <- left_join(pos_school_FCS, pos_school_weight_FCS, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
-
-# get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
-
-pos_school_weight_3_FCS <- pos_school_weight_2_FCS %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
-  select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
-  group_by(treso.id.pos) %>%
-  summarise(
-    sfis.list = paste(sfis, collapse = ","),
-    school.name.list = paste(school.name, collapse = ","),
-    dsb.index.ist = paste(dsb.index, collapse = ","),
-    school.weight.prob.list = paste(school.weight.prob, collapse = ",")
-  ) %>%
-  rowwise() %>%
-  mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
-  mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
-  
-print(paste0("For French Catholic Secondary, there are ", nrow(filter(pos_school_weight_3_FCS, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FCS, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
-
-trip_list_FCS <- readRDS(paste0("cache/trip_list_FCS.RDS")) %>%
-  left_join(pos_school_weight_3_FCS, by = "treso.id.pos")
-
-# Apply bucket rounding to chunks of data by POS
-results_FCS <- by(trip_list_FCS$trips, trip_list_FCS[c("treso.id.pos")], smart_round, simplify = TRUE)
-
-# Convert the output of by() to a dataframe
-results2_FCS <- sapply(results_FCS, I)
-colnames(results2_FCS) <- colnames(prop_matrix2_FCS)
-rownames(results2_FCS) <- rownames(prop_matrix2_FCS)  
-
-df <- results2_FCS %>%
-  melt()
-colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
-
-trip_list2_FCS <- bind_cols(trip_list_FCS, df) %>%
-  filter(enrolment.rounded != 0) %>%
-  select(-treso.id.por1, -treso.id.pos1)
-
-plan(multiprocess)
-results_FCS <- future_apply(trip_list2_FCS, 1, sample_by_row)
-results_tb_FCS = t(as.data.table(results_FCS))
-trip_list_schools_FCS <- cbind(trip_list2_FCS, results_tb_FCS)
-
-saveRDS(trip_list_schools_FCS, "output/trip_list_schools_FCS.rds")
-```
-
-Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
-
-```{r simulated to observed comparison by school for gravity model}
-observed_enrol_FCS <- readRDS("output/observed_por_pos_90.rds") %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == "Secondary", board_type_name == "French Catholic") %>%
-  group_by(sfis)%>%
-  summarise (sum.enrolment = sum(enrolment))
-
-simulated_compare_FCS <- readRDS("output/trip_list_schools_FCS.rds") %>%
-  unnest(results_tb_FCS) %>%
-  mutate(enrol.value = 1) %>%
-  rename(sfis = results_tb_FCS) %>%
-  group_by(sfis, school.name.list, dsb.index.ist, treso.id.pos) %>%
-  summarise(sim.enrol.sum = sum(enrol.value)) %>%
-  left_join(select(observed_enrol_FCS, sfis, sum.enrolment), by = "sfis") %>%
-  mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
-  mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
-  mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) #%>%
-  # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  # mutate(ratio_sim = sim.enrol.sum/otg) %>%
-  # mutate(ratio_obs = sum.enrolment/otg) %>%
-  # filter(ratio_sim >= 1) %>%
-  # filter(ratio_obs <1)
-  
-
-
-avg_perc <- mean(simulated_compare_FCS$rounded_perc_diff)
-
-print(paste0("The average percent change between simulated and 2017 observed ADE for French Catholic Secondary schools is ", round(avg_perc, 2)))
-
-
-simulated_compare_FCS.data <- data.frame("y" = simulated_compare_FCS$rounded_perc_diff, "x" = simulated_compare_FCS$sim_enrol.diff_to_ade_2017, "mof_region" = simulated_compare_FCS$mof_region)
-ggplot(data=simulated_compare_FCS.data) +
-  
-  geom_hline(yintercept = 0, colour="pink", size=1) + 
-  geom_vline(xintercept = 0, colour="pink", size=1) +
-  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
-  coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
-  #facet_wrap(~ mof_region, scale = "fixed") +
-  theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Secondary - French Catholic", title="Simulated vs. Observed Demand (2017)") #+
-  #geom_point(data = subset(simulated_compare.data, group=="Central"),
-             #aes(x=x, y=y),
-             #colour = "red")
-  #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
-
-
-```
-
 
 #### French Catholic Elementary
 
+```{r simulate french catholic elementary trips, eval=FALSE, echo=FALSE}
 
-```{r estimate tlfd friction function, echo=FALSE, fig.width=10, fig.height=8}
-
-# Read in the observed trips, and focus on elementary/EP
-# Combine with travel time
-observed_trips_FCE <- readRDS("output/observed_por_pos_90.rds") %>%
-  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
-  drop_na(treso.id.por) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  
-  filter(panel == "Elementary", board_type_name == "French Catholic") %>%
-  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-  # intra-zonal trip assumptions
-  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                        euclidean.dist / 5 * 60,
-                                        euclidean.dist / 30 * 60)) %>%
-  mutate(value = ifelse(value == 0,
-                        euclidean.travel.time,
-                        value)) %>%
-  mutate(compare.travel.time = value - euclidean.travel.time) %>%
-  mutate(value = ifelse(value > 30,
-                        euclidean.travel.time,
-                        value)) %>%
-  group_by(treso.id.por, treso.id.pos) %>%
-  summarise(value = weighted.mean(value, enrolment),
-            euclidean.dist = weighted.mean(euclidean.dist, enrolment),
-            enrolment = sum(enrolment))
-
-travel_time_skim_select_FCE <- select(observed_trips_FCE, treso.id.por, treso.id.pos, value)
-
-# Calculate observed average trip travel time
-tlfd_obs <- sum(observed_trips_FCE$value * observed_trips_FCE$enrolment) / sum(observed_trips_FCE$enrolment)
-print(paste0("For French Catholic Elementary, the average travel time to be calibrated to is " , tlfd_obs))
-  
-cost <- travel_time_skim_select_FCE
-initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-initalpha <- 1/log(sum(cost$value)) + runif(1)/10
-beta <- initbeta
-alpha <- initalpha
+panel_id = "Elementary"
+board_id = "French Catholic"
 max_value = 85
 bin_size = 1
 
+observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          panel_id = panel_id, board_id = board_id)
 
-iterations <- 20
-for (j in 1:iterations) {
-  print(j)
-  
-  cfunc <- cost %>%
-    mutate(value = value^alpha * exp(beta*value)) %>%
-    replace_na(value = 0)
-  
-  cfunc_rowsums <- cfunc %>%
-    group_by(treso.id.por) %>%
-    summarise(rowsum = sum(value))
-  
-  t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
-    mutate(prob_scaled = value / rowsum) %>%
-    select(treso.id.por, treso.id.pos, prob_scaled)
-  
-  simulated_trips_FCE <- select(observed_trips_FCE, treso.id.por, enrolment, value) %>%
-    group_by(treso.id.por) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    left_join(t, by = "treso.id.por") %>%
-    mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(travel_time_skim_select_FCE, by = c("treso.id.por", "treso.id.pos"))
-  
-  # Calculate simulated average trip lengths
-  tlfd_sim <- sum(simulated_trips_FCE$value * simulated_trips_FCE$enrolment) / sum(simulated_trips_FCE$enrolment)
-  print(paste0("The average travel time of simulated is " , tlfd_sim))
-  
-  # Calculate CR Ratio
-  
- 
-   
-  if (j %% 2 == 0) {
-    alpha <- alpha * (tlfd_sim/tlfd_obs)
-    print(paste0("The alpha value in this iteriation of the combined function is ", alpha))
-  } else {
-    beta <- beta * (tlfd_sim/tlfd_obs)
-    print(paste0("The beta value in this iteriation of the combined function is ", beta))
-  }
-  
-    
-  obs_tlfd <- select(observed_trips_FCE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FCE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  tlfdjoin <- left_join(sim_tlfd, obs_tlfd, by = "bin")%>%
-    replace_na(list(enrolment.x = 0, enrolment.y = 0))%>%
-    mutate(max.enrol = pmax(enrolment.x,enrolment.y))%>%
-    mutate(min.enrol = pmin(enrolment.x,enrolment.y))
-  
-  minsum = sum(tlfdjoin$min.enrol)
-  
-  maxsum = sum(tlfdjoin$max.enrol)
-  
-  CR = minsum/maxsum
-  print(paste0("The CR value for this iteration is ", CR))
-  
-}
+cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
 
-generate_tlfd <- function(observed_trips_FCE, simulated_trips_FCE, max_value=85, bin_size=1) {
-  obs_tlfd <- select(observed_trips_FCE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips_FCE, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
-  # Combine into one dataframe and plot TLFD
-  combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
-  return(combined_tlfd)
-}
+tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
+alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
+beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 
-
-combined_tlfd <- generate_tlfd(observed_trips_FCE, simulated_trips_FCE, 85, 1)
+simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
   geom_line(size = 1) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("FP/Elem - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
 
-saveRDS(simulated_trips_FCE, "cache/simulated_trips_FCE.rds")
+tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
+  mutate(max.enrol = pmax(obs, model)) %>%
+  mutate(min.enrol = pmin(obs, model))
+minsum = sum(tlfdjoin$min.enrol)
+maxsum = sum(tlfdjoin$max.enrol)
+CR = minsum/maxsum
+print(paste0("The CR value for this iteration is ", CR))
 
-#Final Alpha/Beta values
-#alpha = 0.191978971702315
-#beta = -0.138258795875567
-#CR: 0.909638134325216
-#Simulated Average Travel Time: 8.60672638684763
-#Observed Average Travel Time: 8.57841737811264
+# Save the simulated trip list
+saveRDS(simulated_trips, "cache/simulated_trips_FCE.rds")
 ```
 
-2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
+1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
 
-```{r distribute POR and POS}
+```{r distribute french catholic elementary POR, echo=FALSE, eval=FALSE}
+# Read the saved full list of POR and POS TRESO zones once and save it in output
+por_full <- readRDS("output/por_full.rds")
+pos_full <- readRDS("output/pos_full.rds")
+
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
   drop_na(treso.id.por) %>%
@@ -2674,30 +1926,24 @@ observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
 
-por_total_FCE <- observed_por_pos_90 %>%
-  filter(panel == "Elementary", board_type_name == "French Catholic") %>%
+por <- observed_por_pos_90 %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(treso.id.por) %>%
-  summarise(enrolment = sum(enrolment))
-
-por_full <- travel_time_skim %>%
-  distinct(orig) %>%
-  left_join(por_total_FCE, by = c("orig" = "treso.id.por")) %>%
+  summarise(enrolment = sum(enrolment)) %>%
+  right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
-  column_to_rownames(var = "orig") %>%
+  column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
-pos_total_FCE <- observed_por_pos_90 %>%
+pos <- observed_por_pos_90 %>%
   left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  filter(panel == "Elementary", board_type_name == "French Catholic") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
   group_by(treso.id.pos) %>%
-  summarise(otg = sum(otg))
-
-pos_full <- travel_time_skim %>%
-  distinct(dest) %>%
-  left_join(pos_total_FCE, by = c("dest" = "treso.id.pos")) %>%
-  replace_na(list(otg = 0)) %>%
-  column_to_rownames(var = "dest") %>%
+  summarise(otg = sum(otg)) %>% 
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
 simulated_trips_FCE <- readRDS("cache/simulated_trips_FCE.rds")
@@ -2708,80 +1954,38 @@ prop_matrix_FCE <- travel_time_skim %>%
             by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
   mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
   select(-enrolment) %>%
-  spread(key = dest, value=value) %>%
+  spread(key=dest, value=value) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
+saveRDS(prop_matrix_FCE, "output/prop_matrix_FCE.rds")
 
-prop_matrix2_FCE <- matrix_balancing_1d(prop_matrix_FCE, por_full, pos_full, constrained = TRUE)
+# 1D balacne the matrix
+prop_matrix2_FCE <- matrix_balancing_1d(prop_matrix_FCE, por, pos, constrained=TRUE)
 
-
-
-```
-
-
-Save the balanced POR-POS trip list
-
-```{r trip list}
-# Save the full matrix as a long trip list
+# Save the balanced POR-POS trip list
 trip_list_FCE <- melt(prop_matrix2_FCE)
 colnames(trip_list_FCE) <- c('treso.id.por', 'treso.id.pos', 'trips')
-
-saveRDS(trip_list_FCE, "cache/trip_list_FCE.rds")
+saveRDS(trip_list_FCE, "cache/balanced_trip_list_FCE.rds")
 ```
+
 Distribute each the POS demand to the individual schools
 
-```{r distribute POS demand} 
-pos_school_FCE <- select(observed_por_pos_90, school.name, sfis, treso.id.pos, dsb.index) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  filter(panel == "Elementary", board_type_name == "French Catholic") %>%
-  group_by(sfis, school.name) %>%
-  summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
-  left_join(select(school_sfis_2017, sfis, otg), by = "sfis") %>%
-  left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-  mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE))) 
-
-# get treso zone otg totals
-pos_school_weight_FCE <- pos_school_FCE %>%
-  group_by(treso.id.pos) %>%
-  summarise(otg.total = sum(otg)) 
-
-pos_school_weight_2_FCE <- left_join(pos_school_FCE, pos_school_weight_FCE, by = "treso.id.pos") %>%
-  #mutate(school.weight = eqao.standardized * (otg/otg.total)) 
-  mutate(school.weight.prob = (otg/otg.total)) 
-
-# get treso zone school.weight totals
-# pos_school_weight_3 <- pos_school_weight_2 %>%
-#   group_by(treso.id.pos) %>%
-#   summarise(school.weight.total = sum(school.weight)) 
-
-pos_school_weight_3_FCE <- pos_school_weight_2_FCE %>%
-  #left_join(pos_school_weight_3, by = "treso.id.pos") %>%
-  #mutate(school.weight.prob = school.weight/school.weight.total) %>%
-  select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
-  group_by(treso.id.pos) %>%
-  summarise(
-    sfis.list = paste(sfis, collapse = ","),
-    school.name.list = paste(school.name, collapse = ","),
-    dsb.index.ist = paste(dsb.index, collapse = ","),
-    school.weight.prob.list = paste(school.weight.prob, collapse = ",")
-  ) %>%
-  rowwise() %>%
-  mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
-  mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+```{r distribute french catholic elementary POS demand, echo=FALSE, eval=FALSE} 
+pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
+                                             eqao_2017, panel_id = panel_id, board_id = board_id)
   
-print(paste0("For French Catholic Elementary, there are ", nrow(filter(pos_school_weight_3_FCE, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight_3_FCE, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
+print(paste0("For ", panel_id, "-", board_id, ", there are ", nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
-trip_list_FCE <- readRDS(paste0("cache/trip_list_FCE.RDS")) %>%
-  left_join(pos_school_weight_3_FCE, by = "treso.id.pos")
+trip_list_FCE <- readRDS(paste0("cache/balanced_trip_list_FCE.rds")) %>%
+  left_join(pos_school_weight, by = "treso.id.pos")
 
-# Apply bucket rounding to chunks of data by POS
+# Apply bucket rounding to chunks of data by TRESO POS
 results_FCE <- by(trip_list_FCE$trips, trip_list_FCE[c("treso.id.pos")], smart_round, simplify = TRUE)
 
 # Convert the output of by() to a dataframe
 results2_FCE <- sapply(results_FCE, I)
 colnames(results2_FCE) <- colnames(prop_matrix2_FCE)
-rownames(results2_FCE) <- rownames(prop_matrix2_FCE)  
+rownames(results2_FCE) <- rownames(prop_matrix2_FCE)
 
 df <- results2_FCE %>%
   melt()
@@ -2791,9 +1995,10 @@ trip_list2_FCE <- bind_cols(trip_list_FCE, df) %>%
   filter(enrolment.rounded != 0) %>%
   select(-treso.id.por1, -treso.id.pos1)
 
+# Sample the schools by weight
 plan(multiprocess)
 results_FCE <- future_apply(trip_list2_FCE, 1, sample_by_row)
-results_tb_FCE = t(as.data.table(results_FCE))
+results_tb_FCE <- t(as.data.table(results_FCE))
 trip_list_schools_FCE <- cbind(trip_list2_FCE, results_tb_FCE)
 
 saveRDS(trip_list_schools_FCE, "output/trip_list_schools_FCE.rds")
@@ -2801,11 +2006,15 @@ saveRDS(trip_list_schools_FCE, "output/trip_list_schools_FCE.rds")
 
 Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
 
-```{r simulated to observed comparison by school for gravity model}
+```{r french catholic elementary results comparison}
+
+panel_id = "Elementary"
+board_id = "French Catholic"
+
 observed_enrol_FCE <- readRDS("output/observed_por_pos_90.rds") %>%
   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == "Elementary", board_type_name == "French Catholic") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
   group_by(sfis)%>%
   summarise (sum.enrolment = sum(enrolment))
 
@@ -2819,46 +2028,201 @@ simulated_compare_FCE <- readRDS("output/trip_list_schools_FCE.rds") %>%
   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) #%>%
-  # left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
-  # mutate(ratio_sim = sim.enrol.sum/otg) %>%
-  # mutate(ratio_obs = sum.enrolment/otg) %>%
-  # filter(ratio_sim >= 1) %>%
-  # filter(ratio_obs <1)
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
   
-
-
 avg_perc <- mean(simulated_compare_FCE$rounded_perc_diff)
 
-print(paste0("The average percent change between simulated and 2017 observed ADE for French Catholic Elementary schools is ", round(avg_perc, 2)))
+print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
 
-
-simulated_compare_FCE.data <- data.frame("y" = simulated_compare_FCE$rounded_perc_diff, "x" = simulated_compare_FCE$sim_enrol.diff_to_ade_2017, "mof_region" = simulated_compare_FCE$mof_region)
+simulated_compare_FCE.data <- data.frame("y" = simulated_compare_FCE$rounded_perc_diff,
+                                         "x" = simulated_compare_FCE$sim_enrol.diff_to_ade_2017,
+                                         "mof_region" = simulated_compare_FCE$mof_region)
 ggplot(data=simulated_compare_FCE.data) +
-  
   geom_hline(yintercept = 0, colour="pink", size=1) + 
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  #geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
-  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
   #facet_wrap(~ mof_region, scale = "fixed") +
   theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", subtitle="Elementary - French Catholic", title="Simulated vs. Observed Demand (2017)") #+
-  #geom_point(data = subset(simulated_compare.data, group=="Central"),
-             #aes(x=x, y=y),
-             #colour = "red")
-  #coord_cartesian(ylim=c(-25,50), xlim=c(-10,50))
-
-
-
+  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
+       subtitle="Elementary - French Public", title="Simulated vs. Observed Demand (2017)")
 ```
 
+#### French Catholic Secondary
 
-Validate the assigned trips are matching with known closest scool probability
+```{r simulate french catholic secondary trips, eval=FALSE, echo=FALSE}
 
-```{r validate gravity model}
-# Review paul's code on obtaining closest school probabilities
-# Apply it to the newly assgined POR-POS trip list
+panel_id = "Secondary"
+board_id = "French Catholic"
+max_value = 85
+bin_size = 1
+
+observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          panel_id = panel_id, board_id = board_id)
+
+cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
+
+tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
+alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
+beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
+
+simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+  geom_line(size = 1) +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
+
+tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
+  mutate(max.enrol = pmax(obs, model)) %>%
+  mutate(min.enrol = pmin(obs, model))
+minsum = sum(tlfdjoin$min.enrol)
+maxsum = sum(tlfdjoin$max.enrol)
+CR = minsum/maxsum
+print(paste0("The CR value for this iteration is ", CR))
+
+# Save the simulated trip list
+saveRDS(simulated_trips, "cache/simulated_trips_FCS.rds")
+```
+
+1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
+
+```{r distribute french catholic secondary POR, echo=FALSE, eval=FALSE}
+# Read the saved full list of POR and POS TRESO zones once and save it in output
+por_full <- readRDS("output/por_full.rds")
+pos_full <- readRDS("output/pos_full.rds")
+
+observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
+  select(treso.id.por, treso.id.pos, school.name, sfis, enrolment, dsb.index) %>%
+  drop_na(treso.id.por) %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(treso_zone_def, treso_id, csduid, csdname, mof_region), by = c("treso.id.por" = "treso_id")) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis"))
+
+por <- observed_por_pos_90 %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  group_by(treso.id.por) %>%
+  summarise(enrolment = sum(enrolment)) %>%
+  right_join(por_full, by=c("treso.id.por" = "orig")) %>%
+  replace_na(list(enrolment = 0)) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix()
+
+pos <- observed_por_pos_90 %>%
+  left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
+  group_by(treso.id.pos) %>%
+  summarise(otg = sum(otg)) %>% 
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
+  data.matrix()
+
+simulated_trips_FCS <- readRDS("cache/simulated_trips_FCS.rds")
+
+prop_matrix_FCS <- travel_time_skim %>%
+  mutate(value = 0.0001) %>%
+  left_join(select(simulated_trips_FCS, treso.id.por, treso.id.pos, enrolment),
+            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
+  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
+  select(-enrolment) %>%
+  spread(key=dest, value=value) %>%
+  column_to_rownames(var = "orig") %>%
+  data.matrix()
+saveRDS(prop_matrix_FCS, "output/prop_matrix_FCS.rds")
+
+# 1D balacne the matrix
+prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=TRUE)
+
+# Save the balanced POR-POS trip list
+trip_list_FCS <- melt(prop_matrix2_FCS)
+colnames(trip_list_FCS) <- c('treso.id.por', 'treso.id.pos', 'trips')
+saveRDS(trip_list_FCS, "cache/balanced_trip_list_FCS.rds")
+```
+
+Distribute each the POS demand to the individual schools
+
+```{r distribute french catholic secondary POS demand, echo=FALSE, eval=FALSE} 
+pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_def, school_sfis_2017,
+                                             eqao_2017, panel_id = panel_id, board_id = board_id)
+  
+print(paste0("For ", panel_id, "-", board_id, ", there are ", nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
+
+trip_list_FCS <- readRDS(paste0("cache/balanced_trip_list_FCS.rds")) %>%
+  left_join(pos_school_weight, by = "treso.id.pos")
+
+# Apply bucket rounding to chunks of data by TRESO POS
+results_FCS <- by(trip_list_FCS$trips, trip_list_FCS[c("treso.id.pos")], smart_round, simplify = TRUE)
+
+# Convert the output of by() to a dataframe
+results2_FCS <- sapply(results_FCS, I)
+colnames(results2_FCS) <- colnames(prop_matrix2_FCS)
+rownames(results2_FCS) <- rownames(prop_matrix2_FCS)
+
+df <- results2_FCS %>%
+  melt()
+colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+
+trip_list2_FCS <- bind_cols(trip_list_FCS, df) %>%
+  filter(enrolment.rounded != 0) %>%
+  select(-treso.id.por1, -treso.id.pos1)
+
+# Sample the schools by weight
+plan(multiprocess)
+results_FCS <- future_apply(trip_list2_FCS, 1, sample_by_row)
+results_tb_FCS <- t(as.data.table(results_FCS))
+trip_list_schools_FCS <- cbind(trip_list2_FCS, results_tb_FCS)
+
+saveRDS(trip_list_schools_FCS, "output/trip_list_schools_FCS.rds")
+```
+
+Compare simulated ADE to Observed ADE by school for gravity model and for closest school prob. result
+
+```{r french catholic secondary results comparison}
+
+panel_id = "Secondary"
+board_id = "French Catholic"
+
+observed_enrol_FCS <- readRDS("output/observed_por_pos_90.rds") %>%
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  group_by(sfis)%>%
+  summarise (sum.enrolment = sum(enrolment))
+
+simulated_compare_FCS <- readRDS("output/trip_list_schools_FCS.rds") %>%
+  unnest(results_tb_FCS) %>%
+  mutate(enrol.value = 1) %>%
+  rename(sfis = results_tb_FCS) %>%
+  group_by(sfis, school.name.list, dsb.index.ist, treso.id.pos) %>%
+  summarise(sim.enrol.sum = sum(enrol.value)) %>%
+  left_join(select(observed_enrol_FCS, sfis, sum.enrolment), by = "sfis") %>%
+  mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
+  mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
+  mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
+  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
+  
+avg_perc <- mean(simulated_compare_FCS$rounded_perc_diff)
+
+print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
+
+simulated_compare_FCS.data <- data.frame("y" = simulated_compare_FCS$rounded_perc_diff,
+                                         "x" = simulated_compare_FCS$sim_enrol.diff_to_ade_2017,
+                                         "mof_region" = simulated_compare_FCS$mof_region)
+ggplot(data=simulated_compare_FCS.data) +
+  geom_hline(yintercept = 0, colour="pink", size=1) + 
+  geom_vline(xintercept = 0, colour="pink", size=1) +
+  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
+  #facet_wrap(~ mof_region, scale = "fixed") +
+  theme(legend.position = "none") + 
+  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
+       subtitle="Secondary - French Public", title="Simulated vs. Observed Demand (2017)")
 ```
 
 ### Closest School Probability Choice
@@ -2933,7 +2297,7 @@ saveRDS(summary, "output/closest_school_theory_applied.RDS")
 ```
 
 
-```{r summarize application, echo=FALSE}
+```{r summarize application, echo=FALSE, eval=FALSE}
 student_lat_long <- student_travel_90 %>%
   select(student.postal.code, student.lat, student.long) %>%
   distinct(student.postal.code, .keep_all = TRUE)
@@ -3102,7 +2466,7 @@ ggplot(data=result_school2.data) +
 
 ```
 
-```{r tlfd of closest school probability}
+```{r tlfd of closest school probability, echo=FALSE, eval=FALSE}
 
 school_overlay <- readRDS("output/observed_por_pos_90.rds") %>%
   distinct(sfis, school.name, treso.id.pos, dsb.index) %>%
