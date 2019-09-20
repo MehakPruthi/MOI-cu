@@ -459,7 +459,7 @@ create_school_xy <- function(student_travel) {
 
 create_school_xy_from_school <- function(school_sfis) {
   '
-  This function differs fro `create_school_xy` in that this takes in the school dataframe
+  This function differs from `create_school_xy` in that this takes in the school dataframe
   without the catchment distnace
   
   input: Dataframe of school with lat long
