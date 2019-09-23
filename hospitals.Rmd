@@ -21,10 +21,11 @@ library(FNN)
 ```
 
 ## To-Do List
-[x] Calculate Origin trips by TRESO zone for each caretype
+[x] Calculate Origin trips by TRESO zone for each caretype by CD case-rates
 [x] Aggregate HBAM Historical caseload to TRESO zone level for Destination trips
 [x] Balance O-D pairing
-[] Separate Pediatric (0-17) and Adult (18+) age groups
+[] Separate Pediatric (0-17), Adult (18-74) and Senior (75+) age groups
+[] Calculate Origin trips by TRESO zone for each caretype by CSD case-rates
 
 ## Import Relevant Files
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
@@ -36,10 +37,11 @@ cd_caserates <- readRDS('cache/hospitals/cd_caserates.rds') %>%
          caretype,
          agegroup,
          caserate) %>% 
-  ungroup(cd) %>% 
-  mutate(cd = as.numeric(cd),
-         caretype = replace(caretype, caretype == "ER", "AM"),
-         caretype = replace(caretype, caretype == "DS", "AM"))
+  mutate(cd = as.numeric(cd))
+
+csd_caserates <- readRDS('cache/hospitals/csd_caserates.rds') %>% 
+  filter(caserate != Inf) %>% #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level (see below)
+  select(-totalcases, -population)
 
 # Historical HBAM Master (w/ Asset data)
 HBAMhistorical_master <- readRDS('cache/hospitals/HBAMhistorical_master.rds')
@@ -68,15 +70,14 @@ treso_health_slim_tb <- readRDS('cache/hospitals/treso_health_tb.rds') %>%
   select(treso_zone,
          cdname, 
          cd = cduid,
+         csdname,
+         csd = csduid,
          pop_ag1 = n_ag1_pop,
          pop_ag2 = n_ag2_pop,
          pop_ag3 = n_ag3_pop,
          pop_ag4 = n_ag4_pop,
          pop_ag5 = n_ag5_pop,
-         pop_ag6 = n_ag6_pop,
-         pop_ped1 = n_ped1_pop,
-         pop_ped2 = n_ped2_pop,
-         pop_ped3 = n_ped3_pop)
+         pop_ag6 = n_ag6_pop)
 
 travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
 
@@ -93,7 +94,6 @@ rm(travel_time_skim_square)
 ## Convert TRESO data to long format
 ```{r}
 treso_health_long <- gather(treso_health_slim_tb, agegroup, population, pop_ag1:pop_ag6) %>%
-  select(-pop_ped1, -pop_ped2, -pop_ped3) %>% 
   mutate(agegroup = replace(agegroup, agegroup == 'pop_ag1', 1),
          agegroup = replace(agegroup, agegroup == 'pop_ag2', 2),
          agegroup = replace(agegroup, agegroup == 'pop_ag3', 3),
@@ -178,7 +178,7 @@ HBAMhistorical_master_ad <- HBAMhistorical_master_tz %>%
          totalcases,
          csd,
          treso_zone) %>% 
-  filter(agegroup %in% (2:6))
+  filter(agegroup %in% (2:4))
 
 #Filter Pediatric Age Groups  
 HBAMhistorical_master_ped <- HBAMhistorical_master_tz %>%
@@ -189,32 +189,107 @@ HBAMhistorical_master_ped <- HBAMhistorical_master_tz %>%
          totalcases,
          csd,
          treso_zone) %>%
-  filter(grepl('^ped[1-3]', agegroup) | agegroup == 1)
+  filter(agegroup == 1)
+
+#Filter Senior Age Groups
+HBAMhistorical_master_sr <- HBAMhistorical_master_tz %>% 
+  select(siteid,
+         name,
+         caretype,
+         agegroup,
+         totalcases,
+         csd,
+         treso_zone) %>% 
+  filter(agegroup %in% (5:6))  
 ```
 
 ## Destination Caseload Calculation
+  - Create TRESO destination caseload datasets
+  - Required to create two sets of destination datasets, one for CD caserate applications (that used matched HBAM/TRESO CDs) and one for matched HBAM/TRESO CSDs (some of which  mismatched)
+
+### CD Destination Caseload
 ```{r}
 # Aggregate Historical HBAM to corresponding TRESO level
-destination_trips_ad <- HBAMhistorical_master_ad %>%
+destination_trips_cd_ad <- HBAMhistorical_master_ad %>%
   rename('d_trips' = 'totalcases') %>% 
   group_by(treso_zone,
            caretype) %>% 
   summarise(d_trips = sum(d_trips))
 
-destination_trips_ped <- HBAMhistorical_master_ped %>%
+destination_trips_cd_ped <- HBAMhistorical_master_ped %>%
+  rename('d_trips' = 'totalcases') %>% 
+  group_by(treso_zone,
+           caretype) %>% 
+  summarise(d_trips = sum(d_trips))
+
+destination_trips_cd_sr <- HBAMhistorical_master_sr %>% 
   rename('d_trips' = 'totalcases') %>% 
   group_by(treso_zone,
            caretype) %>% 
   summarise(d_trips = sum(d_trips))
 
 #Total Cases Summarise
-calcases_cd_destination_ad <- destination_trips_ad %>% 
+calcases_destination_cd_ad <- destination_trips_cd_ad %>% 
   ungroup() %>% 
   summarise(sum(d_trips))
 
-calcases_cd_destination_ped <- destination_trips_ped %>% 
+calcases_destination_cd_ped <- destination_trips_cd_ped %>% 
   ungroup() %>% 
   summarise(sum(d_trips))
+
+calcases_destination_cd_sr <- destination_trips_cd_sr %>% 
+  ungroup() %>% 
+  summarise(sum(d_trips))
+```
+
+### CSD Destination Caseload
+```{r}
+#Join destination data to joined CSDs for master-list
+csd_destinations <- left_join(csd_caserates, HBAMhistorical_master_tz, by = c('csd', 'agegroup', 'caretype')) %>% 
+  select(siteid,
+         name,
+         caretype,
+         agegroup,
+         totalcases,
+         treso_zone,
+         csd) #sum of csd_destinations is less than original HBAMhistorical_master by 51k cases removed as NAs from CSD mismatch
+
+#Aggregate HBAM to corresponding TRESO level
+destination_trips_csd_ad <- csd_destinations %>%
+  rename('d_trips' = 'totalcases') %>% 
+  filter(agegroup %in% (2:4)) %>% 
+  group_by(treso_zone,
+           caretype) %>% 
+  summarise(d_trips = sum(d_trips))
+
+destination_trips_csd_ped <- csd_destinations %>% 
+  rename('d_trips' = 'totalcases') %>% 
+  filter(agegroup == 1) %>% 
+  group_by(treso_zone,
+           caretype) %>% 
+  summarise(d_trips = sum(d_trips))
+
+destination_trips_csd_sr <- csd_destinations %>% 
+  rename('d_trips' = 'totalcases') %>% 
+  filter(agegroup %in% (5:6)) %>% 
+  group_by(treso_zone,
+           caretype) %>% 
+  summarise(d_trips = sum(d_trips))
+
+#Total Cases Summarise
+calcases_destination_csd_ad <- destination_trips_csd_ad %>% 
+  ungroup() %>% 
+  summarise(sum(d_trips))
+
+calcases_destination_csd_ped <- destination_trips_csd_ped %>% 
+  ungroup() %>% 
+  summarise(sum(d_trips))
+
+calcases_destination_csd_sr <- destination_trips_csd_sr %>% 
+  ungroup() %>% 
+  summarise(sum(d_trips))
+
+sum(calcases_destination_csd_ad, calcases_destination_csd_ped, calcases_destination_csd_sr)
 ```
 
 ## HBAM Base Care-Type Matricies
@@ -288,6 +363,7 @@ am_hbam_matrix_ped <- HBAMhistorical_master_ped %>%
 
 ```
 
+### Historical HBAM Matrices For Loops
 ```{r}
 caretypes = c("at", "cr", "gr", "mh", "am")
 age_groups = c("ad", "ped")
@@ -310,9 +386,18 @@ for (ct in caretypes) {
     mutate(trips = trips/365)
   
   saveRDS(hbam_matrix_ped, file = paste0('cache/hospitals/', ct, "_hbam_matrix_ped.rds"))
+  
+  hbam_matrix_sr <- HBAMhistorical_master_sr %>% 
+    filter(caretype == toupper(ct)) %>% 
+    group_by(csd, treso_zone) %>% 
+    summarise(trips = sum(totalcases)) %>% 
+    mutate(trips = trips/365)   
+  
+  saveRDS(hbam_matrix_sr, file = paste0('cache/hospitals/', ct, "_hbam_matrix_sr.rds"))
+
 }
 
-rm(hbam_matrix_ad, hbam_matrix_ped)
+rm(hbam_matrix_ad, hbam_matrix_ped, HBAMhistorical_master_sr)
 
 ```
 
@@ -321,10 +406,12 @@ rm(hbam_matrix_ad, hbam_matrix_ped)
   - Assuming one case = one trip (may be > 1 for most cases)
   - Calculate Origin vector cases / trips
   - Create totaling outputs
+  
+### CD Origin Rates Applied
 ```{r}
 #Calculate Origin trips
-origin_trips_ad <- left_join(treso_health_long, cd_caserates, by = c('cd', 'agegroup')) %>% 
-  filter(agegroup %in% (2:6)) %>% 
+origin_trips_cd_ad <- left_join(treso_health_long, cd_caserates, by = c('cd', 'agegroup')) %>% 
+  filter(agegroup %in% (2:4)) %>% 
   mutate(o_trips = (population*caserate)) %>%
   ungroup () %>% 
   group_by(cd,
@@ -332,8 +419,17 @@ origin_trips_ad <- left_join(treso_health_long, cd_caserates, by = c('cd', 'ageg
            caretype) %>% 
   summarise(o_trips = sum(o_trips))
 
-origin_trips_ped <- left_join(treso_health_long, cd_caserates, by = c('cd', 'agegroup')) %>%
-  filter(grepl('^ped[1-3]', agegroup) | agegroup == 1) %>% 
+origin_trips_cd_ped <- left_join(treso_health_long, cd_caserates, by = c('cd', 'agegroup')) %>%
+  filter(agegroup == 1) %>% 
+  mutate(o_trips = (population*caserate)) %>%
+  ungroup () %>% 
+  group_by(cd,
+           treso_zone, 
+           caretype) %>% 
+  summarise(o_trips = sum(o_trips))
+
+origin_trips_cd_sr <- left_join(treso_health_long, cd_caserates, by = c('cd', 'agegroup')) %>% 
+  filter(agegroup %in% (5:6)) %>% 
   mutate(o_trips = (population*caserate)) %>%
   ungroup () %>% 
   group_by(cd,
@@ -342,13 +438,63 @@ origin_trips_ped <- left_join(treso_health_long, cd_caserates, by = c('cd', 'age
   summarise(o_trips = sum(o_trips))
 
 #Total Case Summarise
-calcases_cd_origin_ad <- origin_trips_ad %>% 
+calcases_cd_origin_ad <- origin_trips_cd_ad %>% 
   ungroup() %>% 
   summarise(trips = sum(o_trips, na.rm=TRUE))
 
-calcases_cd_origin_ped <- origin_trips_ped %>% 
+calcases_cd_origin_ped <- origin_trips_cd_ped %>% 
   ungroup() %>% 
   summarise(trips = sum(o_trips, na.rm=TRUE))
+
+calcases_cd_origin_sr <- origin_trips_cd_sr %>% 
+  ungroup() %>% 
+  summarise(trips = sum(o_trips, na.rm=TRUE))
+```
+
+### CSD Origin Rates Applied
+```{r}
+#Calculate Origin trips
+origin_trips_csd_ad <- left_join(treso_health_long, csd_caserates, by = c('csd', 'agegroup')) %>% 
+  filter(agegroup %in% (2:4)) %>% 
+  mutate(o_trips = (population*caserate)) %>%
+  ungroup() %>% 
+  group_by(csd,
+           treso_zone, 
+           caretype) %>% 
+  summarise(o_trips = sum(o_trips))
+
+origin_trips_csd_ped <- left_join(treso_health_long, csd_caserates, by = c('csd', 'agegroup')) %>%
+  filter(agegroup == 1) %>% 
+  mutate(o_trips = (population*caserate)) %>%
+  ungroup() %>% 
+  group_by(csd,
+           treso_zone, 
+           caretype) %>% 
+  summarise(o_trips = sum(o_trips))
+
+origin_trips_csd_sr <- left_join(treso_health_long, csd_caserates, by = c('csd', 'agegroup')) %>% 
+  filter(agegroup %in% (5:6)) %>% 
+  mutate(o_trips = (population*caserate)) %>%
+  ungroup() %>% 
+  group_by(csd,
+           treso_zone, 
+           caretype) %>% 
+  summarise(o_trips = sum(o_trips))
+
+#Total Case Summarise
+calcases_csd_origin_ad <- origin_trips_csd_ad %>% 
+  ungroup() %>% 
+  summarise(trips = sum(o_trips, na.rm=TRUE))
+
+calcases_csd_origin_ped <- origin_trips_csd_ped %>% 
+  ungroup() %>% 
+  summarise(trips = sum(o_trips, na.rm=TRUE))
+
+calcases_csd_origin_sr <- origin_trips_csd_sr %>% 
+  ungroup() %>% 
+  summarise(trips = sum(o_trips, na.rm=TRUE))
+
+sum(calcases_csd_origin_ad, calcases_csd_origin_ped, calcases_csd_origin_sr) #Total of 7,314,475 cases, difference of 57,854 cases from original HBAM due to mismatched CSDs (see mismatched_csd)
 ```
 
 ## Mapping Hospital points to TRESO zone polygons
@@ -387,7 +533,7 @@ ggsave(hospital_plot, file = "output/hospital_plot.png", width = 20, height = 20
 ### AT
 ```{r}
 ###Adult
-at_origin_ad <- origin_trips_ad %>% 
+at_origin_cd_ad <- origin_trips_cd_ad %>% 
   filter(caretype == 'AT') %>%
   ungroup() %>% 
   select(-caretype, -cd)
@@ -396,9 +542,9 @@ at_destination_ad <- destination_trips_ad %>%
   filter(caretype == 'AT') %>% 
   select(-caretype)
 
-at_origin_full_ad <- travel_time_skim %>% 
+at_origin_cd_full_ad <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(at_cd_origin_ad, by = c('orig' = 'treso_zone')) %>% 
+  left_join(at_origin_cd_ad, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -411,7 +557,7 @@ at_destination_full_ad <- travel_time_skim %>%
   data.matrix()
 
 ###Pediatric
-at_origin_ped <- origin_trips_ped %>% 
+at_origin_cd_ped <- origin_trips_cd_ped %>% 
   filter(caretype == 'AT') %>%
   ungroup() %>% 
   select(-caretype, -cd)
@@ -420,9 +566,9 @@ at_destination_ped <- destination_trips_ped %>%
   filter(caretype == 'AT') %>% 
   select(-caretype)
 
-at_origin_full_ped <- travel_time_skim %>% 
+at_origin_cd_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(at_origin_ped, by = c('orig' = 'treso_zone')) %>% 
+  left_join(at_origin_cd_ped, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -438,7 +584,7 @@ at_destination_full_ped <- travel_time_skim %>%
 ### CR
 ```{r}
 ###Adult
-cr_origin_ad <- origin_trips_ad %>% 
+cr_origin_cd_ad <- origin_trips_cd_ad %>% 
   filter(caretype == 'CR') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -447,9 +593,9 @@ cr_destination_ad <- destination_trips_ad %>%
   filter(caretype == 'CR') %>% 
   select(-caretype)
 
-cr_origin_full_ad <- travel_time_skim %>% 
+cr_origin_cd_full_ad <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(cr_origin_ad, by = c('orig' = 'treso_zone')) %>% 
+  left_join(cr_origin_cd_ad, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -462,7 +608,7 @@ cr_destination_full_ad <- travel_time_skim %>%
   data.matrix()
 
 ###Pediatric
-cr_origin_ped <- origin_trips_ped %>% 
+cr_origin_cd_ped <- origin_trips_cd_ped %>% 
   filter(caretype == 'CR') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -471,9 +617,9 @@ cr_destination_ped <- destination_trips_ped %>%
   filter(caretype == 'CR') %>% 
   select(-caretype)
 
-cr_origin_full_ped <- travel_time_skim %>% 
+cr_origin_cd_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(cr_origin_ped, by = c('orig' = 'treso_zone')) %>% 
+  left_join(cr_origin_cd_ped, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -489,7 +635,7 @@ cr_destination_full_ped <- travel_time_skim %>%
 ### GR
 ```{r}
 ###Adult
-gr_origin_ad <- origin_trips_ad %>% 
+gr_origin_cd_ad <- origin_trips_cd_ad %>% 
   filter(caretype == 'GR') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -498,9 +644,9 @@ gr_destination_ad <- destination_trips_ad %>%
   filter(caretype == 'GR') %>% 
   select(-caretype)
 
-gr_origin_full_ped <- travel_time_skim %>% 
+gr_origin_cd_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(gr_origin_ad, by = c('orig' = 'treso_zone')) %>% 
+  left_join(gr_origin_cd_ad, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -513,7 +659,7 @@ gr_destination_full_ad <- travel_time_skim %>%
   data.matrix()
 
 ###Pediatric
-gr_origin_ped <- origin_trips_ped %>% 
+gr_origin_cd_ped <- origin_trips_cd_ped %>% 
   filter(caretype == 'GR') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -522,9 +668,9 @@ gr_destination_ped <- destination_trips_ped %>%
   filter(caretype == 'GR') %>% 
   select(-caretype)
 
-gr_origin_full_ped <- travel_time_skim %>% 
+gr_origin_cd_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(gr_origin_ped, by = c('orig' = 'treso_zone')) %>% 
+  left_join(gr_origin_cd_ped, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -540,7 +686,7 @@ gr_destination_full_ped <- travel_time_skim %>%
 ### MH
 ```{r}
 ###Adult
-mh_origin_ad <- origin_trips_ad %>% 
+mh_origin_cd_ad <- origin_trips_cd_ad %>% 
   filter(caretype == 'MH') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -549,9 +695,9 @@ mh_destination_ad <- destination_trips_ad %>%
   filter(caretype == 'MH') %>% 
   select(-caretype)
 
-mh_origin_full_ad <- travel_time_skim %>% 
+mh_origin_cd_full_ad <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(mh_origin_ad, by = c('orig' = 'treso_zone')) %>% 
+  left_join(mh_origin_cd_ad, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -564,7 +710,7 @@ mh_destination_full_ad <- travel_time_skim %>%
   data.matrix()
 
 ###Pediatric
-mh_origin_ped <- origin_trips_ped %>% 
+mh_origin_cd_ped <- origin_trips_cd_ped %>% 
   filter(caretype == 'MH') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -573,9 +719,9 @@ mh_destination_ped <- destination_trips_ped %>%
   filter(caretype == 'MH') %>% 
   select(-caretype)
 
-am_origin_full_ped <- travel_time_skim %>% 
+am_origin_cd_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(mh_origin_ped, by = c('orig' = 'treso_zone')) %>% 
+  left_join(mh_origin_cd_ped, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix() 
@@ -591,7 +737,7 @@ am_destination_full_ped <- travel_time_skim %>%
 ### AM
 ```{r}
 ###Adult
-am_origin_ad <- origin_trips_ad %>% 
+am_origin_cd_ad <- origin_trips_cd_ad %>% 
   filter(caretype == 'AM') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -600,9 +746,9 @@ am_destination_ad <- destination_trips_ad %>%
   filter(caretype == 'AM') %>% 
   select(-caretype)
 
-am_origin_full_ad <- travel_time_skim %>% 
+am_origin_cd_full_ad <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(am_origin_ad, by = c('orig' = 'treso_zone')) %>% 
+  left_join(am_origin_cd_ad, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
@@ -615,7 +761,7 @@ am_destination_full_ad <- travel_time_skim %>%
   data.matrix()
 
 ###Pediatric
-am_origin_ped <- origin_trips_ped %>% 
+am_origin_cd_ped <- origin_trips_cd_ped %>% 
   filter(caretype == 'AM') %>% 
   ungroup() %>% 
   select(-caretype, -cd)
@@ -624,9 +770,9 @@ am_destination_ped <- destination_trips_ped %>%
   filter(caretype == 'AM') %>% 
   select(-caretype)
 
-am_origin_full_ped <- travel_time_skim %>% 
+am_origin_cd_full_ped <- travel_time_skim %>% 
   distinct(orig) %>% 
-  left_join(am_origin_ped, by = c('orig' = 'treso_zone')) %>% 
+  left_join(am_origin_cd_ped, by = c('orig' = 'treso_zone')) %>% 
   replace_na(list(o_trips = 0)) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix() 
@@ -639,6 +785,9 @@ am_destination_full_ped <- travel_time_skim %>%
   data.matrix()
 ```
 
+### O-D Matrices For Loops
+
+#### CSD Rates
 ```{r}
 
 caretypes = c("at", "cr", "gr", "mh", "am")
@@ -646,27 +795,27 @@ age_groups = c("ad", "ped")
 
 #Adult
 for (ct in caretypes) {
-    origin_ad <- origin_trips_ad %>% 
+    origin_csd_ad <- origin_trips_csd_ad %>% 
       filter(caretype == toupper(ct)) %>% 
       ungroup() %>% 
-      select(-caretype, -cd)
+      select(-caretype, -csd)
     
-    saveRDS(origin_ad, file = paste0("cache/hospitals/", ct, "_origin_ad.rds"))
+    saveRDS(origin_csd_ad, file = paste0("cache/hospitals/", ct, "_origin_csd_ad.rds"))
     
-    destination_ad <- destination_trips_ad %>% 
+    destination_ad <- destination_trips_csd_ad %>% 
       filter(caretype == toupper(ct)) %>% 
       select(-caretype)
     
     saveRDS(destination_ad, file = paste0("cache/hospitals/", ct, "_destination_ad.rds"))
     
-    origin_full_ad <- travel_time_skim %>% 
+    origin_csd_full_ad <- travel_time_skim %>% 
       distinct(orig) %>% 
-      left_join(origin_ad, by = c('orig' = 'treso_zone')) %>% 
+      left_join(origin_csd_ad, by = c('orig' = 'treso_zone')) %>% 
       replace_na(list(o_trips = 0)) %>%
       column_to_rownames(var = "orig") %>%
       data.matrix()
     
-    saveRDS(origin_full_ad, file = paste0("cache/hospitals/", ct, "_origin_full_ad.rds"))
+    saveRDS(origin_csd_full_ad, file = paste0("cache/hospitals/", ct, "_origin_csd_full_ad.rds"))
     
     destination_full_ad <- travel_time_skim %>% 
       distinct(dest) %>% 
@@ -680,27 +829,27 @@ for (ct in caretypes) {
 
 #Pediatric
 for (ct in caretypes) {
-    origin_ped <- origin_trips_ped %>% 
+    origin_csd_ped <- origin_trips_csd_ped %>% 
       filter(caretype == toupper(ct)) %>% 
       ungroup() %>% 
-      select(-caretype, -cd)
+      select(-caretype, -csd)
     
-    saveRDS(origin_ped, file = paste0("cache/hospitals/", ct, "_origin_ped.rds"))
+    saveRDS(origin_csd_ped, file = paste0("cache/hospitals/", ct, "_origin_csd_ped.rds"))
     
-    destination_ped <- destination_trips_ped %>% 
+    destination_ped <- destination_trips_csd_ped %>% 
       filter(caretype == toupper(ct)) %>% 
       select(-caretype)
     
     saveRDS(destination_ped, file = paste0("cache/hospitals/", ct, "_destination_ped.rds"))
     
-    origin_full_ped <- travel_time_skim %>% 
+    origin_csd_full_ped <- travel_time_skim %>% 
       distinct(orig) %>% 
-      left_join(origin_ped, by = c('orig' = 'treso_zone')) %>% 
+      left_join(origin_csd_ped, by = c('orig' = 'treso_zone')) %>% 
       replace_na(list(o_trips = 0)) %>%
       column_to_rownames(var = "orig") %>%
       data.matrix()
     
-    saveRDS(origin_full_ped, file = paste0("cache/hospitals/", ct, "_origin_full_ped.rds"))
+    saveRDS(origin_csd_full_ped, file = paste0("cache/hospitals/", ct, "_origin_csd_full_ped.rds"))
     
     destination_full_ped <- travel_time_skim %>% 
       distinct(dest) %>% 
@@ -710,7 +859,44 @@ for (ct in caretypes) {
       data.matrix()
     
      saveRDS(destination_full_ped, file = paste0("cache/hospitals/", ct, "_destination_full_ped.rds"))
-    }
+}
+
+#Senior
+for (ct in caretypes) {
+    origin_csd_sr <- origin_trips_csd_sr %>% 
+      filter(caretype == toupper(ct)) %>% 
+      ungroup() %>% 
+      select(-caretype, -csd)
+    
+    saveRDS(origin_csd_sr, file = paste0("cache/hospitals/", ct, "_origin_csd_sr.rds"))
+    
+    destination_sr <- destination_trips_csd_sr %>% 
+      filter(caretype == toupper(ct)) %>% 
+      select(-caretype)
+    
+    saveRDS(destination_sr, file = paste0("cache/hospitals/", ct, "_destination_sr.rds"))
+    
+    origin_csd_full_sr <- travel_time_skim %>% 
+      distinct(orig) %>% 
+      left_join(origin_csd_sr, by = c('orig' = 'treso_zone')) %>% 
+      replace_na(list(o_trips = 0)) %>%
+      column_to_rownames(var = "orig") %>%
+      data.matrix()
+    
+    saveRDS(origin_csd_full_sr, file = paste0("cache/hospitals/", ct, "_origin_csd_full_sr.rds"))
+    
+    destination_full_sr <- travel_time_skim %>% 
+      distinct(dest) %>% 
+      left_join(destination_sr, by = c('dest' = 'treso_zone')) %>% 
+      replace_na(list(d_trips = 0)) %>%
+      column_to_rownames(var = "dest") %>%
+      data.matrix()
+    
+     saveRDS(destination_full_sr, file = paste0("cache/hospitals/", ct, "_destination_full_sr.rds"))
+}
+
+rm(origin_csd_ad, origin_csd_ped, origin_csd_sr, origin_csd_full_ad, origin_csd_full_ped, origin_csd_full_sr)
+rm(destination_ad, destination_ped, destination_sr, destination_full_ad, destination_full_ped, destination_full_sr)
 ```
 
 ## Travel Demand Matricies 
@@ -1178,7 +1364,11 @@ am.treso.csd_ped <- am_origin_ped %>%
   left_join(select(treso_zone_system, treso_id, csduid, csdname), by = c('treso_zone' = 'treso_id'))
 ```
 
-### For Loop Matrices
+### Balanced Matrices For Loops
+
+#### CD Rate Matricses
+  - Apply CD case-rate calculations to propensity matrix and create trip distribution matrix
+  - Compare simulated trip distribution matrix with observed HBAM matrix at the CSD level (as per HBAM)
 ```{r}
 
 #Adult Matrix
@@ -1255,5 +1445,85 @@ for (ct in caretypes) {
 
   saveRDS(treso_csd_ped, file = paste0("cache/hospitals/", ct, "_prop_matrix_ped.rds"))
 }
+
+#Senior Matrix
+for (ct in caretypes) {
+  prop_matrix_sr <- matrix_balancing(prop_matrix, origin_full_sr, destination_full_sr, 1000, 0.001)
+  
+  saveRDS(prop_matrix, file = paste0("cache/hospitals/", ct, "_prop_matrix_sr.rds"))
+  
+  matrix_long_sr <- prop_matrix_sr %>% 
+    melt() %>% 
+    rename('origin' = 'Var1',
+         'destination' = 'Var2',
+         'trips' = 'value')
+  
+  saveRDS(matrix_long_sr, file = paste0("cache/hospitals/", ct, "_prop_matrix_sr.rds"))
+  
+  csd_matrix_sr <- left_join(matrix_long_sr, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+    select(-area, -mof_region) %>% 
+    filter(!is.na(csduid)) %>% 
+    ungroup() %>% 
+    group_by(csduid, destination) %>% 
+    summarise(trips = sum(trips, na.rm = TRUE)) %>% 
+    mutate(trips = trips/365)
+  
+  saveRDS(csd_matrix_sr, file = paste0("cache/hospitals/", ct, "_prop_matrix_sr.rds"))
+  
+  prop_sum_sr <- prop_matrix_sr %>% 
+    colsums() %>% 
+    melt() %>% 
+    summarise(sum(value))
+  
+  print(prop_sum_sr)
+  
+  treso_csd_sr <- origin_sr %>% 
+    left_join(select(treso_zone_system, treso_id, csduid, csdname), by = c('treso_zone' = 'treso_id'))
+
+  saveRDS(treso_csd_sr, file = paste0("cache/hospitals/", ct, "_prop_matrix_sr.rds"))
+}
+```
+
+#### CSD Rates
+  - Apply CSD case-rates
+```{r}
+# Create Propensity Matrix
+am_prop_matrix_ad <- matrix_balancing(prop_matrix, am_origin_full_ad, am_destination_full_ad, 1000, 0.001)
+
+# Convert Prop Matrix to Long Format
+am_matrix_long_ad <- am_prop_matrix_ad %>% 
+  melt() %>% 
+  rename('origin' = 'Var1',
+         'destination' = 'Var2',
+         'trips' = 'value')
+
+# Aggregate Origin back to CSD
+am_csd_matrix_ad <- left_join(am_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+  select(-area, -mof_region) %>% 
+  filter(!is.na(csduid)) %>% 
+  ungroup() %>% 
+  group_by(csduid, destination) %>% 
+  summarise(trips = sum(trips, na.rm = TRUE)) %>% 
+  mutate(trips = trips/365)
+
+# Summarise and Calculate Comparison
+am_prop_sum_ad <- am_prop_matrix_ad %>% 
+  colSums() %>% 
+  melt() %>% 
+  summarise(sum(value))
+
+am_origin_sum_ad <- am_origin_ad %>% 
+  ungroup() %>% 
+  summarise(sum(o_trips))
+
+# Calculate Difference between simulated matrix and base HBAM matrix
+am_comp_matrix_ad <- full_join(am_csd_matrix_ad, am_hbam_matrix_ad, by = c('destination' = 'treso_zone', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+  replace_na(list(trips.hbam = 0, trips.csd = 0)) %>% 
+  mutate(diff = abs(trips.csd - trips.hbam),
+         perc.diff = ((trips.csd - trips.hbam)/trips.hbam)*100)
+
+#Create TRESO to CSD origin dataset
+am_treso_csd_ad <- am_origin_ad %>% 
+  left_join(select(treso_zone_system, treso_id, csduid, csdname), by = c('treso_zone' = 'treso_id'))
 ```
 
