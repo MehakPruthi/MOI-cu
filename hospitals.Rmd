@@ -742,7 +742,7 @@ am_origin_cd_ad <- origin_trips_cd_ad %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-am_destination_ad <- destination_trips_ad %>% 
+am_destination_cd_ad <- destination_trips_cd_ad %>% 
   filter(caretype == 'AM') %>% 
   select(-caretype)
 
@@ -755,7 +755,7 @@ am_origin_cd_full_ad <- travel_time_skim %>%
 
 am_destination_full_ad <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(am_destination_ad, by = c('dest' = 'treso_zone')) %>% 
+  left_join(am_destination_cd_ad, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -766,7 +766,7 @@ am_origin_cd_ped <- origin_trips_cd_ped %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-am_destination_ped <- destination_trips_ped %>% 
+am_destination_cd_ped <- destination_trips_cd_ped %>% 
   filter(caretype == 'AM') %>% 
   select(-caretype)
 
@@ -779,7 +779,7 @@ am_origin_cd_full_ped <- travel_time_skim %>%
 
 am_destination_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(am_destination_ped, by = c('dest' = 'treso_zone')) %>% 
+  left_join(am_destination_cd_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -953,7 +953,7 @@ matrix_balancing <- function(matrix, a, b, max_iterations = 10000, rel_error = 0
 }
 ```
 
-## Summarize Balanced Matrix to CSD (Origin)
+## Summarize Balanced Matrix for CD Rates to CSD (Origin)
   - Balance O-D pairing matricies for each care-type
   - Calculate difference between original HBAM "cases" and matrix-generated "trips"
 
@@ -972,7 +972,7 @@ at_matrix_long_ad <- at_prop_matrix_ad %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-at_csd_matrix_ad <- left_join(at_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+at_sim_matrix_ad <- left_join(at_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1014,7 +1014,7 @@ at_matrix_long_ped <- at_prop_matrix_ped %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-at_csd_matrix_ped <- left_join(at_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+at_sim_matrix_ped <- left_join(at_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1058,7 +1058,7 @@ cr_matrix_long_ad <- cr_prop_matrix_ad %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-cr_csd_matrix_ad <- left_join(cr_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+cr_sim_matrix_ad <- left_join(cr_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1096,7 +1096,7 @@ cr_matrix_long_ped <- cr_prop_matrix_ped %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-cr_csd_matrix_ped <- left_join(cr_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+cr_sim_matrix_ped <- left_join(cr_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1136,7 +1136,7 @@ gr_matrix_long_ad <- gr_prop_matrix_ad %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-gr_csd_matrix_ad <- left_join(gr_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+gr_sim_matrix_ad <- left_join(gr_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1175,7 +1175,7 @@ gr_matrix_long_ped <- gr_prop_matrix_ped %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-gr_csd_matrix_ped <- left_join(gr_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+gr_sim_matrix_ped <- left_join(gr_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1215,7 +1215,7 @@ mh_matrix_long_ad <- mh_prop_matrix_ad %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-mh_csd_matrix_ad <- left_join(mh_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+mh_sim_matrix_ad <- left_join(mh_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1253,7 +1253,7 @@ mh_matrix_long_ped <- mh_prop_matrix_ped %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-mh_csd_matrix_ped <- left_join(mh_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+mh_sim_matrix_ped <- left_join(mh_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1283,17 +1283,17 @@ mh_comp_matrix_ped <- full_join(mh_csd_matrix_ped, mh_hbam_matrix_ped, by = c('d
 #### Adult
 ```{r}
 # Create Propensity Matrix
-am_prop_matrix_ad <- matrix_balancing(prop_matrix, am_origin_full_ad, am_destination_full_ad, 1000, 0.001)
+am_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, am_origin_cd_full_ad, am_destination_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
-am_matrix_long_ad <- am_prop_matrix_ad %>% 
+am_matrix_long_cd_ad <- am_prop_matrix_cd_ad %>% 
   melt() %>% 
   rename('origin' = 'Var1',
          'destination' = 'Var2',
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-am_csd_matrix_ad <- left_join(am_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+am_sim_matrix_cd_ad <- left_join(am_matrix_long_cd_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1302,23 +1302,23 @@ am_csd_matrix_ad <- left_join(am_matrix_long_ad, treso_zone_system, by = c('orig
   mutate(trips = trips/365)
 
 # Summarise and Calculate Comparison
-am_prop_sum_ad <- am_prop_matrix_ad %>% 
+am_prop_sum_cd_ad <- am_prop_matrix_cd_ad %>% 
   colSums() %>% 
   melt() %>% 
   summarise(sum(value))
 
-am_origin_sum_ad <- am_origin_ad %>% 
+am_origin_sum_cd_ad <- am_origin_cd_ad %>% 
   ungroup() %>% 
   summarise(sum(o_trips))
 
 # Calculate Difference between simulated matrix and base HBAM matrix
-am_comp_matrix_ad <- full_join(am_csd_matrix_ad, am_hbam_matrix_ad, by = c('destination' = 'treso_zone', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+am_comp_matrix_cd_ad <- full_join(am_sim_matrix_cd_ad, am_hbam_matrix_ad, by = c('destination' = 'treso_zone', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
   replace_na(list(trips.hbam = 0, trips.csd = 0)) %>% 
   mutate(diff = abs(trips.csd - trips.hbam),
          perc.diff = ((trips.csd - trips.hbam)/trips.hbam)*100)
 
 #Create TRESO to CSD origin dataset
-am_treso_csd_ad <- am_origin_ad %>% 
+am_treso_csd_ad <- am_origin_cd_ad %>% 
   left_join(select(treso_zone_system, treso_id, csduid, csdname), by = c('treso_zone' = 'treso_id'))
 ```
 
@@ -1335,7 +1335,7 @@ am_matrix_long_ped <- am_prop_matrix_ped %>%
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-am_csd_matrix_ped <- left_join(am_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+am_sim_matrix_ped <- left_join(am_matrix_long_ped, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1484,21 +1484,25 @@ for (ct in caretypes) {
 }
 ```
 
-#### CSD Rates
+## Summarize Balanced Matrix for CD Rates to CSD (Origin)
+
+### CSD Rates
   - Apply CSD case-rates
+  
+#### Adult
 ```{r}
 # Create Propensity Matrix
-am_prop_matrix_ad <- matrix_balancing(prop_matrix, am_origin_full_ad, am_destination_full_ad, 1000, 0.001)
+am_prop_matrix_csd_ad <- matrix_balancing(prop_matrix, am_origin_csd_full_ad, am_destination_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
-am_matrix_long_ad <- am_prop_matrix_ad %>% 
+am_matrix_long_csd_ad <- am_prop_matrix_csd_ad %>% 
   melt() %>% 
   rename('origin' = 'Var1',
          'destination' = 'Var2',
          'trips' = 'value')
 
 # Aggregate Origin back to CSD
-am_csd_matrix_ad <- left_join(am_matrix_long_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+am_sim_matrix_ad <- left_join(am_matrix_long_csd_ad, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
   select(-area, -mof_region) %>% 
   filter(!is.na(csduid)) %>% 
   ungroup() %>% 
@@ -1507,23 +1511,24 @@ am_csd_matrix_ad <- left_join(am_matrix_long_ad, treso_zone_system, by = c('orig
   mutate(trips = trips/365)
 
 # Summarise and Calculate Comparison
-am_prop_sum_ad <- am_prop_matrix_ad %>% 
+am_prop_sum_csd_ad <- am_prop_matrix_csd_ad %>% 
   colSums() %>% 
   melt() %>% 
   summarise(sum(value))
 
-am_origin_sum_ad <- am_origin_ad %>% 
+am_origin_sum_csd_ad <- am_origin_csd_ad %>% 
   ungroup() %>% 
   summarise(sum(o_trips))
 
 # Calculate Difference between simulated matrix and base HBAM matrix
-am_comp_matrix_ad <- full_join(am_csd_matrix_ad, am_hbam_matrix_ad, by = c('destination' = 'treso_zone', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
+am_comp_matrix_csd_ad <- full_join(am_csd_matrix_ad, am_hbam_matrix_ad, by = c('destination' = 'treso_zone', 'csduid' = 'csd'), suffix = c('.csd', '.hbam')) %>% 
   replace_na(list(trips.hbam = 0, trips.csd = 0)) %>% 
   mutate(diff = abs(trips.csd - trips.hbam),
          perc.diff = ((trips.csd - trips.hbam)/trips.hbam)*100)
 
 #Create TRESO to CSD origin dataset
-am_treso_csd_ad <- am_origin_ad %>% 
+am_treso_csd_ad <- am_origin_csd_ad %>% 
   left_join(select(treso_zone_system, treso_id, csduid, csdname), by = c('treso_zone' = 'treso_id'))
 ```
+
 
