@@ -508,7 +508,7 @@ create_school_xy <- function(student_travel) {
 
 create_school_xy_from_school <- function(school_sfis) {
   '
-  This function differs fro `create_school_xy` in that this takes in the school dataframe
+  This function differs from `create_school_xy` in that this takes in the school dataframe
   without the catchment distnace
   
   input: Dataframe of school with lat long
@@ -524,6 +524,32 @@ create_school_xy_from_school <- function(school_sfis) {
     ) %>%
     mutate(id = row_number())
   coordinates(school_spdf) <- c('long', 'lat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(school_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  school_xy <- spTransform(school_spdf, CRS(treso_projarg))
+  
+  return(school_xy)
+}
+
+create_school_xy_simple <- function(school_sfis) {
+  '
+  This function differs from `create_school_xy` in that this takes in the school dataframe
+  without the catchment distnace. This function differs from `create_school_xy_from_schools` 
+  in that it pulls different metadata fields.
+  
+  input: Dataframe of school with lat long
+  output: SpatialPointsDataFrame of each school
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  school_spdf <- school_sfis %>%
+    ungroup() %>%
+    select(year, dsb.index, board.name, board_type_name, panel, school.name, sfis, school.lat, school.long, otg) %>%
+    mutate(schoolLat = school.lat, schoolLong = school.long) %>%
+    mutate(id = row_number())
+  coordinates(school_spdf) <- c('schoolLong', 'schoolLat')
   
   # Project the student and school points from lat/long to TRESO's LCC specification
   proj4string(school_spdf) <- CRS('+proj=longlat +datum=WGS84')
@@ -571,6 +597,26 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
         treso.id.pos = Treso_ID
       )
   }
+  if (type == 'schoolSimple'){
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(., year = xy_location@data$year,
+            dsb.index = xy_location@data$dsb.index,
+            board_type_name = xy_location@data$board_type_name,
+            school.name = xy_location@data$school.name,
+            school.lat = xy_location@data$school.lat,
+            school.long = xy_location@data$school.long,
+            sfis = xy_location@data$sfis,
+            panel = xy_location@data$panel,
+            board.name = xy_location@data$board.name,
+            otg = xy_location@data$otg) %>%
+      as_tibble() %>%
+      select(Treso_ID, year, dsb.index, board_type_name, panel, sfis, board.name, school.name, school.lat, school.long, otg) %>%
+      rename(
+        treso.id.pos = Treso_ID
+      )
+  }
+
   return(overlay)
 }
 

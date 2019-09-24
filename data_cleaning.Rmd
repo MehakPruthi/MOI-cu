@@ -8,6 +8,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(weights)
 library(RODBC)
+library(sp)
+library(rgdal)
+library(rgeos)
 source("helpers.R")
 ```
 
@@ -119,10 +122,64 @@ treso_tb <- socio_economic_tb %>%
 rm(hhld_tb, socio_economic_tb, hhld_structure)
 ```
 
+# Compile master list of schools, sfis ID, geo coordinates
+
+- Produce dataframe with geocoordinates for all schools (past & present)
+
+```{r}
+# Read in geocoordinates for schools with missing data
+# Geocoordinates were found using separate program and stored in CSV
+missingCoords <- read_csv('input/edu/school_missing_geocoordinates.csv')
+schoolBoardTypes <- read_csv('input/edu/school_board_types.csv')
+
+# Create a table called schoolLoc to house master list for school geocoordinates
+schoolLoc <- schoolCap %>%
+  select(year = Sch_yr, 
+         dsb.index = DSB_Index, 
+         panel = Panel, 
+         sfis = `SFIS_ID`,
+         school.name = `FacilityName`, 
+         school.lat = `Latitude`, 
+         school.long = `longitude`,
+         otg = OTG,
+         board.name = BoardName,
+         dataset.id = dataSetID) %>%
+  filter(dataset.id == 2) %>%
+  left_join(select(schoolBoardTypes, dsb, board_type_name), by = c('dsb.index' = 'dsb'))
+
+# Join in geocoordinate data for missing schools
+schoolLocUpdated <- schoolLoc %>%
+  left_join(select(missingCoords, SFIS_ID, altLat = finalLatitude, altLon = finalLongitude), by = c('sfis' = 'SFIS_ID')) %>%
+  mutate(school.lat = ifelse(is.na(school.lat), altLat, school.lat)) %>%
+  mutate(school.long = ifelse(is.na(school.long), altLon, school.long)) %>%
+  select(-altLat, -altLon)
+
+# Keep a record of schools for which a lat/long cannot be determined
+schoolLocMissing <- schoolLocUpdated %>%
+  filter(is.na(school.lat)|is.na(school.long))
+
+# Remove NA values of lat/long from school location dataframe in order to run x/y retrieval
+schoolLocClean <- schoolLocUpdated %>%
+  filter(!is.na(school.lat) & !is.na(school.long))
+
+# Determine x & y coordinates for schools based on TRESO zone shapefile
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+school_xy <- create_school_xy_simple(schoolLocClean)
+
+# Determine TRESO zone associated with each school's x & y coordinates
+schoolTRESO <- create_overlay(school_xy, treso_shp, 'schoolSimple')
+
+# Join schoolTRESO table to CD/CSD info and then export to CSV
+tresoCSDmatch <- read_csv('input/treso/treso_zone_system.csv')
+schoolTRESOcsd <- schoolTRESO %>%
+  left_join(select(tresoCSDmatch, treso_id, csduid, cduid), by = c('treso.id.pos' = 'treso_id'))
+saveRDS(schoolTRESOcsd, 'output/school_treso_master.rds')
+
+```
 
 # Education Data cleaning
  
-- Clean the school forecast data.
+- Clean the school forecast data
 - Then, clean school capacity and historical demand data
 - Combine together 
 - Clean the student postal code data
