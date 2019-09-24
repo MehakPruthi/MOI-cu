@@ -614,8 +614,5 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   school_tb <- school_tb %>%
     left_join(school_ade, by = c('sfis'))
   
-  # Clean up the global environments
-  rm(school_tb_temp)
-  
   return(school_tb)
 }
