@@ -714,7 +714,7 @@ trip_list_schools_EPS_2011_summed <- trip_list_schools_EPS_2011 %>%
   group_by(sfis) %>% 
   summarise(enrol.value = sum(enrol.value)) 
 
-saveRDS(trip_list_schools_EPS_2011, "output/trip_list_schools_EPS_2011.rds")
+saveRDS(trip_list_schools_EPS_2011_summed, "output/trip_list_schools_EPS_2011_summed.rds")
 
 
 ```
@@ -726,8 +726,8 @@ panel_id = "Secondary"
 board_id = "English Public"
 
 #observed 2011 enrollment
-schoolEnrol <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
-schoolEnrolSlim <- schoolEnrol %>%
+schoolEnrolObserved <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE) 
+schoolEnrolSlimObserved <- schoolEnrolObserved %>%
   select(year = Sch_yr, 
          dsb.index = DSB_Index, 
          board.name = BoardName, 
@@ -741,47 +741,98 @@ schoolEnrolSlim <- schoolEnrol %>%
   arrange(year, dsb.index, panel, sfis) %>%
   mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
   filter(year == 2011, status == "Open", dataset.id == 2) %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb"))
-
-#marketshare 2011 enrolment
-
-
-observed_enrol_EPS <- readRDS("output/observed_por_pos_90.rds") %>%
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
-  filter(panel == panel_id, board_type_name == board_id) %>%
-  group_by(sfis)%>%
-  summarise (sum.enrolment = sum(enrolment))
-
-simulated_compare_EPS <- readRDS("output/trip_list_schools_EPS.rds") %>%
-  unnest(results_tb_EPS) %>%
-  mutate(enrol.value = 1) %>%
-  rename(sfis = results_tb_EPS) %>%
-  group_by(sfis, school.name.list, dsb.index.ist, treso.id.pos) %>%
-  summarise(sim.enrol.sum = sum(enrol.value)) %>%
-  left_join(select(observed_enrol_EPS, sfis, sum.enrolment), by = "sfis") %>%
-  mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
-  mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
-  mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
-  left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>% 
+  filter(panel == panel_id, board_type_name == board_id) %>% 
+  select(panel, sfis, school.name, ade, board_type_name)
   
-avg_perc <- mean(simulated_compare_EPS$rounded_perc_diff)
+temptemp2 <- readRDS("output/school_treso_master.rds") %>% 
+  filter(year == 2011)
 
-print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
+# marketshare 2011 enrolment diff and join with gravity table
+market_2011 <- readRDS("cache/school_2007_market_share.rds") %>% #update with RDS market share file
+  mutate(AbsDiffMarket =  (enrol2011.by2007MS - ade2011)) %>% #switch with enrolment variable
+  mutate(percent_enrol_diff_mk = round((AbsDiffMarket/ade2011*100),2))%>% 
+  left_join(select(temptemp, sfis, board_type_name, treso.id.pos), by="sfis") %>% 
+  filter(panel==panel_id, board_type_name==board_id)
+  
 
-simulated_compare_EPS.data <- data.frame("y" = simulated_compare_EPS$rounded_perc_diff,
-                                         "x" = simulated_compare_EPS$sim_enrol.diff_to_ade_2017,
-                                         "mof_region" = simulated_compare_EPS$mof_region)
-ggplot(data=simulated_compare_EPS.data) +
-  geom_hline(yintercept = 0, colour="pink", size=1) + 
+
+#gravity 2011 enrolment diff 
+gravity_2011 <- readRDS("output/trip_list_schools_EPS_2011_summed.rds") %>% 
+  left_join(select(schoolEnrolSlimObserved, sfis, ade), by = "sfis") %>% 
+  mutate(AbsDiffGrav= (enrol.value - ade)) %>%
+  mutate(percent_enrol_diff_gr = round((AbsDiffGrav/ade)*100,2)) %>% 
+  filter(percent_enrol_diff_gr < 1000, !is.infinite(percent_enrol_diff_gr)) 
+
+  
+  
+gravity_2011.data <- data.frame("y" = gravity_2011$percent_enrol_diff_gr,
+                                         "x" = gravity_2011$AbsDiffGrav)
+ggplot(data=gravity_2011.data) +
+  geom_hline(yintercept = 0, colour="pink", size=1) +
   geom_vline(xintercept = 0, colour="pink", size=1) +
-  geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
   #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
-  coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
+  coord_cartesian(xlim=c(0,400), ylim=c(0,250)) +
   #facet_wrap(~ mof_region, scale = "fixed") +
-  theme(legend.position = "none") + 
-  labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
-       subtitle="Secondary - English Public", title="Simulated vs. Observed Demand (2017)")
+  theme(legend.position = "none") +
+  labs(x="Enrollment Absolute Difference (Count)", y="Percent Difference (%)",
+       subtitle="Secondary - English Public", title="Simulated vs. Observed Demand (2011)")
+
+
+
+market_2011.data <- data.frame("y" = market_2011$percent_enrol_diff_mk,
+                                         "x" = market_2011$AbsDiffMarket)
+ggplot(data=market_2011.data) +
+  geom_hline(yintercept = 0, colour="pink", size=1) +
+  geom_vline(xintercept = 0, colour="pink", size=1) +
+  geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+  coord_cartesian(xlim=c(0,400), ylim=c(0,250)) +
+  #facet_wrap(~ mof_region, scale = "fixed") +
+  theme(legend.position = "none") +
+  labs(x="Enrollment Absolute Difference (Count)", y="Percent Difference (%)",
+       subtitle="Secondary - English Public", title="Market Share vs. Observed Demand (2011)")
+  
+
+
+
+# observed_enrol_EPS <- readRDS("output/observed_por_pos_90.rds") %>%
+#   left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+#   left_join(select(school_sfis_2017, sfis, panel), by = c("sfis") ) %>%
+#   filter(panel == panel_id, board_type_name == board_id) %>%
+#   group_by(sfis)%>%
+#   summarise (sum.enrolment = sum(enrolment))
+# 
+# simulated_compare_EPS <- readRDS("output/trip_list_schools_EPS.rds") %>%
+#   unnest(results_tb_EPS) %>%
+#   mutate(enrol.value = 1) %>%
+#   rename(sfis = results_tb_EPS) %>%
+#   group_by(sfis, school.name.list, dsb.index.ist, treso.id.pos) %>%
+#   summarise(sim.enrol.sum = sum(enrol.value)) %>%
+#   left_join(select(observed_enrol_EPS, sfis, sum.enrolment), by = "sfis") %>%
+#   mutate(sim_enrol.diff_to_ade_2017 = sim.enrol.sum - sum.enrolment)%>%
+#   mutate(perc_ade_diff = ((sim.enrol.sum - sum.enrolment)/sum.enrolment)*100) %>%
+#   mutate(rounded_perc_diff = round(perc_ade_diff, 2)) %>%
+#   left_join(select(treso_zone_def, treso_id, mof_region), by = c("treso.id.pos" = "treso_id")) 
+#   
+# avg_perc <- mean(simulated_compare_EPS$rounded_perc_diff)
+# 
+# print(paste0("The average percent change between simulated and 2017 observed ADE for ", board_id, "-", panel_id, " schools is ", round(avg_perc, 2)))
+# 
+# simulated_compare_EPS.data <- data.frame("y" = simulated_compare_EPS$rounded_perc_diff,
+#                                          "x" = simulated_compare_EPS$sim_enrol.diff_to_ade_2017,
+#                                          "mof_region" = simulated_compare_EPS$mof_region)
+# ggplot(data=simulated_compare_EPS.data) +
+#   geom_hline(yintercept = 0, colour="pink", size=1) + 
+#   geom_vline(xintercept = 0, colour="pink", size=1) +
+#   geom_point(aes(x = x, y = y, colour = mof_region), size = 1.5, alpha = 0.15) +
+#   #geom_point(aes(x = x, y = y), size = 1.5, alpha = 0.15) +
+#   coord_cartesian(xlim=c(-400,400), ylim=c(-100,100)) +
+#   #facet_wrap(~ mof_region, scale = "fixed") +
+#   theme(legend.position = "none") + 
+#   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
+#        subtitle="Secondary - English Public", title="Simulated vs. Observed Demand (2017)")
 ```
 
 
