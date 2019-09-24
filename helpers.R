@@ -244,6 +244,55 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
+calculate_school_weight_forecasting <- function(trip_list, ayear, school_list_master, 
+                                    eqao_2017, panel_id, board_id) {
+  
+  #filter school list based on panel and board type
+  school_list_master <- school_list_master %>%   #update this with the master sfis to treso list from Alec
+    filter(year == ayear, panel == panel_id, board_type_name == board_id) #%>% 
+    #distinct(sfis, .keep_all = TRUE)
+    
+  # Calculate school weighting for TRESO zones with multiple schools and export it for
+  pos_school <- trip_list %>%
+    right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("dest" = "treso.id.pos") ) %>% 
+    left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
+    mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
+    
+  # get treso zone otg totals
+  pos_otg_total <- pos_school %>%
+    group_by(dest) %>%
+    summarise(otg.total = sum(otg))
+  
+  # calculate a combined weight between eqao and otg ratio
+  pos_school_weight <- left_join(pos_school, pos_otg_total, by = "dest") %>%
+    mutate(school.weight = eqao.standardized * (otg / otg.total)) 
+  
+  # get treso zone school.weight totals
+  pos_school_weight_total <- pos_school_weight %>%
+    group_by(dest) %>%
+    summarise(school.weight.total = sum(school.weight))
+  
+  # school weight
+  pos_school_weight_new <- left_join(pos_school_weight, pos_school_weight_total, by = "dest") %>%
+    mutate(school.weight.prob = school.weight/school.weight.total) %>%
+    select(dest, sfis, school.name, dsb.index, school.weight.prob) %>%
+    group_by(dest) %>%
+    summarise(
+      sfis.list = paste(sfis, collapse = ","),
+      school.name.list = paste(school.name, collapse = ","),
+      dsb.index.ist = paste(dsb.index, collapse = ","),
+      school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+    ) %>%
+    rowwise() %>%
+    mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+    mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+  
+  return(pos_school_weight_new)
+}
+
+
+
+
 calculate_school_weight <- function(observed_trips, school_board_def, school_sfis_2017,
                                     eqao_2017, panel_id = "Elementary", board_id = "English Public") {
   
