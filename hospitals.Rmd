@@ -538,7 +538,7 @@ at_origin_cd_ad <- origin_trips_cd_ad %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-at_destination_ad <- destination_trips_ad %>% 
+at_destination_cd_ad <- destination_trips_cd_ad %>% 
   filter(caretype == 'AT') %>% 
   select(-caretype)
 
@@ -549,7 +549,7 @@ at_origin_cd_full_ad <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-at_destination_full_ad <- travel_time_skim %>% 
+at_destination_cd_full_ad <- travel_time_skim %>% 
   distinct(dest) %>% 
   left_join(at_cd_destination_ad, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
@@ -562,7 +562,7 @@ at_origin_cd_ped <- origin_trips_cd_ped %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-at_destination_ped <- destination_trips_ped %>% 
+at_destination_cd_ped <- destination_trips_cd_ped %>% 
   filter(caretype == 'AT') %>% 
   select(-caretype)
 
@@ -573,9 +573,9 @@ at_origin_cd_full_ped <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-at_destination_full_ped <- travel_time_skim %>% 
+at_destination_cd_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(at_destination_ped, by = c('dest' = 'treso_zone')) %>% 
+  left_join(at_destination_cd_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -589,7 +589,7 @@ cr_origin_cd_ad <- origin_trips_cd_ad %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-cr_destination_ad <- destination_trips_ad %>% 
+cr_destination_cd_ad <- destination_trips_cd_ad %>% 
   filter(caretype == 'CR') %>% 
   select(-caretype)
 
@@ -600,9 +600,9 @@ cr_origin_cd_full_ad <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-cr_destination_full_ad <- travel_time_skim %>% 
+cr_destination_cd_full_ad <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(cr_destination_ad, by = c('dest' = 'treso_zone')) %>% 
+  left_join(cr_destination_cd_ad, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -613,7 +613,7 @@ cr_origin_cd_ped <- origin_trips_cd_ped %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-cr_destination_ped <- destination_trips_ped %>% 
+cr_destination_cd_ped <- destination_trips_cd_ped %>% 
   filter(caretype == 'CR') %>% 
   select(-caretype)
 
@@ -624,9 +624,9 @@ cr_origin_cd_full_ped <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-cr_destination_full_ped <- travel_time_skim %>% 
+cr_destination_cd_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(cr_destination_ped, by = c('dest' = 'treso_zone')) %>% 
+  left_join(cr_destination_cd_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -640,7 +640,7 @@ gr_origin_cd_ad <- origin_trips_cd_ad %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-gr_destination_ad <- destination_trips_ad %>% 
+gr_destination_cd_ad <- destination_trips_cd_ad %>% 
   filter(caretype == 'GR') %>% 
   select(-caretype)
 
@@ -651,9 +651,9 @@ gr_origin_cd_full_ped <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-gr_destination_full_ad <- travel_time_skim %>% 
+gr_destination_cd_full_ad <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(gr_destination_ad, by = c('dest' = 'treso_zone')) %>% 
+  left_join(gr_destination_cd_ad, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -664,7 +664,7 @@ gr_origin_cd_ped <- origin_trips_cd_ped %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-gr_destination_ped <- destination_trips_ped %>% 
+gr_destination_cd_ped <- destination_trips_cd_ped %>% 
   filter(caretype == 'GR') %>% 
   select(-caretype)
 
@@ -675,9 +675,9 @@ gr_origin_cd_full_ped <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-gr_destination_full_ped <- travel_time_skim %>% 
+gr_destination_cd_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(gr_destination_ped, by = c('dest' = 'treso_zone')) %>% 
+  left_join(gr_destination_cd_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -691,7 +691,7 @@ mh_origin_cd_ad <- origin_trips_cd_ad %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-mh_destination_ad <- destination_trips_ad %>% 
+mh_destination_cd_ad <- destination_trips_cd_ad %>% 
   filter(caretype == 'MH') %>% 
   select(-caretype)
 
@@ -702,9 +702,9 @@ mh_origin_cd_full_ad <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-mh_destination_full_ad <- travel_time_skim %>% 
+mh_destination_cd_full_ad <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(mh_destination_ad, by = c('dest' = 'treso_zone')) %>% 
+  left_join(mh_destination_cd_ad, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -715,7 +715,7 @@ mh_origin_cd_ped <- origin_trips_cd_ped %>%
   ungroup() %>% 
   select(-caretype, -cd)
 
-mh_destination_ped <- destination_trips_ped %>% 
+mh_destination_cd_ped <- destination_trips_cd_ped %>% 
   filter(caretype == 'MH') %>% 
   select(-caretype)
 
@@ -726,9 +726,9 @@ am_origin_cd_full_ped <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix() 
 
-am_destination_full_ped <- travel_time_skim %>% 
+am_destination_cd_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
-  left_join(mh_destination_ped, by = c('dest' = 'treso_zone')) %>% 
+  left_join(mh_destination_cd_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
   column_to_rownames(var = "dest") %>%
   data.matrix()
@@ -753,7 +753,7 @@ am_origin_cd_full_ad <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-am_destination_full_ad <- travel_time_skim %>% 
+am_destination_cd_full_ad <- travel_time_skim %>% 
   distinct(dest) %>% 
   left_join(am_destination_cd_ad, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
@@ -777,7 +777,7 @@ am_origin_cd_full_ped <- travel_time_skim %>%
   column_to_rownames(var = "orig") %>%
   data.matrix() 
 
-am_destination_full_ped <- travel_time_skim %>% 
+am_destination_cd_full_ped <- travel_time_skim %>% 
   distinct(dest) %>% 
   left_join(am_destination_cd_ped, by = c('dest' = 'treso_zone')) %>% 
   replace_na(list(d_trips = 0)) %>%
@@ -785,9 +785,9 @@ am_destination_full_ped <- travel_time_skim %>%
   data.matrix()
 ```
 
-### O-D Matrices For Loops
+## O-D Matrices For Loops
 
-#### CSD Rates
+### CSD Rates
 ```{r}
 
 caretypes = c("at", "cr", "gr", "mh", "am")
@@ -962,7 +962,7 @@ matrix_balancing <- function(matrix, a, b, max_iterations = 10000, rel_error = 0
 #### Adult
 ```{r, eval=FALSE}
 # Create Propensity Matrix
-at_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, at_origin_cd_full_ad, at_destination_full_ad, 1000, 0.001)
+at_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, at_origin_cd_full_ad, at_destination_cd_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 at_matrix_long_cd_ad <- at_prop_matrix_cd_ad %>% 
@@ -1004,7 +1004,7 @@ at_treso_csd_ad <- at_origin_cd_ad %>%
 #### Pediatric
 ```{r, eval=FALSE}
 # Create Propensity Matrix
-at_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, at_origin_cd_full_ped, at_destination_full_ped, 1000, 0.001)
+at_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, at_origin_cd_full_ped, at_destination_cd_full_ped, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 at_matrix_long_cd_ped <- at_prop_matrix_cd_ped %>% 
@@ -1048,7 +1048,7 @@ at_treso_csd_ad <- at_origin_cd_ad %>%
 #### Adult
 ```{r, eval=FALSE}
 # Create Propensity Matrix
-cr_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, cr_origin_cd_full_ad, cr_destination_full_ad, 1000, 0.001)
+cr_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, cr_origin_cd_full_ad, cr_destination_cd_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 cr_matrix_long_cd_ad <- cr_prop_matrix_cd_ad %>% 
@@ -1086,7 +1086,7 @@ cr_comp_matrix_cd_ad <- full_join(cr_sim_matrix_cd_ad, cr_hbam_matrix_ad, by = c
 #### Pediatrics
 ```{r}
 # Create Propensity Matrix
-cr_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, cr_origin_cd_full_ped, cr_destination_full_ped, 1000, 0.001)
+cr_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, cr_origin_cd_full_ped, cr_destination_cd_full_ped, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 cr_matrix_long_cd_ped <- cr_prop_matrix_cd_ped %>% 
@@ -1126,7 +1126,7 @@ cr_comp_matrix_cd_ped <- full_join(cr_sim_matrix_cd_ped, cr_hbam_matrix_ped, by 
 #### Adult
 ```{r, eval=FALSE}
 # Create Propensity Matrix
-gr_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, gr_origin_cd_full_ad, gr_destination_full_ad, 1000, 0.001)
+gr_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, gr_origin_cd_full_ad, gr_destination_cd_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 gr_matrix_long_cd_ad <- gr_prop_matrix_cd_ad %>% 
@@ -1165,7 +1165,7 @@ gr_comp_matrix_cd_ad <- full_join(gr_sim_matrix_cd_ad, gr_hbam_matrix_ad, by = c
 #### Pediatric
 ```{r, eval=FALSE}
 # Create Propensity Matrix
-gr_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, gr_origin_cd_full_ped, gr_destination_full_ped, 1000, 0.001)
+gr_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, gr_origin_cd_full_ped, gr_destination_cd_full_ped, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 gr_matrix_long_cd_ped <- gr_prop_matrix_cd_ped %>% 
@@ -1205,7 +1205,7 @@ gr_comp_matrix_cd_ped <- full_join(gr_sim_matrix_cd_ped, gr_hbam_matrix_ped, by 
 #### Adult
 ```{r}
 # Create Propensity Matrix
-mh_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, mh_origin_cd_full_ad, mh_destination_full_ad, 1000, 0.001)
+mh_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, mh_origin_cd_full_ad, mh_destination_cd_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 mh_matrix_long_cd_ad <- mh_prop_matrix_cd_ad %>% 
@@ -1243,7 +1243,7 @@ mh_comp_matrix_cd_ad <- full_join(mh_sim_matrix_cd_ad, mh_hbam_matrix_ad, by = c
 #### Pediatric
 ```{r}
 # Create Propensity Matrix
-mh_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, mh_origin_cd_full_ped, mh_destination_full_ped, 1000, 0.001)
+mh_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, mh_origin_cd_full_ped, mh_destination_cd_full_ped, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 mh_matrix_long_cd_ped <- mh_prop_matrix_cd_ped %>% 
@@ -1283,7 +1283,7 @@ mh_comp_matrix_cd_ped <- full_join(mh_sim_matrix_cd_ped, mh_hbam_matrix_ped, by 
 #### Adult 
 ```{r}
 # Create Propensity Matrix
-am_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, am_origin_cd_full_ad, am_destination_full_ad, 1000, 0.001)
+am_prop_matrix_cd_ad <- matrix_balancing(prop_matrix, am_origin_cd_full_ad, am_destination_cd_full_ad, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 am_matrix_long_cd_ad <- am_prop_matrix_cd_ad %>% 
@@ -1325,7 +1325,7 @@ am_treso_csd_ad <- am_origin_cd_ad %>%
 #### Pediatric
 ```{r}
 # Create Propensity Matrix
-am_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, am_origin_cd_full_ped, am_destination_full_ped, 1000, 0.001)
+am_prop_matrix_cd_ped <- matrix_balancing(prop_matrix, am_origin_cd_full_ped, am_destination_cd_full_ped, 1000, 0.001)
 
 # Convert Prop Matrix to Long Format
 am_matrix_long_cd_ped <- am_prop_matrix_cd_ped %>% 
