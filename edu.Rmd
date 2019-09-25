@@ -75,6 +75,7 @@ eqao_2017 <- readRDS("cache/eqao_standardized_2017.rds") %>%
             by = c("School.Number" = "bsid"))
 print(paste0("There are ", length(filter(eqao_2017, is.na(sfis))$sfis), " schools with unmatching SFIS IDs."))
 eqao_2017 <- drop_na(eqao_2017, sfis)
+saveRDS(eqao_2017, "cache/eqao_2017.rds")
 
 ```
 
@@ -684,7 +685,6 @@ trip_list_EPS_2011 <- readRDS(paste0("cache/balanced_trip_list_EPS_2011.rds")) %
   left_join(pos_school_weight, by = c("dest"))
 
 # Apply bucket rounding to chunks of data by TRESO POS
-
 results_EPS <- by(trip_list_EPS_2011$trips, trip_list_EPS_2011[c("dest")], smart_round, simplify = TRUE)
 
 # Convert the output of by() to a dataframe
