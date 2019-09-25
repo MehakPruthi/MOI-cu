@@ -122,7 +122,55 @@ treso_tb <- socio_economic_tb %>%
 rm(hhld_tb, socio_economic_tb, hhld_structure)
 ```
 
-# Compile master list of schools, sfis ID, geo coordinates
+## Clean and Simplify Portables Data
+
+- Assume that portable units are rounded at 0.75. So a protable with 1.8 units is rounded 2 units and a portable with
+1.7 units is rounded to 1 unit
+- Assume that 23 elementary or 21 secondary students per unit of portable
+- Update the utilization of each school after adding in the portables
+
+```{r clean portables, echo=FALSE}
+# Sum total ground floor area and number of portable units by school
+filterList <- c('cafe|child care|administration|other|commercial|general|best start|staff')
+
+ELE_STUDENTS_UNIT_CLASS = 23
+SEC_STUDENTS_UNIT_CLASS = 21
+PORTABLE_UNIT_SIZE = 75
+
+schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
+  select(sfis = SFIS_ID, year = Sch_yr, dsb.index = Dsb_index, facility.name = FacilityName, dataset.id = DataSetID,
+         current.use = CurrentUse, area.m2 = GFA_m2, num.units = NumberOfUnits) %>%
+  filter(dataset.id == 2, area.m2 > 0) %>%
+  select(-dataset.id) %>%
+  filter(!grepl(filterList, current.use, ignore.case = TRUE)) %>%
+  group_by(year, dsb.index, sfis, facility.name) %>%
+  summarise(
+    area.m2 = sum(area.m2),
+    num.units = sum(num.units)
+  ) %>%
+  ungroup() %>%
+  # TODO check this is rounding to 0.75
+  mutate(num.units.calculated = round(area.m2 / PORTABLE_UNIT_SIZE, 0))
+
+# schoolSFIS <- readRDS('output/school_sfis_2017.rds') %>%
+#   select(-area.m2, -num.units.calculated)
+
+# Join Portables Data to School Data and recalculate utilization based on the size of portable
+schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
+  replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
+  mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
+                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
+  mutate(capacity.total = otg + capacity.portable) %>%
+  mutate(utilization.total = ade / capacity.total)
+
+# Utilization above 1 at this point could be erroneous data
+# TODO check with Alec regarding this.
+#print(paste0('There are ', length(filter(schoolSFIS, utilization.total > 1)$sfis), ' schools with utilization greater than 1.2.'))
+
+#saveRDS(schoolSFIS, file = 'cache/school_sfis_2017.rds')
+```
+
+# Compile master list of schools, portables, sfis ID, geo coordinates, TRESO zone
 
 - Produce dataframe with geocoordinates for all schools (past & present)
 
@@ -145,7 +193,8 @@ schoolLoc <- schoolCap %>%
          board.name = BoardName,
          dataset.id = dataSetID) %>%
   filter(dataset.id == 2) %>%
-  left_join(select(schoolBoardTypes, dsb, board_type_name), by = c('dsb.index' = 'dsb'))
+  left_join(select(schoolBoardTypes, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
+  mutate_if(is.factor, as.character) -> schoolLoc
 
 # Join in geocoordinate data for missing schools
 schoolLocUpdated <- schoolLoc %>%
@@ -169,13 +218,26 @@ school_xy <- create_school_xy_simple(schoolLocClean)
 # Determine TRESO zone associated with each school's x & y coordinates
 schoolTRESO <- create_overlay(school_xy, treso_shp, 'schoolSimple')
 
-# Join schoolTRESO table to CD/CSD info and then export to CSV
+# Join schoolTRESO table to CD/CSD info 
 tresoCSDmatch <- read_csv('input/treso/treso_zone_system.csv')
 schoolTRESOcsd <- schoolTRESO %>%
-  left_join(select(tresoCSDmatch, treso_id, csduid, cduid), by = c('treso.id.pos' = 'treso_id'))
-saveRDS(schoolTRESOcsd, 'output/school_treso_master.rds')
+  left_join(select(tresoCSDmatch, treso_id, csduid, cduid), by = c('treso.id.pos' = 'treso_id')) %>%
+  mutate_if(is.factor, as.character) -> schoolTRESOcsd
+
+# Join to portables data
+school_treso_master <- schoolTRESOcsd %>%
+  left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
+  replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
+  mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
+                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
+  rename(portable.units = num.units.calculated)
+
+# Export to RDS
+saveRDS(school_treso_master, 'output/school_treso_master.rds')
 
 ```
+
+
 
 # Education Data cleaning
  
@@ -494,53 +556,6 @@ ggplot(data = student_travel, aes(distance)) +
 
 ```
 
-## Clean and Simplify Portables Data
-
-- Assume that portable units are rounded at 0.75. So a protable with 1.8 units is rounded 2 units and a portable with
-1.7 units is rounded to 1 unit
-- Assume that 23 elementary or 21 secondary students per unit of portable
-- Update the utilization of each school after adding in the portables
-
-```{r clean portables, echo=FALSE}
-# Sum total ground floor area and number of portable units by school
-filterList <- c('cafe|child care|administration|other|commercial|general|best start|staff')
-
-ELE_STUDENTS_UNIT_CLASS = 23
-SEC_STUDENTS_UNIT_CLASS = 21
-PORTABLE_UNIT_SIZE = 75
-
-schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
-  select(sfis = SFIS_ID, year = Sch_yr, dsb.index = Dsb_index, facility.name = FacilityName, dataset.id = DataSetID,
-         current.use = CurrentUse, area.m2 = GFA_m2, num.units = NumberOfUnits) %>%
-  filter(dataset.id == 2, year == 2017, area.m2 > 0) %>%
-  select(-dataset.id) %>%
-  filter(!grepl(filterList, current.use, ignore.case = TRUE)) %>%
-  group_by(year, dsb.index, sfis, facility.name) %>%
-  summarise(
-    area.m2 = sum(area.m2),
-    num.units = sum(num.units)
-  ) %>%
-  ungroup() %>%
-  # TODO check this is rounding to 0.75
-  mutate(num.units.calculated = round(area.m2 / PORTABLE_UNIT_SIZE, 0))
-
-# schoolSFIS <- readRDS('output/school_sfis_2017.rds') %>%
-#   select(-area.m2, -num.units.calculated)
-
-# Join Portables Data to School Data and recalculate utilization based on the size of portable
-schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
-  replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
-  mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
-                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
-  mutate(capacity.total = otg + capacity.portable) %>%
-  mutate(utilization.total = ade / capacity.total)
-
-# Utilization above 1 at this point could be erroneous data
-# TODO check with Alec regarding this.
-print(paste0('There are ', length(filter(schoolSFIS, utilization.total > 1)$sfis), ' schools with utilization greater than 1.2.'))
-
-saveRDS(schoolSFIS, file = 'cache/school_sfis_2017.rds')
-```
 
 ```{r clean school assets, echo=FALSE}
 # TODO ask Alec what is this info used for.
