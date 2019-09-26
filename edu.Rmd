@@ -24,18 +24,7 @@ source("helpers.R")
 ## TODO List
 
 - General Tasks
-  - [] Utilization vs travel time
-  - [x] Utilization vs EQAO
   - [] Improve Haversine function to mimic manhattan travel
-- Gravity Model
-  - [x] Calibrate the TLFD curves using $cfunc = k \times t_{ij}^{\alpha} \times e^{ \beta t_{ij}}$
-  - [x] 1D distribute the students based on the calibrated cost function and weighting from OTG
-  - [x] Distribute TRESO zones with multiple schools based on OTG of schools
-  - [x] Fix bug resulting from applying the `smart_round()` function
-  - [x] Validate the distributed patterns
-- Closest School Model
-  - [x] Validate if the distributed patterns matches the observed closest school patterns
-  - [x] Apply closest school theory and validate results in terms of assigned ADE and TLFD
 
 ```{r Import files, include=FALSE}
 # TRESO 
@@ -483,6 +472,30 @@ g <- plot_travel_time_tlfd(student_tlfd_90)
 plot(g)
 ```
 
+```{r create travel time master list, echo=FALSE, eval=FALSE}
+# The reason for creating a master list is to save time computation time on left_join()
+travel_time <- readRDS("output/observed_por_pos_90.rds") %>%
+  drop_na(treso.id.por) %>%
+  group_by(treso.id.por, treso.id.pos) %>%
+  summarise(euclidean.dist = weighted.mean(euclidean.dist, enrolment)) %>%
+  ungroup() %>%
+  full_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value)
+
+summary(travel_time$travel.time)
+
+travel_time1 <- travel_time %>%
+  # intra-zonal trip assumptions
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), euclidean.travel.time, travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
+  mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), euclidean.travel.time, travel.time)) %>%
+  select(treso.id.por, treso.id.pos, travel.time) %>%
+  arrange(treso.id.por, treso.id.pos)
+saveRDS(travel_time1, "output/treso_travel_time.rds")
+```
 ## Exploration of demand modelling methods {.tabset .tabset-fade}
 
 ### Linear Regressions
@@ -1083,8 +1096,10 @@ saveRDS(prop_matrix_EPS, "output/prop_matrix_EPS.rds")
 prop_matrix2_EPS <- matrix_balancing_1d(prop_matrix_EPS, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_EPS <- melt(prop_matrix2_EPS)
+trip_list_EPS <- melt(prop_matrix2_EPS) %>%
+  arrange(Var1, Var2)
 colnames(trip_list_EPS) <- c('treso.id.por', 'treso.id.pos', 'trips')
+
 saveRDS(trip_list_EPS, "cache/balanced_trip_list_EPS.rds")
 ```
 
