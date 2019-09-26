@@ -187,9 +187,11 @@ schoolLoc <- schoolCap %>%
          panel = Panel, 
          sfis = `SFIS_ID`,
          school.name = `FacilityName`, 
+         status = Status,
          school.lat = `Latitude`, 
          school.long = `longitude`,
          otg = OTG,
+         ade = ADE,
          board.name = BoardName,
          dataset.id = dataSetID) %>%
   filter(dataset.id == 2) %>%
@@ -201,15 +203,19 @@ schoolLocUpdated <- schoolLoc %>%
   left_join(select(missingCoords, SFIS_ID, altLat = finalLatitude, altLon = finalLongitude), by = c('sfis' = 'SFIS_ID')) %>%
   mutate(school.lat = ifelse(is.na(school.lat), altLat, school.lat)) %>%
   mutate(school.long = ifelse(is.na(school.long), altLon, school.long)) %>%
-  select(-altLat, -altLon)
+  select(-altLat, -altLon) %>%
+  arrange(status, otg, desc(ade))
 
 # Keep a record of schools for which a lat/long cannot be determined
 schoolLocMissing <- schoolLocUpdated %>%
   filter(is.na(school.lat)|is.na(school.long))
 
-# Remove NA values of lat/long from school location dataframe in order to run x/y retrieval
+# Filter wacky results incl. remove NA values of lat/long from school location dataframe in order to run x/y retrieval
 schoolLocClean <- schoolLocUpdated %>%
-  filter(!is.na(school.lat) & !is.na(school.long))
+  filter(!is.na(school.lat) & !is.na(school.long)) %>%
+  group_by(sfis) %>%
+  mutate(otg = ifelse(status == 'Open' & otg == 0, max(ade), otg)) %>%
+  ungroup()
 
 # Determine x & y coordinates for schools based on TRESO zone shapefile
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
@@ -226,8 +232,9 @@ schoolTRESOcsd <- schoolTRESO %>%
 
 # Join to portables data
 school_treso_master <- schoolTRESOcsd %>%
-  left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
+  left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated, year), by = c('sfis' = 'sfis', 'year' = 'year')) %>%
   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
+  mutate(num.units.calculated = round(num.units.calculated,0)) %>%
   mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
   rename(portable.units = num.units.calculated)
