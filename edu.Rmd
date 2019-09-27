@@ -37,7 +37,9 @@ travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
 travel_time_skim <- travel_time_skim_square %>%
   melt(id = c("p/q/[val]")) %>%
   rename(orig = "p/q/[val]", dest = variable) %>%
-  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest])
+  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest]) %>%
+  filter(orig %in% treso_shp@data$Treso_ID) %>%
+  filter(dest %in% treso_shp@data$Treso_ID)
 
 # Definition files
 school_board_def <- read_csv("input/edu/school_board_types.csv")
@@ -472,6 +474,15 @@ g <- plot_travel_time_tlfd(student_tlfd_90)
 plot(g)
 ```
 
+The TLFD estimation has some assumptions made for intra-zonal travel times and extremely large travel times.
+
+- The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of.
+- Assumptions made are the following:
+  - Known intra-zonal trips which are less than or equal to 2.5 km in length are performed by walking at an average speed of 5 km/hr. 
+  - Known intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
+  - Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and euclidean travel time at 30 km/hr) are set to euclidean travel time.
+  - Leaving unknown intra-zonal travel time to be estimated from the size of the TRESO shapefile. Four levels of TRESO sizes are determined from quantile calculation. Level 1 and 2 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 15 km/hr. Level 2 and 3 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 60 km/hr.
+
 ```{r create travel time master list, echo=FALSE, eval=FALSE}
 # The reason for creating a master list is to save time computation time on left_join()
 travel_time <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -479,21 +490,41 @@ travel_time <- readRDS("output/observed_por_pos_90.rds") %>%
   group_by(treso.id.por, treso.id.pos) %>%
   summarise(euclidean.dist = weighted.mean(euclidean.dist, enrolment)) %>%
   ungroup() %>%
-  full_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  right_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
   rename(travel.time = value)
 
 summary(travel_time$travel.time)
 
+treso_area <- treso_shp@data %>%
+  select(treso.id = Treso_ID, area = Area) %>%
+  mutate(area.km = area / 1000000) %>%
+  mutate(length = sqrt(area.km))
+treso_area_quantile <- quantile(treso_area$area.km)
+
+treso_intrazonal_travel_time <- treso_area %>%
+  mutate(size.category = "extra large") %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[4][[1]], "large", size.category)) %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[3][[1]], "medium", size.category)) %>%
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[2][[1]], "small", size.category)) %>% 
+  mutate(intra.zonal.travel.time = ifelse(size.category %in% c("extra large", "large"), length / 60 * 60, length / 15 * 60))
+
 travel_time1 <- travel_time %>%
-  # intra-zonal trip assumptions
   mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
                                         euclidean.dist / 5 * 60,
                                         euclidean.dist / 30 * 60)) %>%
-  mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), euclidean.travel.time, travel.time)) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
   mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
-  mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), euclidean.travel.time, travel.time)) %>%
+  mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  left_join(treso_intrazonal_travel_time, by=c("treso.id.pos"="treso.id")) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & treso.id.por == treso.id.pos), intra.zonal.travel.time, travel.time))
+  
   select(treso.id.por, treso.id.pos, travel.time) %>%
   arrange(treso.id.por, treso.id.pos)
+
 saveRDS(travel_time1, "output/treso_travel_time.rds")
 ```
 ## Exploration of demand modelling methods {.tabset .tabset-fade}
@@ -741,15 +772,6 @@ treso_level_sampling_elementary_ep <- filter(treso_level_sampling, panel == "Ele
 rm(board_type_sample, elementary_board_type_sample_spread, secondary_board_type_sample_spread, board_type_sample_spread)
 ```
 
-The TLFD estimation has some assumptions made for intra-zonal travel times and extremely large travel times.
-
-The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of. 
-The current assumption is intra-zonal trips which are less than or equal to 2.5 km in length
-are performed by walking at an average speed of 5 km/hr. 
-Intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
-Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and 
-euclidean travel time at 30 km/hr) are set to euclidean travel time.
-
 ##### Estimate Friction Function Coefficients
 
 - The estimated `alpha` and `beta` values are saved in .csv file in cache
@@ -865,12 +887,12 @@ saveRDS(simulated_trips, "cache/simulated_trips_EPE.rds")
 
 ```{r distribute english public elementary POR, echo=FALSE, eval=FALSE}
 # Create the full list of POR and POS TRESO zones once and save it in output
-por_full <- travel_time_skim %>%
-  distinct(orig)
+por_full <- select(treso_shp@data, Treso_ID) %>%
+  rename(orig = Treso_ID)
 saveRDS(por_full, "output/por_full.rds")
 
-pos_full <- travel_time_skim %>%
-  distinct(dest)
+pos_full <- select(treso_shp@data, Treso_ID) %>%
+  rename(dest = Treso_ID)
 saveRDS(pos_full, "output/pos_full.rds")
 
 observed_por_pos_90 <- readRDS("output/observed_por_pos_90.rds") %>%
@@ -2239,6 +2261,105 @@ ggplot(data=simulated_compare_FCS.data) +
   labs(x="Enrollment Difference (Count)", y="Percent Difference (%)", 
        subtitle="Secondary - French Public", title="Simulated vs. Observed Demand (2017)")
 ```
+
+#### Testing Enviroment for shiny
+
+```{r testing enviroment for shiny, echo=FALSE, eval=FALSE}
+panel_id <- "Secondary"
+board_id <- "French Catholic"
+year_id <- 2011
+
+# Read the saved full list of POR and POS TRESO zones once and save it in output
+por_full <- readRDS("output/por_full.rds")
+pos_full <- readRDS("output/pos_full.rds")
+school_master <- readRDS("output/school_treso_master.rds")
+
+por <- readRDS("output/treso_por_2011.rds") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  select(treso.id.por, enrolment.scaled) %>%
+  right_join(por_full, by=c("treso.id.por" = "orig")) %>%
+  replace_na(list(enrolment.scaled = 0)) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix()
+
+pos <- school_master %>%
+  filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
+  select(treso.id.pos, otg) %>%
+  group_by(treso.id.pos) %>%
+  summarise(otg = sum(otg)) %>%
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>%
+  column_to_rownames(var = "treso.id.pos") %>%
+  data.matrix()
+
+prop_matrix_FCS <- readRDS("output/prop_matrix_FCS.rds")
+
+# 1D balacne the matrix
+prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=TRUE)
+
+# Save the balanced POR-POS trip list
+trip_list_FCS <- melt(prop_matrix2_FCS) %>%
+  arrange(Var1, Var2)
+colnames(trip_list_FCS) <- c('treso.id.por', 'treso.id.pos', 'trips')
+
+# Calculate the school weight
+pos_school_weight <- calculate_school_weight_forecasting(trip_list_FCS, school_master, eqao_2017, year_id, panel_id, board_id)
+print(paste0("For ", panel_id, "-", board_id, ", there are ",
+             nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
+             " TRESO zones with a single school, and ",
+             nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
+             " TRESO zones with multiple schools."))
+
+
+# Apply bucket rounding to chunks of data by TRESO POS
+results <- by(trip_list_FCS$trips, trip_list_FCS[c("treso.id.pos")], smart_round, simplify = TRUE)
+
+# Convert the output of by() to a dataframe
+results2 <- sapply(results, I)
+colnames(results2) <- colnames(prop_matrix_FCS)
+rownames(results2) <- rownames(prop_matrix_FCS)
+
+df <- melt(results2) %>%
+  arrange(Var1, Var2)
+colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+
+# Get the weighted mean travel time for each TRESO POS by cbind() with travel time
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
+pos_travel_time <- bind_cols(df, select(treso_travel_time, travel.time)) %>%
+  group_by(treso.id.pos) %>%
+  summarise(avg.travel.time = weighted.mean(travel.time, enrolment.rounded)) %>%
+  replace_na(list(avg.travel.time = 0))
+
+# After combining with travel time, trip list can be shortened
+df <- df %>% 
+  filter(enrolment.rounded != 0)
+
+# Combine the school weight
+trip_list <- left_join(df, pos_school_weight, by=c("treso.id.pos"))
+
+plan(multiprocess)
+results <- future_apply(trip_list, 1, sample_by_row)
+results_tb <- t(as.data.table(results))
+trip_list_schools <- cbind(trip_list, results_tb)
+
+trip_list_schools_summary <- trip_list_schools %>% 
+  unnest(results_tb) %>%
+  mutate(enrol.value = 1) %>%
+  rename(sfis = results_tb) %>% 
+  group_by(sfis) %>% 
+  summarise(simulated.ade = sum(enrol.value))
+
+# Update the stored school df with new values
+test <- school_master %>%
+  filter(year == 2011, panel == panel_id, board_type_name == board_id) %>%
+  select(treso.id.pos, sfis, otg) %>%
+  left_join(trip_list_schools_summary, by=c("sfis")) %>%
+  left_join(pos_travel_time, by=c("treso.id.pos")) %>%
+  mutate(simulated.utilization = round(simulated.ade / otg, 2)) %>% 
+  replace_na(list(simulated.ade = 0, simulated.utilization = 0))
+      
+```
+
 
 ### Closest School Probability Choice
 
