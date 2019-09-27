@@ -1169,34 +1169,80 @@ Generate the simulated trips using the estimated `alpha` and `beta` values
 
 panel_id = "Elementary"
 board_id = "English Public"
-max_value = 85
-bin_size = 1
+max_value = 81
+bin_size = 3
+
+## Questions:
+## - Why are we using 'observed_por_pos_90.rds'? Why not _80, _70, etc.? Does it make a difference?
+## - Does it matter that we are using travel_time_skim in the observed_trips dataframe but treso_travel_time in the simulated dataframe?
+## - Why does observed_trips use Euclidean Travel Time where no other time is available? Let's use manhattan distance function in helpers --> manhattan(lat1, lon1, lat2, lon2)
+
+# ARK TLFD edits
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, travel_time_skim,
                                           panel_id = panel_id, board_id = board_id)
 
-cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
+observed_time_mean <- trip_mean(observed_trips, 'time')
 
-tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
-alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
-beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
+observed_time_percentile <- trip_percentile(observed_trips, 'time', 0.90)
+  
 
-simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+treso_travel_time <- readRDS('output/treso_travel_time.rds')
+tripListBal <- readRDS('cache/trip_list2_EPE.rds') %>%
+  rename(enrolment = enrolment.rounded) %>%
+  left_join(treso_travel_time, by = c('treso.id.por', 'treso.id.pos')) %>% 
+  rename(value = travel.time) 
+  
+tripListBalFilt <- tripListBal %>% 
+  filter(value > 0)
+
+simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=0.5, beta=-0.11)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# combined_tlfd_bal <- generate_tlfd(observed_trips, tripListBal, max_value, bin_size)
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag, alpha=0.3)) +
+  geom_col(size = 1.25, position = 'identity') +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
+  replace_na(list(obs = 0)) %>% 
   mutate(max.enrol = pmax(obs, model)) %>%
   mutate(min.enrol = pmin(obs, model))
 minsum = sum(tlfdjoin$min.enrol)
 maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
+
+## Original code
+
+# observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
+#                                           treso_zone_def, school_sfis_2017, travel_time_skim,
+#                                           panel_id = panel_id, board_id = board_id)
+
+# cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
+# 
+# tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
+# alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
+# beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
+
+# simulated_trips <- calculate_simulated_trips(observed_trips, cost, alpha=alpha, beta=beta)
+# combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
+
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+# tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
+#   mutate(max.enrol = pmax(obs, model)) %>%
+#   mutate(min.enrol = pmin(obs, model))
+# minsum = sum(tlfdjoin$min.enrol)
+# maxsum = sum(tlfdjoin$max.enrol)
+# CR = minsum/maxsum
+# print(paste0("The CR value for this iteration is ", CR))
 
 # Save the simulated trip list
 saveRDS(simulated_trips, "cache/simulated_trips_EPE.rds")
@@ -1289,6 +1335,8 @@ colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 trip_list2_EPE <- bind_cols(trip_list_EPE, df) %>%
   filter(enrolment.rounded != 0) %>%
   select(-treso.id.por1, -treso.id.pos1)
+
+saveRDS(trip_list2_EPE, 'cache/trip_list2_EPE.rds')
 
 # Sample the schools by weight
 plan(multiprocess)

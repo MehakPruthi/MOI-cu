@@ -4,7 +4,7 @@ convertDegrees <- function(deg) {
   return(rad)
 }
 
-# Haversine 
+# Haversine / Euclidean Distance
 haverFunction <- function(lat1, lon1, lat2, lon2){
   '
   Calculate the straightline distance between a pair of points.
@@ -27,6 +27,29 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   
   bracketCalc <- sin(dLat/2)^2 + cos(lat1Rad) * cos(lat2Rad) * (sin(dLon/2))^2
   d <- 2 * earthRadius * asin(bracketCalc^0.5)
+  return(d)
+}
+
+# Manhattan Distance using Haversine
+manhattan <- function(lat1, lon1, lat2, lon2){
+  '
+  Calculate the Manhattan (i.e., grid) distance between a pair of points.
+
+  Inputs: Point1 lat, Point1 lon, Point2 lat, Point2 lon
+  Output: Manhattan distance in km between two points.
+
+  '
+  
+  # Determine 'corner' point in Pythagorean triangle by assiging lat, lon from other points
+  lat3 <- lat1
+  lon3 <- lon2
+  
+  d1 <- haverFunction(lat1, lon1, lat3, lon3)
+  d2 <- haverFunction(lat2, lon2, lat3, lon3)
+  
+  # Total Distance
+  d = d1 + d2
+  
   return(d)
 }
 
@@ -224,6 +247,63 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
               enrolment = sum(enrolment))
   
   return(observed_trips)
+}
+
+trip_mean <- function(zone_trips, calc_type) {
+  '
+  Calculate mean travel time or distance for students based on TRESO zone trips and associated travel times / distances
+  
+  Input: Dataframe describing, for all relevant zone pairs: number of trips; enrolment; travel time or distance
+  Ouput: Mean student travel time or distance
+  '
+  if(tolower(calc_type) == 'time')
+  {
+    meanVal <- zone_trips %>%
+      ungroup() %>%
+      summarise(mean_time = sum(value * enrolment) / sum(enrolment))
+  }
+  
+  if(tolower(calc_type) == 'distance')
+  {
+    meanVal <- zone_trips %>%
+      ungroup() %>%
+      summarise(mean_distance = sum(distance * enrolment) / sum(enrolment))
+  }
+  
+  return(meanVal)
+}
+
+trip_percentile <- function(zone_trips, calc_type, percentile) {
+  '
+  Calculate the x percentile travel time or distance for students based on TRESO zone trips and associated travel times / distance
+  
+  Input: Dataframe describing, for all relevant zone pairs: number of trips; enrolment; travel time or distance
+  Ouput: x Percentile student travel time or distance
+  
+  '
+  if(tolower(calc_type) == 'time')
+  {
+    percentileVal <- zone_trips %>% 
+      ungroup() %>%
+      arrange(value) %>% 
+      mutate(cumSumEnrol = cumsum(enrolment)) %>%
+      mutate(enrol90 = (0.9 * max(cumSumEnrol))) %>% 
+      filter(cumSumEnrol >= enrol90) %>%
+      summarise(timePercent = first(value))
+  }
+  
+  if(tolower(calc_type) == 'distance')
+  {
+    percentileVal <- zone_trips %>% 
+      ungroup() %>%
+      arrange(distance) %>% 
+      mutate(cumSumEnrol = cumsum(enrolment)) %>%
+      mutate(enrolPercent = (percentile * max(cumSumEnrol))) %>% 
+      filter(cumSumEnrol >= enrolPercent) %>%
+      summarise(distPercent = first(distance))
+  }
+  
+  return(percentileVal)
 }
 
 generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
