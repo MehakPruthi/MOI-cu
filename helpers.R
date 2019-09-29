@@ -247,7 +247,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
   
   # Calculate school weighting for TRESO zones with multiple schools and export it for
   pos_school <- trip_list %>%
-    group_by("treso.id.pos") %>%
+    group_by(treso.id.pos) %>%
     summarise(trips = sum(trips)) %>%
     right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("treso.id.pos") ) %>% 
     left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
@@ -257,7 +257,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
   
   # get treso zone otg totals
   pos_otg_total <- pos_school %>%
-    group_by("treso.id.pos") %>%
+    group_by(treso.id.pos) %>%
     summarise(otg.total = sum(otg))
   
   # calculate a combined weight between eqao and otg ratio
@@ -266,7 +266,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
   
   # get treso zone school.weight totals
   pos_school_weight_total <- pos_school_weight %>%
-    group_by("treso.id.pos") %>%
+    group_by(treso.id.pos) %>%
     summarise(school.weight.total = sum(school.weight))
   
   # school weight

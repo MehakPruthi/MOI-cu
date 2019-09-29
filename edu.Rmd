@@ -2293,6 +2293,7 @@ por <- readRDS("output/treso_por_2011.rds") %>%
   select(treso.id.por, enrolment.scaled) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment.scaled = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -2303,10 +2304,11 @@ pos <- school_master %>%
   summarise(otg = sum(otg)) %>%
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>%
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-prop_matrix_FCS <- readRDS("output/prop_matrix_FCS.rds")
+prop_matrix_FCS <- readRDS("cache/cfunc_FCS.rds")
 
 # 1D balacne the matrix
 prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=TRUE)
@@ -2338,9 +2340,9 @@ colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 # Get the weighted mean travel time for each TRESO POS by cbind() with travel time
 treso_travel_time <- readRDS("output/treso_travel_time.rds")
-pos_travel_time <- bind_cols(df, select(treso_travel_time, travel.time)) %>%
+pos_travel_time <- bind_cols(df, select(treso_travel_time, value)) %>%
   group_by(treso.id.pos) %>%
-  summarise(avg.travel.time = weighted.mean(travel.time, enrolment.rounded)) %>%
+  summarise(avg.travel.time = weighted.mean(value, enrolment.rounded)) %>%
   replace_na(list(avg.travel.time = 0))
 
 # After combining with travel time, trip list can be shortened
