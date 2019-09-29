@@ -474,6 +474,9 @@ g <- plot_travel_time_tlfd(student_tlfd_90)
 plot(g)
 ```
 
+
+### Intra-zonal travel time 
+
 The TLFD estimation has some assumptions made for intra-zonal travel times and extremely large travel times.
 
 - The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of.
@@ -501,6 +504,15 @@ treso_area <- treso_shp@data %>%
   mutate(length = sqrt(area.km))
 treso_area_quantile <- quantile(treso_area$area.km)
 
+print(paste0("Zones with an area between ", round(treso_area_quantile[4][[1]], 2), " - ",
+             round(treso_area_quantile[5][[1]], 2), " km^2 are categorized as extra large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[3][[1]], 2), " - ",
+             round(treso_area_quantile[4][[1]], 2), " km^2 are categorized as large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[2][[1]], 2), " - ",
+             round(treso_area_quantile[3][[1]], 2), " km^2 are categorized as medium"))
+print(paste0("Zones with an area between ", round(treso_area_quantile[1][[1]], 2), " - ",
+             round(treso_area_quantile[2][[1]], 2), " km^2 are categorized as small"))
+
 treso_intrazonal_travel_time <- treso_area %>%
   mutate(size.category = "extra large") %>% 
   mutate(size.category = ifelse(area.km <= treso_area_quantile[4][[1]], "large", size.category)) %>% 
@@ -523,7 +535,7 @@ travel_time1 <- travel_time %>%
   mutate(travel.time = ifelse((travel.time == 0 & treso.id.por == treso.id.pos), 
                               intra.zonal.travel.time,
                               travel.time)) %>%
-  select(treso.id.por, treso.id.pos, travel.time) %>%
+  select(treso.id.por, treso.id.pos, value = travel.time) %>%
   arrange(treso.id.por, treso.id.pos)
 
 saveRDS(travel_time1, "output/treso_travel_time.rds")
@@ -778,9 +790,11 @@ rm(board_type_sample, elementary_board_type_sample_spread, secondary_board_type_
 - The estimated `alpha` and `beta` values are saved in .csv file in cache
 
 ```{r estimate tlfd friction function, echo=FALSE, eval=FALSE, fig.width=10, fig.height=8}
+# Read in the travel time skim with intra-zonal assumptions
+treso_travel_time <- readRDS('output/treso_travel_time.rds')
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = "Elementary", board_id = "English Public")
 
 # Calculate observed average trip travel time
@@ -855,7 +869,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -880,8 +894,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_EPE.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_EPE.rds")
 ```
 
 1D balance the POR using the calibrated cfunc stored in simulated trips
@@ -909,6 +930,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -920,27 +942,18 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_EPE <- readRDS("cache/simulated_trips_EPE.rds")
-
-prop_matrix_EPE <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_EPE, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_EPE, "output/prop_matrix_EPE.rds")
+prop_matrix_EPE <- readRDS("cache/cfunc_EPE.rds")
 
 # 1D balacne the matrix
 prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_EPE <- melt(prop_matrix2_EPE)
+trip_list_EPE <- melt(prop_matrix2_EPE) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_EPE) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_EPE, "cache/balanced_trip_list_EPE.rds")
 ```
@@ -965,7 +978,8 @@ colnames(results2_EPE) <- colnames(prop_matrix2_EPE)
 rownames(results2_EPE) <- rownames(prop_matrix2_EPE)
 
 df <- results2_EPE %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_EPE <- bind_cols(trip_list_EPE, df) %>%
@@ -1039,7 +1053,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -1064,8 +1078,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_EPS.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_EPS.rds")
 ```
 
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
@@ -1088,6 +1109,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -1099,21 +1121,11 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_EPS <- readRDS("cache/simulated_trips_EPS.rds")
-
-prop_matrix_EPS <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_EPS, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_EPS, "output/prop_matrix_EPS.rds")
+prop_matrix_EPS <- readRDS("cache/cfunc_EPS.rds")
 
 # 1D balacne the matrix
 prop_matrix2_EPS <- matrix_balancing_1d(prop_matrix_EPS, por, pos, constrained=TRUE)
@@ -1142,11 +1154,12 @@ results_EPS <- by(trip_list_EPS$trips, trip_list_EPS[c("treso.id.pos")], smart_r
 
 # Convert the output of by() to a dataframe
 results2_EPS <- sapply(results_EPS, I)
-colnames(results2_EPS) <- colnames(prop_matrix2_EPS)
-rownames(results2_EPS) <- rownames(prop_matrix2_EPS)
+colnames(results2_EPS) <- colnames(prop_matrix_EPS)
+rownames(results2_EPS) <- rownames(prop_matrix_EPS)
 
 df <- results2_EPS %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_EPS <- bind_cols(trip_list_EPS, df) %>%
@@ -1217,7 +1230,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -1242,8 +1255,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_ECE.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_ECE.rds")
 ```
 
 2D balance the POR and POS demand using the calibrated cfunc stored in simulated trips
@@ -1266,6 +1286,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -1277,27 +1298,18 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_ECE <- readRDS("cache/simulated_trips_ECE.rds")
-
-prop_matrix_ECE <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_ECE, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_ECE, "output/prop_matrix_ECE.rds")
+prop_matrix_ECE <- readRDS("cache/cfunc_ECE.rds")
 
 # 1D balacne the matrix
 prop_matrix2_ECE <- matrix_balancing_1d(prop_matrix_ECE, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_ECE <- melt(prop_matrix2_ECE)
+trip_list_ECE <- melt(prop_matrix2_ECE) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_ECE) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_ECE, "cache/balanced_trip_list_ECE.rds")
 ```
@@ -1322,7 +1334,8 @@ colnames(results2_ECE) <- colnames(prop_matrix2_ECE)
 rownames(results2_ECE) <- rownames(prop_matrix2_ECE)
 
 df <- results2_ECE %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_ECE <- bind_cols(trip_list_ECE, df) %>%
@@ -1393,7 +1406,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -1418,8 +1431,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_ECS.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_ECS.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1442,6 +1462,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -1453,27 +1474,18 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_ECS <- readRDS("cache/simulated_trips_ECS.rds")
-
-prop_matrix_ECS <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_ECS, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_ECS, "output/prop_matrix_ECS.rds")
+prop_matrix_ECS <- readRDS("cache/cfunc_ECS.rds")
 
 # 1D balacne the matrix
 prop_matrix2_ECS <- matrix_balancing_1d(prop_matrix_ECS, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_ECS <- melt(prop_matrix2_ECS)
+trip_list_ECS <- melt(prop_matrix2_ECS) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_ECS) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_ECS, "cache/balanced_trip_list_ECS.rds")
 ```
@@ -1498,7 +1510,8 @@ colnames(results2_ECS) <- colnames(prop_matrix2_ECS)
 rownames(results2_ECS) <- rownames(prop_matrix2_ECS)
 
 df <- results2_ECS %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_ECS <- bind_cols(trip_list_ECS, df) %>%
@@ -1569,7 +1582,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -1594,8 +1607,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_FPE.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_FPE.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1618,6 +1638,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -1629,27 +1650,18 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_FPE <- readRDS("cache/simulated_trips_FPE.rds")
-
-prop_matrix_FPE <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_FPE, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_FPE, "output/prop_matrix_FPE.rds")
+prop_matrix_FPE <- readRDS("cache/cfunc_FPE.rds")
 
 # 1D balacne the matrix
 prop_matrix2_FPE <- matrix_balancing_1d(prop_matrix_FPE, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_FPE <- melt(prop_matrix2_FPE)
+trip_list_FPE <- melt(prop_matrix2_FPE) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_FPE) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_FPE, "cache/balanced_trip_list_FPE.rds")
 ```
@@ -1674,7 +1686,8 @@ colnames(results2_FPE) <- colnames(prop_matrix2_FPE)
 rownames(results2_FPE) <- rownames(prop_matrix2_FPE)
 
 df <- results2_FPE %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_FPE <- bind_cols(trip_list_FPE, df) %>%
@@ -1745,7 +1758,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -1770,8 +1783,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_FPS.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_FPS.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1794,6 +1814,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -1805,27 +1826,18 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_FPS <- readRDS("cache/simulated_trips_FPS.rds")
-
-prop_matrix_FPS <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_FPS, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_FPS, "output/prop_matrix_FPS.rds")
+prop_matrix_FPS <- readRDS("cache/cfunc_FPS.rds")
 
 # 1D balacne the matrix
 prop_matrix2_FPS <- matrix_balancing_1d(prop_matrix_FPS, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_FPS <- melt(prop_matrix2_FPS)
+trip_list_FPS <- melt(prop_matrix2_FPS) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_FPS) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_FPS, "cache/balanced_trip_list_FPS.rds")
 ```
@@ -1850,7 +1862,8 @@ colnames(results2_FPS) <- colnames(prop_matrix2_FPS)
 rownames(results2_FPS) <- rownames(prop_matrix2_FPS)
 
 df <- results2_FPS %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_FPS <- bind_cols(trip_list_FPS, df) %>%
@@ -1921,7 +1934,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -1946,8 +1959,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_FCE.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_FCE.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1970,6 +1990,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>% 
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -1981,27 +2002,18 @@ pos <- observed_por_pos_90 %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
   replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_FCE <- readRDS("cache/simulated_trips_FCE.rds")
-
-prop_matrix_FCE <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_FCE, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_FCE, "output/prop_matrix_FCE.rds")
+prop_matrix_FCE <- readRDS("cache/cfunc_FCE.rds")
 
 # 1D balacne the matrix
 prop_matrix2_FCE <- matrix_balancing_1d(prop_matrix_FCE, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_FCE <- melt(prop_matrix2_FCE)
+trip_list_FCE <- melt(prop_matrix2_FCE) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_FCE) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_FCE, "cache/balanced_trip_list_FCE.rds")
 ```
@@ -2026,7 +2038,8 @@ colnames(results2_FCE) <- colnames(prop_matrix2_FCE)
 rownames(results2_FCE) <- rownames(prop_matrix2_FCE)
 
 df <- results2_FCE %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_FCE <- bind_cols(trip_list_FCE, df) %>%
@@ -2097,7 +2110,7 @@ max_value = 85
 bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
-                                          treso_zone_def, school_sfis_2017, travel_time_skim,
+                                          treso_zone_def, school_sfis_2017, treso_travel_time,
                                           panel_id = panel_id, board_id = board_id)
 
 cost <- select(observed_trips, treso.id.por, treso.id.pos, value)
@@ -2122,8 +2135,15 @@ maxsum = sum(tlfdjoin$max.enrol)
 CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
-# Save the simulated trip list
-saveRDS(simulated_trips, "cache/simulated_trips_FCS.rds")
+# Save the cost function from the estimated alpha and beta
+cost <- treso_travel_time %>% 
+  mutate(value = value^alpha * exp(beta*value)) %>%
+  replace_na(value = 0.001) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
+  spread(key=treso.id.pos, value=value) %>%
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix() %>% 
+  saveRDS("cache/cfunc_FCS.rds")
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -2146,6 +2166,7 @@ por <- observed_por_pos_90 %>%
   summarise(enrolment = sum(enrolment)) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
   replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.por) %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
@@ -2156,28 +2177,19 @@ pos <- observed_por_pos_90 %>%
   group_by(treso.id.pos) %>%
   summarise(otg = sum(otg)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
-  replace_na(list(otg = 0)) %>% 
+  replace_na(list(otg = 0)) %>%
+  arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-simulated_trips_FCS <- readRDS("cache/simulated_trips_FCS.rds")
-
-prop_matrix_FCS <- travel_time_skim %>%
-  mutate(value = 0.0001) %>%
-  left_join(select(simulated_trips_FCS, treso.id.por, treso.id.pos, enrolment),
-            by = c("orig" = "treso.id.por", "dest" = "treso.id.pos")) %>%
-  mutate(value = ifelse(is.na(enrolment), value, enrolment)) %>%
-  select(-enrolment) %>%
-  spread(key=dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
-saveRDS(prop_matrix_FCS, "output/prop_matrix_FCS.rds")
+prop_matrix_FCS <- readRDS("cache/cfunc_FCS.rds")
 
 # 1D balacne the matrix
 prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_FCS <- melt(prop_matrix2_FCS)
+trip_list_FCS <- melt(prop_matrix2_FCS) %>% 
+  arrange(Var1, Var2)
 colnames(trip_list_FCS) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_FCS, "cache/balanced_trip_list_FCS.rds")
 ```
@@ -2198,11 +2210,12 @@ results_FCS <- by(trip_list_FCS$trips, trip_list_FCS[c("treso.id.pos")], smart_r
 
 # Convert the output of by() to a dataframe
 results2_FCS <- sapply(results_FCS, I)
-colnames(results2_FCS) <- colnames(prop_matrix2_FCS)
-rownames(results2_FCS) <- rownames(prop_matrix2_FCS)
+colnames(results2_FCS) <- colnames(prop_matrix_FCS)
+rownames(results2_FCS) <- rownames(prop_matrix_FCS)
 
 df <- results2_FCS %>%
-  melt()
+  melt() %>% 
+  arrange(Var1, Var2)
 colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
 
 trip_list2_FCS <- bind_cols(trip_list_FCS, df) %>%

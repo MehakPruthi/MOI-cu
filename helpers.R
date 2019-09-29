@@ -187,7 +187,7 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
   return(simulated_trips)
 }
 
-# Read observed trips and apply intra-zonal assumptions to travel time
+# Read observed trips and travel time skim with the calculated intra-zonal travel times
 read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
                                 panel_id = "Elementary", board_id = "English Public") {
   #'
@@ -208,17 +208,8 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
     # Filter the user selected panel and board type name
     filter(panel == panel_id, board_type_name == board_id) %>%
-    
     # Join with travel_time_skim
-    left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-    
-    # intra-zonal trip assumptions
-    mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                          euclidean.dist / 5 * 60,
-                                          euclidean.dist / 30 * 60)) %>%
-    mutate(value = ifelse(value == 0, euclidean.travel.time, value)) %>%
-    mutate(compare.travel.time = value - euclidean.travel.time) %>%
-    mutate(value = ifelse(compare.travel.time > 30, euclidean.travel.time, value)) %>%
+    left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
     group_by(treso.id.por, treso.id.pos) %>%
     summarise(value = weighted.mean(value, enrolment),
               euclidean.dist = weighted.mean(euclidean.dist, enrolment),
