@@ -210,7 +210,7 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
   return(simulated_trips)
 }
 
-# Read observed trips and apply intra-zonal assumptions to travel time
+# Read observed trips and travel time skim with the calculated intra-zonal travel times
 read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
                                 panel_id = "Elementary", board_id = "English Public") {
   #'
@@ -231,16 +231,8 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
     # Filter the user selected panel and board type name
     filter(panel == panel_id, board_type_name == board_id) %>%
-    
     # Join with travel_time_skim
-    left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-    # intra-zonal trip assumptions
-    mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                          euclidean.dist / 5 * 60,
-                                          euclidean.dist / 30 * 60)) %>%
-    mutate(value = ifelse(value == 0, euclidean.travel.time, value)) %>%
-    mutate(compare.travel.time = value - euclidean.travel.time) %>%
-    mutate(value = ifelse(compare.travel.time > 30, euclidean.travel.time, value)) %>%
+    left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
     group_by(treso.id.por, treso.id.pos) %>%
     summarise(value = weighted.mean(value, enrolment),
               euclidean.dist = weighted.mean(euclidean.dist, enrolment),
@@ -324,39 +316,44 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
-calculate_school_weight_forecasting <- function(trip_list, ayear, school_list_master, 
-                                    eqao_2017, panel_id, board_id) {
+calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, year_id, panel_id, board_id) {
   
   #filter school list based on panel and board type
-  school_list_master <- school_list_master %>%   #update this with the master sfis to treso list from Alec
-    filter(year == ayear, panel == panel_id, board_type_name == board_id) #%>% 
-    #distinct(sfis, .keep_all = TRUE)
-    
+  school_list_master <- school_list_master %>%
+    filter(year == year_id, panel == panel_id, board_type_name == board_id)
+  
+  print(head(trip_list))
+  print(head(school_list_master))
+  
   # Calculate school weighting for TRESO zones with multiple schools and export it for
   pos_school <- trip_list %>%
-    right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("dest" = "treso.id.pos") ) %>% 
+    group_by(treso.id.pos) %>%
+    summarise(trips = sum(trips)) %>%
+    right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("treso.id.pos") ) %>% 
     left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
     mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
-    
+  
+  print(head(pos_school))
+  
   # get treso zone otg totals
   pos_otg_total <- pos_school %>%
-    group_by(dest) %>%
+    group_by(treso.id.pos) %>%
     summarise(otg.total = sum(otg))
   
   # calculate a combined weight between eqao and otg ratio
-  pos_school_weight <- left_join(pos_school, pos_otg_total, by = "dest") %>%
+  pos_school_weight <- left_join(pos_school, pos_otg_total, by = "treso.id.pos") %>%
     mutate(school.weight = eqao.standardized * (otg / otg.total)) 
   
   # get treso zone school.weight totals
   pos_school_weight_total <- pos_school_weight %>%
-    group_by(dest) %>%
+    group_by(treso.id.pos) %>%
     summarise(school.weight.total = sum(school.weight))
   
   # school weight
-  pos_school_weight_new <- left_join(pos_school_weight, pos_school_weight_total, by = "dest") %>%
-    mutate(school.weight.prob = school.weight/school.weight.total) %>%
-    select(dest, sfis, school.name, dsb.index, school.weight.prob) %>%
-    group_by(dest) %>%
+  pos_school_weight_new <- left_join(pos_school_weight, pos_school_weight_total, by = "treso.id.pos") %>%
+    mutate(school.weight.prob = school.weight / school.weight.total) %>%
+    select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+    group_by(treso.id.pos) %>%
     summarise(
       sfis.list = paste(sfis, collapse = ","),
       school.name.list = paste(school.name, collapse = ","),
@@ -369,9 +366,6 @@ calculate_school_weight_forecasting <- function(trip_list, ayear, school_list_ma
   
   return(pos_school_weight_new)
 }
-
-
-
 
 calculate_school_weight <- function(observed_trips, school_board_def, school_sfis_2017,
                                     eqao_2017, panel_id = "Elementary", board_id = "English Public") {
@@ -789,9 +783,6 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   # Combine School's ADE and utilization info with School's buffered zones
   school_tb <- school_tb %>%
     left_join(school_ade, by = c('sfis'))
-  
-  # Clean up the global environments
-  rm(school_tb_temp)
   
   return(school_tb)
 }
