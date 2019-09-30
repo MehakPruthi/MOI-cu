@@ -361,6 +361,7 @@ schoolCapHistorical <- schoolCap %>%
 - Filter the unmatched records from the table
 - Find any schools with a ratio of ADE to enrolment below 0.8 and above 1.0 between the school and student data, remove these outliers
 - Calculate the straight line travel distance between student to school based on lat/long information and `haverFunction()`
+- Calcualte the manhattan line travel distance between student to school based on lat/long information and `manhattan()`
 
 ```{r join edu data, echo=FALSE}
 # Join postal code centroids to student's postal code data
@@ -427,7 +428,8 @@ schoolCatchment <- anti_join(schoolCatchment, temp_tb, by = 'bsid')
 
 # Calculate straight-line home-to-school distances
 schoolCatchment <- schoolCatchment %>%
-  mutate(dist = haverFunction(school.lat, school.long, student.lat, student.long))
+  mutate(dist = haverFunction(school.lat, school.long, student.lat, student.long)) %>% 
+  mutate(man.dist = manhattan(school.lat, school.long, student.lat, student.long))
 ```
 
 ## Remove outlier students
@@ -443,12 +445,12 @@ schoolCatchmentThreshold <- schoolCatchment %>%
   uncount(enrolment) %>%
   group_by(school.name, school.lat, school.long) %>%
   summarise(
-    lower_adj = boxplot.stats(dist)$stats[1],
-    upper_adj = boxplot.stats(dist)$stats[5]
+    lower_adj = boxplot.stats(man.dist)$stats[1],
+    upper_adj = boxplot.stats(man.dist)$stats[5]
   )
 
 schoolCatchment <- left_join(schoolCatchment, schoolCatchmentThreshold, by = c('school.name', 'school.lat', 'school.long')) %>%
-  mutate(keep = as.factor(ifelse(dist <= upper_adj & dist >= lower_adj, 1, 0)))
+  mutate(keep = as.factor(ifelse(man.dist <= upper_adj & man.dist >= lower_adj, 1, 0)))
 
 # Plot stacked barplots of students within vs outside of threshold
 schoolCatchment %>%
@@ -487,7 +489,7 @@ schoolCatchmentDistPercent <- schoolCatchment %>%
     panel = first(panel),
     list(
       enframe(
-        wtd.quantile(dist, probs = percentileList, na.rm = FALSE, weight = enrolment)
+        wtd.quantile(man.dist, probs = percentileList, na.rm = FALSE, weight = enrolment)
         )
       )
     ) %>%
@@ -509,7 +511,7 @@ for (catchment_dist in percentileList){
   schoolCatchment %>%
     left_join(select(schoolCatchmentDistPercent, sfis, perc.dist, perc.value), by = c('sfis' = 'sfis')) %>%
     filter(perc.value == catchment_dist) %>%
-    filter(dist <= perc.dist) %>%
+    filter(man.dist <= perc.dist) %>%
     saveRDS(file = paste0('cache/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
