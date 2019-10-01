@@ -97,12 +97,22 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
   
   # Check if weigth vector is supplied
   if (missing(weight)) {
-    print("`weight` was not supplied, 1D balancing done without any scaling")
+    print("`weight` was not supplied, 1D balancing done without any destination constraints")
     tot = a
     matrix2 <- balance(matrix, tot, axis)
   } else {
-    print("`weight` was supplied, 1D balancing done with scaling")
+    print("`weight` was supplied, 1D balancing done with destination constraints")
     tot = a
+    
+    # If constrained, scale the matrix to the values of the weight vector
+    # It not constrained, apply a boolean value to the matrix
+    if (!(constrained)) {
+      print("Weight is used as a boolean control for destination")
+      weight = ifelse(weight == 0.0, 0, 1)
+    } else {
+      print("Weight is used directly")
+    }
+    
     # If `axis` is 1, balance the matrix against the rows but scale against the columns
     if (axis == 1) {
       sum = colSums(matrix)
@@ -113,16 +123,10 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
       sum = rowSums(matrix)
       axis_to_scale = 1
     }
+    # Scale the propensity matrix to the weight vector
+    matrix_scaled = sweep(matrix, MARGIN = axis_to_scale, weight, `*`)
     # Normalize the propensity matrix to ensure the scaled probailitiy does not exceed 1
-    matrix_norm = sweep(matrix, MARGIN = axis_to_scale, sum, `/`)
-    
-    # If constrained, scale the matrix to the values of the weight vector
-    # It not constrained, apply a boolean value to the matrix
-    if (!(constrained)) {
-      weight = ifelse(weight == 0.0, 0, 1)
-    }
-    # Scale the normalized propensity matrix to the weight vector
-    matrix_scaled = sweep(matrix_norm, MARGIN = axis_to_scale, weight, `*`)
+    matrix_norm = sweep(matrix_scaled, MARGIN = axis_to_scale, sum, `/`)
     
     # 1D balance against the tot vector on the specified axis
     matrix2 <- balance(matrix_scaled, tot, axis)
@@ -190,7 +194,7 @@ matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_itera
 calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
   cfunc <- cost %>%
     mutate(value = value^alpha * exp(beta*value)) %>%
-    replace_na(value = 0)
+    replace_na(value = 0.001)
   
   cfunc_rowsums <- cfunc %>%
     group_by(treso.id.por) %>%
@@ -199,6 +203,10 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
   t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
     mutate(prob_scaled = value / rowsum) %>%
     select(treso.id.por, treso.id.pos, prob_scaled)
+  
+  
+  print(sum(cfunc_rowsums$rowsum))
+  print(sum(t$prob_scaled))
   
   simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
     group_by(treso.id.por) %>%
