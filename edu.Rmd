@@ -241,11 +241,11 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
 ```{r calculate closest school, eval = FALSE, echo = FALSE}
 student_xy_90 <- student_travel_90 %>%
   select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, 
-         enrolment, student.postal.code, student.lat, student.long, dist) %>%
+         enrolment, student.postal.code, student.lat, student.long, dist, man.dist) %>%
   create_student_xy()
 school_xy <- create_school_xy(student_travel_90)
 
-student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean.dist * 1000 + 25), byid = TRUE)
+student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$manhattan.dist * 1000 + 25), byid = TRUE)
 
   # Start multi-core clustering for performance
   cores <- parallel::detectCores()
@@ -284,7 +284,7 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$euclidean
   stopCluster(cl)
   
   # Write the datalist to csv
-  saveRDS(datalist, "output/closest_school_full.rds")
+  saveRDS(datalist, "output/closest_school_full_manhattan_distance.rds")
   rm(student_xy_90, student_buffered, datalist)
 ```
 
