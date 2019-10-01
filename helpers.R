@@ -235,6 +235,7 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
     group_by(treso.id.por, treso.id.pos) %>%
     summarise(value = weighted.mean(value, enrolment),
+              manhattan.dist = weighted.mean(manhattan.dist, enrolment),
               euclidean.dist = weighted.mean(euclidean.dist, enrolment),
               enrolment = sum(enrolment))
   
@@ -530,11 +531,12 @@ create_student_xy <- function(student_travel) {
   # Convert the student dataframe into SpatialPointsDataframe
   student_spdf <- student_travel %>%
     ungroup() %>%
-    select(student.lat, student.long, dist, school.name, sfis, dsb.index, panel, enrolment, student.postal.code) %>%
+    select(student.lat, student.long, dist, man.dist, school.name, sfis, dsb.index, panel, enrolment, student.postal.code) %>%
     rename(
       lat = student.lat,
       long = student.long,
-      euclidean.dist = dist
+      euclidean.dist = dist,
+      manhattan.dist = man.dist
     ) %>%
     mutate(id = row_number())
   
@@ -562,7 +564,7 @@ create_school_xy <- function(student_travel) {
     ungroup() %>%
     select(school.name, school.lat, school.long, dsb.index, bsid, sfis, panel, perc.dist) %>%
     group_by(sfis) %>%
-    summarise_all(funs(first)) %>%
+    summarise_all(list(~first(.))) %>%
     rename(
       lat = school.lat,
       long = school.long,
@@ -583,7 +585,7 @@ create_school_xy <- function(student_travel) {
 create_school_xy_from_school <- function(school_sfis) {
   '
   This function differs from `create_school_xy` in that this takes in the school dataframe
-  without the catchment distnace
+  without the catchment distance
   
   input: Dataframe of school with lat long
   output: SpatialPointsDataFrame of each school
@@ -646,13 +648,14 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
   if (type == 'student'){
     # Find the treso zones which the student points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(euclidean.dist = xy_location@data$euclidean.dist,
+      cbind(manhattan.dist = xy_location@data$manhattan.dist,
+            euclidean.dist = xy_location@data$euclidean.dist,
             student.postal.code = xy_location@data$student.postal.code,
             school.name = xy_location@data$school.name,
             sfis = xy_location@data$sfis,
             enrolment = xy_location@data$enrolment) %>%
       as_tibble() %>%
-      select(Treso_ID, euclidean.dist, student.postal.code, enrolment, school.name, sfis) %>%
+      select(Treso_ID, manhattan.dist, euclidean.dist, student.postal.code, enrolment, school.name, sfis) %>%
       rename(
         treso.id.por = Treso_ID
       )
@@ -769,7 +772,7 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
       mof.region = names(which.max(table(mof_region)))
     )
   
-  # Then, combine with data that is calculated with sum
+  # Then, combine with data  that is calculated with sum
   school_tb <- as_tibble(buffered_df) %>%
     left_join(treso_tb, by = c('treso.id' = 'treso_zone')) %>%
     replace(is.na(.), 0) %>%
