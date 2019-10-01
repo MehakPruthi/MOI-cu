@@ -123,6 +123,7 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
       sum = rowSums(matrix)
       axis_to_scale = 1
     }
+    
     # Scale the propensity matrix to the weight vector
     matrix_scaled = sweep(matrix, MARGIN = axis_to_scale, weight, `*`)
     # Normalize the propensity matrix to ensure the scaled probailitiy does not exceed 1
