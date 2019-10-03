@@ -180,7 +180,7 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
 missingCoords <- read_csv('input/edu/school_missing_geocoordinates.csv')
 schoolBoardTypes <- read_csv('input/edu/school_board_types.csv')
 
-# Create a table called schoolLoc to house master list for school geocoordinates
+# Create a table called schoolLoc to house master list for school geocoordinates, etc.
 schoolLoc <- schoolCap %>%
   select(year = Sch_yr, 
          dsb.index = DSB_Index, 
@@ -217,11 +217,39 @@ schoolLocClean <- schoolLocUpdated %>%
   mutate(otg = ifelse(status == 'Open' & otg == 0, max(ade), otg)) %>%
   ungroup()
 
-# bind_rows
+# Simplify school forecast data (ADE and OTG) to join to historical school data
+schoolForecastSimple <- schoolForecast %>%
+  select(year = SCH_YR, 
+         dsb.index = DSBINDEX,
+         panel = PANEL,
+         sfis = SFIS,
+         school.name = School.Name, 
+         ade = ADE,
+         latitude,
+         longitude) %>% 
+  mutate_if(is.factor, as.character) -> schoolForecastSimple
 
+# Join board type, lat, long, otg to school forecast dataset
+
+school_recent_data <- schoolLocClean %>%
+  group_by(sfis) %>%
+  filter(year == max(year), status == 'Open' | status == 'Holding' | status == 'Under Construction') %>%
+  ungroup()
+  
+schoolForecastSimpleJoin <- schoolForecastSimple %>% 
+  left_join(select(school_recent_data, sfis, board_type_name, board.name, school.lat, school.long, otg), by = c('sfis')) %>% 
+  mutate(school.lat = ifelse(is.na(school.lat), latitude, school.lat)) %>% 
+  mutate(school.long = ifelse(is.na(school.long), longitude, school.long))
+
+# Bind Historical school data to forecast school data
+
+schoolLocCombined <- bind_rows(schoolLocClean, schoolForecastSimpleJoin)
+schoolLocCombinedDistinct <- schoolLocCombined %>%
+  distinct(sfis, school.lat, school.long)
+  
 # Determine x & y coordinates for schools based on TRESO zone shapefile
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
-school_xy <- create_school_xy_simple(schoolLocClean)
+school_xy <- create_school_xy_simple(schoolLocCombinedDistinct)
 
 # Determine TRESO zone associated with each school's x & y coordinates
 schoolTRESO <- create_overlay(school_xy, treso_shp, 'schoolSimple')
@@ -232,55 +260,20 @@ schoolTRESOcsd <- schoolTRESO %>%
   left_join(select(tresoCSDmatch, treso_id, csduid, cduid), by = c('treso.id.pos' = 'treso_id')) %>%
   mutate_if(is.factor, as.character) -> schoolTRESOcsd
 
+# Join TRESO/CSD data to main schools dataframe
+
+school_treso_data <- schoolLocCombined %>%
+  left_join(select(schoolTRESOcsd, sfis, treso.id.pos, csduid, cduid), by = c('sfis'))
+
 # Join to portables data
-school_treso_master_hist <- schoolTRESOcsd %>%
+school_treso_master <- school_treso_data %>%
+  select(-latitude, -longitude) %>% 
   left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated, year), by = c('sfis' = 'sfis', 'year' = 'year')) %>%
   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
   mutate(num.units.calculated = round(num.units.calculated,0)) %>%
   mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
   rename(portable.units = num.units.calculated)
-
-# Simplify school forecast data (ADE and OTG)
-schoolForecastSimple <- schoolForecast %>%
-  select(year = SCH_YR, 
-         dsb.index = DSBINDEX,
-         panel = PANEL,
-         sfis = SFIS,
-         school.name = School.Name, 
-         ade = ADE,
-         latitude,
-         longitude,
-         cduid = CDUID) %>% 
-  mutate(portable.units = 0, capacity.portable = 0) %>% 
-  mutate_if(is.factor, as.character) -> schoolForecastSimple
-
-# Join board type, lat, long, otg to school forecast dataset
-
-school_recent_data <- schoolLocClean %>%
-  group_by(sfis) %>%
-  filter(year == max(year), status != 'Closed') %>%
-  ungroup()
-  
-schoolForecastSimpleJoin <- schoolForecastSimple %>% 
-  left_join(select(school_recent_data, sfis, board_type_name, school.lat, school.long, otg), by = c('sfis')) %>% 
-  mutate(school.lat = ifelse(is.na(school.lat), latitude, school.lat)) %>% 
-  mutate(school.long = ifelse(is.na(school.long), longitude, school.long))
-
-schoolForecastSimpleJoin <- schoolForecastSimpleJoin %>%
-  left_join(distinct(school_treso_master_hist, sfis, treso.id.pos, csduid), by = c('sfis')) %>%
-  mutate(area.m2 = 0)
-
-schoolForecastSimpleJoin %>%
-  filter(sfis == 24623)
-
-schoolForecastSimpleJoin %>%
-  anti_join(select(school_treso_master_hist, sfis, treso.id.pos, csduid), by = ('sfis'))
-
-# Add simplified school forecast data to school_treso_master
-names(school_treso_master_hist)
-school_treso_master <- rbind(school_treso_master_hist, schoolForecastSimple) 
-
 
 # Export to RDS
 saveRDS(school_treso_master, 'output/school_treso_master.rds')

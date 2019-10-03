@@ -631,7 +631,7 @@ create_school_xy_simple <- function(school_sfis) {
   # Convert the school dataframe into SpatialPointsDataframe
   school_spdf <- school_sfis %>%
     ungroup() %>%
-    select(year, dsb.index, board.name, board_type_name, panel, school.name, sfis, school.lat, school.long, otg, ade) %>%
+    select(sfis, school.lat, school.long) %>%
     mutate(schoolLat = school.lat, schoolLong = school.long) %>%
     mutate(id = row_number())
   coordinates(school_spdf) <- c('schoolLong', 'schoolLat')
@@ -686,19 +686,11 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
   if (type == 'schoolSimple'){
     # Find the treso zones which the school points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(., year = xy_location@data$year,
-            dsb.index = xy_location@data$dsb.index,
-            board_type_name = xy_location@data$board_type_name,
-            school.name = xy_location@data$school.name,
-            school.lat = xy_location@data$school.lat,
+      cbind(school.lat = xy_location@data$school.lat,
             school.long = xy_location@data$school.long,
-            sfis = xy_location@data$sfis,
-            panel = xy_location@data$panel,
-            board.name = xy_location@data$board.name,
-            otg = xy_location@data$otg,
-            ade = xy_location@data$ade) %>%
+            sfis = xy_location@data$sfis) %>%
       as_tibble() %>%
-      select(Treso_ID, year, dsb.index, board_type_name, panel, sfis, board.name, school.name, school.lat, school.long, otg, ade) %>%
+      select(Treso_ID, sfis, school.lat, school.long) %>%
       rename(
         treso.id.pos = Treso_ID
       )
