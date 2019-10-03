@@ -290,7 +290,7 @@ student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$manhattan
 
 ``` {r test closest school, echo = FALSE, eval = FALSE}
 TESTID <- 523550
-datalist <- readRDS("output/closest_school_full.rds")
+datalist <- readRDS("output/closest_school_full_manhattan_distance.rds")
 # Convert buffer into df
 buffer_df <- fortify(student_buffered[student_buffered@data$id == TESTID, ]) %>%
   rename(
@@ -313,21 +313,12 @@ school_interest_df <- school_xy[is.element(school_xy@data$sfis, filter(datalist,
     y = lat
   )
 
-school_user_df <- school_xy[school_xy@data$sfis == 16794, ] %>%
-  data.frame() %>%
-  rename(
-    x = long,
-    y = lat
-  )
-
 ggplot() +
   geom_point(data = filter(student_interest_df, id == TESTID), mapping = aes(x = x, y = y), 
                color = "blue", fill = "blue", alpha = 1, size = 3) +
   geom_point(data = school_interest_df, mapping = aes(x = x, y = y), 
                color = "green", fill = "green", alpha = 1, size = 3) +
   geom_text(data = school_interest_df, aes(x = x, y = y, label = school.name), size = 2) +
-  geom_point(data = school_user_df, mapping = aes(x = x, y = y),
-             color = "yellow", fill = "yellow", alpha = 1, size = 5) +
   geom_polygon(data = buffer_df, mapping = aes(x = x, y = y, group = group),
                fill = "red", color = "red", alpha = 0.01) +
   labs(x = "", y = "", title = "Test Buffer") +
@@ -345,17 +336,13 @@ por_mof <- readRDS("output/observed_por_pos_90.rds") %>%
   distinct(student.postal.code, .keep_all=TRUE) %>%
   left_join(select(treso_zone_def, treso_id, csdname, mof_region), by = c("treso.id.por" = "treso_id"))
 
-closest_school <- readRDS("output/closest_school_full.rds") %>%
+closest_school <- readRDS("output/closest_school_full_manhattan_distance.rds") %>%
   left_join(select(school_board_def, dsb, board_type, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  rename(board.type = board_type,
-         board.type.name = board_type_name) %>%
+  rename(board.type = board_type, board.type.name = board_type_name) %>%
   left_join(select(school_board_def, dsb, board_type, board_type_name), by = c("overlay.dsb.index" = "dsb")) %>%
-  rename(overlay.board.type = board_type,
-         overlay.board.type.name = board_type_name) %>% 
+  rename(overlay.board.type = board_type, overlay.board.type.name = board_type_name) %>% 
   filter(panel == as.character(overlay.panel), board.type == overlay.board.type) %>%
   left_join(por_mof, by = "student.postal.code")
-
-saveRDS(closest_school, "cache/closest_school.rds")
 
 closest_school_summary <- closest_school %>%
   group_by(id) %>%
@@ -389,21 +376,21 @@ closest_school_summary <- closest_school %>%
    left_join(closest_school_subtotal, by = c("board.type.name", "panel", "mof_region", "csdname")) %>%
    mutate(percentage = num.students / total.students) %>%
    mutate(percentage.lable = ifelse(percentage > 0.10, as.character(percent(percentage)), "")) %>%
-   saveRDS("output/closest_school_summary.rds")
+   saveRDS("output/closest_school_manhattan_summary.rds")
 
 rm(closest_school, closest_school_summary)
 ```
 
 
 ```{r plot closest school results, fig.height = 12, fig.width = 10, echo=FALSE}
-g_subtotal <- readRDS("output/closest_school_summary.rds") %>%
+g_subtotal <- readRDS("output/closest_school_manhattan_summary.rds") %>%
   drop_na(mof_region) %>%
   group_by(board.type.name, panel, mof_region) %>%
     summarise(
       total.students = sum(num.students)
     )
 
-g <- readRDS("output/closest_school_summary.rds") %>%
+g <- readRDS("output/closest_school_manhattan_summary.rds") %>%
   drop_na(mof_region) %>%
   group_by(num.closer.schools.cuts, board.type.name, panel, mof_region) %>%
     summarise(
@@ -418,7 +405,7 @@ g <- readRDS("output/closest_school_summary.rds") %>%
   theme_minimal() +
   theme(axis.text.x = element_blank()) +
   labs(x = "", y = "", fill = "Schools within travel distance") +
-  ggsave("output/closest_school_summary.png", height = 12, width = 10, units = "in")
+  ggsave("output/closest_school_manhattan_summary.png", height = 12, width = 10, units = "in")
 
 ggplotly(g)
 
@@ -948,14 +935,14 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_EPE <- readRDS("cache/cfunc_EPE.rds")
 
-# 1D balacne the matrix
-prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=TRUE)
+# 1D balance the matrix
+prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
 trip_list_EPE <- melt(prop_matrix2_EPE) %>% 
   arrange(Var1, Var2)
 colnames(trip_list_EPE) <- c('treso.id.por', 'treso.id.pos', 'trips')
-saveRDS(trip_list_EPE, "cache/balanced_trip_list_EPE_constrained.rds")
+saveRDS(trip_list_EPE, "cache/balanced_trip_list_EPE.rds")
 ```
 
 Distribute each the POS demand to the individual schools
@@ -1134,7 +1121,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_EPS <- readRDS("cache/cfunc_EPS.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_EPS <- matrix_balancing_1d(prop_matrix_EPS, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -1320,7 +1307,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_ECE <- readRDS("cache/cfunc_ECE.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_ECE <- matrix_balancing_1d(prop_matrix_ECE, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -1494,7 +1481,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_ECS <- readRDS("cache/cfunc_ECS.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_ECS <- matrix_balancing_1d(prop_matrix_ECS, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -1668,7 +1655,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_FPE <- readRDS("cache/cfunc_FPE.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_FPE <- matrix_balancing_1d(prop_matrix_FPE, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -1842,7 +1829,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_FPS <- readRDS("cache/cfunc_FPS.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_FPS <- matrix_balancing_1d(prop_matrix_FPS, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -2016,7 +2003,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_FCE <- readRDS("cache/cfunc_FCE.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_FCE <- matrix_balancing_1d(prop_matrix_FCE, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -2190,7 +2177,7 @@ pos <- observed_por_pos_90 %>%
 
 prop_matrix_FCS <- readRDS("cache/cfunc_FCS.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -2316,7 +2303,7 @@ pos <- school_master %>%
 
 prop_matrix_FCS <- readRDS("cache/cfunc_FCS.rds")
 
-# 1D balacne the matrix
+# 1D balance the matrix
 prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
@@ -2766,14 +2753,16 @@ pos <- pos_full %>% #redirect 2 columns into 1 vector
 
 prop_matrix_EPE <- readRDS("cache/cfunc_EPE.rds")
 
-# 1D balacne the matrix
-prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=FALSE)
+# # 1D balance the matrix
+# prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=FALSE)
+# 2D balance the matrix
+prop_matrix2_EPE <- matrix_balancing_2d(prop_matrix_EPE, por, pos, totals_to_use="rows", max_iterations=100)
 
 # Save the balanced POR-POS trip list
 trip_list_EPE_2011 <- melt(prop_matrix2_EPE) %>%
   arrange(Var1, Var2)
 colnames(trip_list_EPE_2011) <- c('treso.id.por', 'treso.id.pos', 'trips')
-saveRDS(trip_list_EPE_2011, "cache/balanced_trip_list_EPE_2011_unconstrained.rds")
+saveRDS(trip_list_EPE_2011, "cache/balanced_trip_list_EPE_2011.rds")
 
 # distribute treso level pos demand to individual schools
 trip_list_EPE_2011_sum <- trip_list_EPE_2011 %>% 
@@ -2795,8 +2784,8 @@ results_EPE <- by(trip_list_EPE_2011$trips, trip_list_EPE_2011[c("treso.id.pos")
 
 # Convert the output of by() to a dataframe
 results2_EPE <- sapply(results_EPE, I)
-colnames(results2_EPE) <- colnames(prop_matrix2_EPE_2011)
-rownames(results2_EPE) <- rownames(prop_matrix2_EPE_2011)
+colnames(results2_EPE) <- colnames(prop_matrix2_EPE)
+rownames(results2_EPE) <- rownames(prop_matrix2_EPE)
 
 df <- results2_EPE %>%
   melt() %>% 

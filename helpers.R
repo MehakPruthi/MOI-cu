@@ -187,6 +187,8 @@ matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_itera
     matrix2 <- balance(matrix2, b, 2)
     error <- calc_error(matrix2, a, b) / init_error
     i <- i + 1
+    
+    print(paste0("Iteration: ", i))
   }
   return(matrix2)
 }
