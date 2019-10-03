@@ -156,12 +156,12 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
 #   select(-area.m2, -num.units.calculated)
 
 # Join Portables Data to School Data and recalculate utilization based on the size of portable
-schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
-  replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
-  mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
-                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
-  mutate(capacity.total = otg + capacity.portable) %>%
-  mutate(utilization.total = ade / capacity.total)
+# schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
+#   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
+#   mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
+#                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
+#   mutate(capacity.total = otg + capacity.portable) %>%
+#   mutate(utilization.total = ade / capacity.total)
 
 # Utilization above 1 at this point could be erroneous data
 # TODO check with Alec regarding this.
@@ -217,6 +217,8 @@ schoolLocClean <- schoolLocUpdated %>%
   mutate(otg = ifelse(status == 'Open' & otg == 0, max(ade), otg)) %>%
   ungroup()
 
+# bind_rows
+
 # Determine x & y coordinates for schools based on TRESO zone shapefile
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 school_xy <- create_school_xy_simple(schoolLocClean)
@@ -231,7 +233,7 @@ schoolTRESOcsd <- schoolTRESO %>%
   mutate_if(is.factor, as.character) -> schoolTRESOcsd
 
 # Join to portables data
-school_treso_master <- schoolTRESOcsd %>%
+school_treso_master_hist <- schoolTRESOcsd %>%
   left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated, year), by = c('sfis' = 'sfis', 'year' = 'year')) %>%
   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
   mutate(num.units.calculated = round(num.units.calculated,0)) %>%
@@ -239,12 +241,51 @@ school_treso_master <- schoolTRESOcsd %>%
                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
   rename(portable.units = num.units.calculated)
 
+# Simplify school forecast data (ADE and OTG)
+schoolForecastSimple <- schoolForecast %>%
+  select(year = SCH_YR, 
+         dsb.index = DSBINDEX,
+         panel = PANEL,
+         sfis = SFIS,
+         school.name = School.Name, 
+         ade = ADE,
+         latitude,
+         longitude,
+         cduid = CDUID) %>% 
+  mutate(portable.units = 0, capacity.portable = 0) %>% 
+  mutate_if(is.factor, as.character) -> schoolForecastSimple
+
+# Join board type, lat, long, otg to school forecast dataset
+
+school_recent_data <- schoolLocClean %>%
+  group_by(sfis) %>%
+  filter(year == max(year), status != 'Closed') %>%
+  ungroup()
+  
+schoolForecastSimpleJoin <- schoolForecastSimple %>% 
+  left_join(select(school_recent_data, sfis, board_type_name, school.lat, school.long, otg), by = c('sfis')) %>% 
+  mutate(school.lat = ifelse(is.na(school.lat), latitude, school.lat)) %>% 
+  mutate(school.long = ifelse(is.na(school.long), longitude, school.long))
+
+schoolForecastSimpleJoin <- schoolForecastSimpleJoin %>%
+  left_join(distinct(school_treso_master_hist, sfis, treso.id.pos, csduid), by = c('sfis')) %>%
+  mutate(area.m2 = 0)
+
+schoolForecastSimpleJoin %>%
+  filter(sfis == 24623)
+
+schoolForecastSimpleJoin %>%
+  anti_join(select(school_treso_master_hist, sfis, treso.id.pos, csduid), by = ('sfis'))
+
+# Add simplified school forecast data to school_treso_master
+names(school_treso_master_hist)
+school_treso_master <- rbind(school_treso_master_hist, schoolForecastSimple) 
+
+
 # Export to RDS
 saveRDS(school_treso_master, 'output/school_treso_master.rds')
 
 ```
-
-
 
 # Education Data cleaning
  
