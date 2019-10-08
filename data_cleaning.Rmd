@@ -11,6 +11,8 @@ library(RODBC)
 library(sp)
 library(rgdal)
 library(rgeos)
+# library(modeest)
+# library(genefilter)
 source("helpers.R")
 ```
 
@@ -200,10 +202,10 @@ schoolLoc <- schoolCap %>%
 
 # Join in geocoordinate data for missing schools
 schoolLocUpdated <- schoolLoc %>%
-  left_join(select(missingCoords, SFIS_ID, altLat = finalLatitude, altLon = finalLongitude), by = c('sfis' = 'SFIS_ID')) %>%
+  left_join(distinct(select(missingCoords, SFIS_ID, altLat = finalLatitude, altLon = finalLongitude)), by = c('sfis' = 'SFIS_ID')) %>%
   mutate(school.lat = ifelse(is.na(school.lat), altLat, school.lat)) %>%
   mutate(school.long = ifelse(is.na(school.long), altLon, school.long)) %>%
-  select(-altLat, -altLon) %>%
+  select(-altLat, -altLon) %>% 
   arrange(status, otg, desc(ade))
 
 # Keep a record of schools for which a lat/long cannot be determined
@@ -217,7 +219,8 @@ schoolLocClean <- schoolLocUpdated %>%
   mutate(otg = ifelse(status == 'Open' & otg == 0, max(ade), otg)) %>%
   ungroup()
 
-# Simplify school forecast data (ADE and OTG) to join to historical school data
+# Simplify school forecast data (ADE and OTG) to join to historical school data, and
+# filter out forecast data for years in which historical data is available
 schoolForecastSimple <- schoolForecast %>%
   select(year = SCH_YR, 
          dsb.index = DSBINDEX,
@@ -227,6 +230,7 @@ schoolForecastSimple <- schoolForecast %>%
          ade = ADE,
          latitude,
          longitude) %>% 
+  anti_join(distinct(select(schoolLocClean, sfis, year)), by = c('sfis', 'year')) %>% 
   mutate_if(is.factor, as.character) -> schoolForecastSimple
 
 # Join board type, lat, long, otg to school forecast dataset
@@ -235,19 +239,39 @@ school_recent_data <- schoolLocClean %>%
   group_by(sfis) %>%
   filter(year == max(year), status == 'Open' | status == 'Holding' | status == 'Under Construction') %>%
   ungroup()
-  
+
 schoolForecastSimpleJoin <- schoolForecastSimple %>% 
   left_join(select(school_recent_data, sfis, board_type_name, board.name, school.lat, school.long, otg), by = c('sfis')) %>% 
   mutate(school.lat = ifelse(is.na(school.lat), latitude, school.lat)) %>% 
-  mutate(school.long = ifelse(is.na(school.long), longitude, school.long))
+  mutate(school.long = ifelse(is.na(school.long), longitude, school.long)) %>%
+  mutate(panel = ifelse(panel == 'E', 'Elementary', ifelse(panel == 'S', 'Secondary', 'ERROR')))
 
 # Bind Historical school data to forecast school data
 
 schoolLocCombined <- bind_rows(schoolLocClean, schoolForecastSimpleJoin)
-schoolLocCombinedDistinct <- schoolLocCombined %>%
-  distinct(sfis, school.lat, school.long)
-  
+
+# Choose single most common lat/long for schools to avoid row duplication and conflicts
+
+schoolLatMode <- schoolLocCombined %>% 
+  group_by(sfis) %>%
+  count(school.lat, sort=TRUE) %>%
+  slice(1)
+
+schoolLongMode <- schoolLocCombined %>% 
+  group_by(sfis) %>%
+  count(school.long, sort=TRUE) %>%
+  slice(1)
+
+schoolLocCombinedFix <- schoolLocCombined %>% 
+  select(-school.lat, -school.long) %>% 
+  left_join(select(schoolLatMode, sfis, school.lat), by = c('sfis')) %>% 
+  left_join(select(schoolLongMode, sfis, school.long), by = c('sfis')) %>% 
+  select(-latitude, -longitude)
+
 # Determine x & y coordinates for schools based on TRESO zone shapefile
+schoolLocCombinedDistinct <- schoolLocCombinedFix %>%
+  distinct(sfis, school.lat, school.long)
+
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 school_xy <- create_school_xy_simple(schoolLocCombinedDistinct)
 
@@ -260,14 +284,15 @@ schoolTRESOcsd <- schoolTRESO %>%
   left_join(select(tresoCSDmatch, treso_id, csduid, cduid), by = c('treso.id.pos' = 'treso_id')) %>%
   mutate_if(is.factor, as.character) -> schoolTRESOcsd
 
-# Join TRESO/CSD data to main schools dataframe
-
-school_treso_data <- schoolLocCombined %>%
-  left_join(select(schoolTRESOcsd, sfis, treso.id.pos, csduid, cduid), by = c('sfis'))
+# Join TRESO/CSD data to main schools dataframe; add in flags for OTG = 0, Utilization > 200%
+school_treso_data <- schoolLocCombinedFix %>%
+  left_join(select(schoolTRESOcsd, sfis, treso.id.pos, csduid, cduid), by = c('sfis')) %>%
+  mutate(zero_otg_flag = ifelse(otg == 0, 1, 0)) %>%
+  mutate(excessive_util_flag = ifelse(ade/otg >= 2, 1, 0)) %>%
+  mutate(excessive_util_flag = replace_na(excessive_util_flag, 0))
 
 # Join to portables data
 school_treso_master <- school_treso_data %>%
-  select(-latitude, -longitude) %>% 
   left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated, year), by = c('sfis' = 'sfis', 'year' = 'year')) %>%
   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
   mutate(num.units.calculated = round(num.units.calculated,0)) %>%
