@@ -328,9 +328,16 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
-calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, year_id, panel_id, board_id) {
+calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school=NULL,
+                                                year_id, panel_id, board_id) {
   
-  #filter school list based on panel and board type
+  # Include the new_school in the master school list
+  if(!is.null(new_school)){
+    school_list_master <- school_list_master %>% 
+      bind_rows(new_school)
+  }
+
+  # Filter school list based on panel and board type
   school_list_master <- school_list_master %>%
     filter(year == year_id, panel == panel_id, board_type_name == board_id)
   
@@ -442,8 +449,6 @@ smart_round <- function(x, digits = 0) {
 sample_by_row <- function(row) {
   x <- row["sfis.list"][[1]]
   size <- row["enrolment.rounded"][[1]]
-  
-  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
   
   if (length(x) == 1) {
     # Quirk 
@@ -656,7 +661,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
   inputs: SpatialPointsDataFrame of school/student, TRESO shapefile, string indicating what is the object
   output: Dataframe of the school or student with the appropriate TRESO zone ID
   '
-  if (type == 'student'){
+  if (type == 'student') {
     # Find the treso zones which the student points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
       cbind(manhattan.dist = xy_location@data$manhattan.dist,
@@ -671,7 +676,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
         treso.id.por = Treso_ID
       )
   }
-  if (type == 'school'){
+  else if (type == 'school') {
     # Find the treso zones which the school points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
       cbind(catchment.dist = xy_location@data$catchment.dist,
@@ -685,7 +690,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
         treso.id.pos = Treso_ID
       )
   }
-  if (type == 'schoolSimple'){
+  else if (type == 'schoolSimple') {
     # Find the treso zones which the school points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
       cbind(., year = xy_location@data$year,
@@ -705,7 +710,20 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
         treso.id.pos = Treso_ID
       )
   }
-
+  else if (type == 'marker') {
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>% 
+      cbind(., school.name = xy_location@data$school.name,
+            year = xy_location@data$year,
+            sfis = xy_location@data$sfis,
+            board_type_name = xy_location@data$board_type_name,
+            panel = xy_location@data$panel,
+            otg = xy_location@data$otg) %>% 
+      as_tibble() %>%
+      mutate(school.name = as.character(school.name), board_type_name = as.character(board_type_name), panel = as.character(panel)) %>% 
+      select(Treso_ID, school.name, year, sfis, board_type_name, panel, otg) %>% 
+      rename(treso.id.pos = Treso_ID)
+  }
+  
   return(overlay)
 }
 

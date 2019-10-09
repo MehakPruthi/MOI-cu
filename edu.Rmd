@@ -18,6 +18,7 @@ library(tictoc)
 library(gridExtra)
 library(future.apply)
 library(FNN)
+library(sf)
 source("helpers.R")
 ```
 
@@ -43,7 +44,7 @@ school_board_def <- read_csv("input/edu/school_board_types.csv")
 treso_zone_def <- read.csv("input/treso/treso_zone_system.csv", stringsAsFactors = FALSE)
 
 # Student travel data
-student_travel_90 <- readRDS("cache/student_travel_0.9.rds")
+student_travel_90 <- readRDS("cache/student_travel_0.9.rds") #TODO this rds is not updated to include manhattan distance
 student_travel_80 <- readRDS("cache/student_travel_0.8.rds")
 student_travel_70 <- readRDS("cache/student_travel_0.7.rds")
 student_travel_60 <- readRDS("cache/student_travel_0.6.rds")
@@ -2272,16 +2273,29 @@ ggplot(data=simulated_compare_FCS.data) +
 #### Testing Enviroment for shiny
 
 ```{r testing enviroment for shiny, echo=FALSE, eval=FALSE}
-panel_id <- "Secondary"
-board_id <- "French Catholic"
-year_id <- 2011
+panel_id <- "Elementary"
+board_id <- "English Catholic"
+year_id <- 2025
 
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/por_full.rds")
 pos_full <- readRDS("output/pos_full.rds")
-school_master <- readRDS("output/school_treso_master.rds")
+school_master <- readRDS("output/school_treso_master.rds") %>% 
+  mutate(panel = ifelse(panel == "E", "Elementary", panel)) %>% 
+  mutate(panel = ifelse(panel == "S", "Secondary", panel))
 
+# Manually create 2025 student population for zones in Sarnia
 por <- readRDS("output/treso_por_2011.rds") %>%
+  # Create 2025 scenario manually
+  mutate(enrolment.scaled = replace(enrolment.scaled,
+                                    (treso.id.por == 6879 & panel == "Elementary" & board_type_name == "English Catholic"), 
+                                    380)) %>% 
+  mutate(enrolment.scaled = replace(enrolment.scaled,
+                                    (treso.id.por == 6877 & panel == "Elementary" & board_type_name == "English Catholic"), 
+                                    350)) %>% 
+  saveRDS("output/treso_por_2025.rds")
+
+por <- readRDS("output/treso_por_2025.rds") %>%
   filter(panel == panel_id, board_type_name == board_id) %>%
   select(treso.id.por, enrolment.scaled) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
@@ -2301,18 +2315,18 @@ pos <- school_master %>%
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-prop_matrix_FCS <- readRDS("cache/cfunc_FCS.rds")
+prop_matrix <- readRDS("cache/cfunc_ECE.rds")
 
 # 1D balance the matrix
-prop_matrix2_FCS <- matrix_balancing_1d(prop_matrix_FCS, por, pos, constrained=FALSE)
+prop_matrix2 <- matrix_balancing_1d(prop_matrix, por, pos, constrained=TRUE)
 
 # Save the balanced POR-POS trip list
-trip_list_FCS <- melt(prop_matrix2_FCS) %>%
+trip_list <- melt(prop_matrix2) %>%
   arrange(Var1, Var2)
-colnames(trip_list_FCS) <- c('treso.id.por', 'treso.id.pos', 'trips')
+colnames(trip_list) <- c('treso.id.por', 'treso.id.pos', 'trips')
 
 # Calculate the school weight
-pos_school_weight <- calculate_school_weight_forecasting(trip_list_FCS, school_master, eqao_2017, year_id, panel_id, board_id)
+pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, year_id, panel_id, board_id)
 print(paste0("For ", panel_id, "-", board_id, ", there are ",
              nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
              " TRESO zones with a single school, and ",
@@ -2320,12 +2334,12 @@ print(paste0("For ", panel_id, "-", board_id, ", there are ",
              " TRESO zones with multiple schools."))
 
 # Apply bucket rounding to chunks of data by TRESO POS
-results <- by(trip_list_FCS$trips, trip_list_FCS[c("treso.id.pos")], smart_round, simplify = TRUE)
+results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
 
 # Convert the output of by() to a dataframe
 results2 <- sapply(results, I)
-colnames(results2) <- colnames(prop_matrix_FCS)
-rownames(results2) <- rownames(prop_matrix_FCS)
+colnames(results2) <- colnames(prop_matrix)
+rownames(results2) <- rownames(prop_matrix)
 
 df <- melt(results2) %>%
   arrange(Var1, Var2)
@@ -2355,17 +2369,190 @@ trip_list_schools_summary <- trip_list_schools %>%
   mutate(enrol.value = 1) %>%
   rename(sfis = results_tb) %>% 
   group_by(sfis) %>% 
-  summarise(simulated.ade = sum(enrol.value))
+  summarise(ade = sum(enrol.value))
 
 # Update the stored school df with new values
 test <- school_master %>%
-  filter(year == 2011, panel == panel_id, board_type_name == board_id) %>%
+  filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
   select(treso.id.pos, sfis, otg) %>%
   left_join(trip_list_schools_summary, by=c("sfis")) %>%
   left_join(pos_travel_time, by=c("treso.id.pos")) %>%
-  mutate(simulated.utilization = round(simulated.ade / otg, 2)) %>% 
-  replace_na(list(simulated.ade = 0, simulated.utilization = 0))
-      
+  mutate(utilization = round(ade / otg, 2)) %>% 
+  replace_na(list(ade = 0, simulated.utilization = 0))
+
+# 2011 ----
+por_2011 <- readRDS("output/treso_por_2011.rds") %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  select(treso.id.por, enrolment.scaled) %>%
+  right_join(por_full, by=c("treso.id.por" = "orig")) %>%
+  replace_na(list(enrolment.scaled = 0)) %>%
+  arrange(treso.id.por) %>% 
+  column_to_rownames(var = "treso.id.por") %>%
+  data.matrix()
+
+pos_2011 <- school_master %>%
+  filter(year == 2011, panel == panel_id, board_type_name == board_id) %>%
+  select(treso.id.pos, otg) %>%
+  group_by(treso.id.pos) %>%
+  summarise(otg = sum(otg)) %>%
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>%
+  arrange(treso.id.pos) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
+  data.matrix()
+
+prop_matrix2_2011 <- matrix_balancing_1d(prop_matrix, por_2011, pos_2011, constrained=TRUE)
+
+# Save the balanced POR-POS trip list
+trip_list_2011 <- melt(prop_matrix2_2011) %>%
+  arrange(Var1, Var2)
+colnames(trip_list_2011) <- c('treso.id.por', 'treso.id.pos', 'trips')
+
+# Calculate the school weight
+pos_school_weight_2011 <- calculate_school_weight_forecasting(trip_list_2011, school_master, eqao_2017, 2011, panel_id, board_id)
+print(paste0("For ", panel_id, "-", board_id, ", there are ",
+             nrow(filter(pos_school_weight_2011, length(school.weight.prob.list) == 1)),
+             " TRESO zones with a single school, and ",
+             nrow(filter(pos_school_weight_2011, length(school.weight.prob.list) != 1)),
+             " TRESO zones with multiple schools."))
+
+# Apply bucket rounding to chunks of data by TRESO POS
+results_2011 <- by(trip_list_2011$trips, trip_list_2011[c("treso.id.pos")], smart_round, simplify = TRUE)
+
+# Convert the output of by() to a dataframe
+results2_2011 <- sapply(results_2011, I)
+colnames(results2_2011) <- colnames(prop_matrix)
+rownames(results2_2011) <- rownames(prop_matrix)
+
+df_2011 <- melt(results2_2011) %>%
+  arrange(Var1, Var2)
+colnames(df_2011) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+
+pos_travel_time_2011 <- bind_cols(df_2011, select(treso_travel_time, value)) %>%
+  group_by(treso.id.pos) %>%
+  summarise(avg.travel.time = weighted.mean(value, enrolment.rounded)) %>%
+  replace_na(list(avg.travel.time = 0))
+
+# After combining with travel time, trip list can be shortened
+df_2011 <- df_2011 %>% 
+  filter(enrolment.rounded != 0)
+
+# Combine the school weight
+trip_list_2011 <- left_join(df_2011, pos_school_weight_2011, by=c("treso.id.pos"))
+
+plan(multiprocess)
+results_2011 <- future_apply(trip_list_2011, 1, sample_by_row)
+results_tb_2011 <- t(as.data.table(results_2011))
+trip_list_schools_2011 <- cbind(trip_list_2011, results_tb_2011)
+
+trip_list_schools_summary_2011 <- trip_list_schools_2011 %>% 
+  unnest(results_tb_2011) %>%
+  mutate(enrol.value = 1) %>%
+  rename(sfis = results_tb_2011) %>% 
+  group_by(sfis) %>% 
+  summarise(ade = sum(enrol.value))
+
+# New School ----
+new_school <- tibble(lat = 42.96597, long = -82.396048, school.name = "AAA", sfis = 9999,
+                     otg = 300, board_type_name = "English Catholic", panel = "Elementary", year = 2025)
+coordinates(new_school) <- c('long', 'lat')
+# Project the student and school points from lat/long to TRESO's LCC specification
+proj4string(new_school) <- CRS('+proj=longlat +datum=WGS84')
+treso_projarg = treso_shp@proj4string@projargs
+
+new_school_xy <- spTransform(new_school, CRS(treso_projarg))
+school_new <- create_overlay(new_school_xy, treso_shp, type="marker")
+
+school_master_new <- school_master %>% 
+  bind_rows(school_new)
+
+pos_new <- school_master_new %>%
+  filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
+  select(treso.id.pos, otg) %>%
+  group_by(treso.id.pos) %>%
+  summarise(otg = sum(otg)) %>%
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(otg = 0)) %>%
+  arrange(treso.id.pos) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
+  data.matrix()
+
+prop_matrix <- readRDS("cache/cfunc_ECE.rds")
+
+# 1D balance the matrix
+prop_matrix2_new <- matrix_balancing_1d(prop_matrix, por, pos_new, constrained=TRUE)
+
+# Save the balanced POR-POS trip list
+trip_list_new <- melt(prop_matrix2_new) %>%
+  arrange(Var1, Var2)
+colnames(trip_list_new) <- c('treso.id.por', 'treso.id.pos', 'trips')
+
+# Calculate the school weight
+pos_school_weight <- calculate_school_weight_forecasting(trip_list_new, school_master, eqao_2017, 
+                                                         school_new, year_id, panel_id, board_id)
+print(paste0("For ", panel_id, "-", board_id, ", there are ",
+             nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
+             " TRESO zones with a single school, and ",
+             nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
+             " TRESO zones with multiple schools."))
+
+# Apply bucket rounding to chunks of data by TRESO POS
+results_new <- by(trip_list_new$trips, trip_list_new[c("treso.id.pos")], smart_round, simplify = TRUE)
+
+# Convert the output of by() to a dataframe
+results2_new <- sapply(results_new, I)
+colnames(results2_new) <- colnames(prop_matrix)
+rownames(results2_new) <- rownames(prop_matrix)
+
+df_new <- melt(results2_new) %>%
+  arrange(Var1, Var2)
+colnames(df_new) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+
+# After combining with travel time, trip list can be shortened
+df_new <- df_new %>% 
+  filter(enrolment.rounded != 0)
+
+# Combine the school weight
+trip_list_new <- left_join(df_new, pos_school_weight, by=c("treso.id.pos"))
+
+plan(multiprocess)
+results_new <- future_apply(trip_list_new, 1, sample_by_row)
+results_tb_new <- t(as.data.table(results_new))
+trip_list_schools_new <- cbind(trip_list_new, results_tb_new)
+
+trip_list_schools_summary_new <- trip_list_schools_new %>% 
+  unnest(results_tb_new) %>%
+  mutate(enrol.value = 1) %>%
+  rename(sfis = results_tb_new) %>% 
+  group_by(sfis) %>% 
+  summarise(ade = sum(enrol.value))
+
+# Update the stored school df with new values
+test <- school_master %>%  
+  filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
+  bind_rows(school_new) %>% 
+  left_join(trip_list_schools_summary, by=c("sfis")) %>%
+  mutate(ade = ifelse(is.na(simulated.ade), ade, simulated.ade)) %>% 
+  left_join(pos_travel_time, by=c("treso.id.pos")) %>%
+  mutate(avg.travel.time = ifelse(is.na(sim.avg.travel.time), avg.travel.time, sim.avg.travel.time)) %>%
+  mutate(utilization = round(ade / otg, 2)) %>%
+  replace_na(list(utilization = 0))
+
+```
+
+```{r}
+trip_list_2011 %>% select(enrolment.rounded) %>% sum()
+trip_list %>% select(enrolment.rounded) %>% sum()
+trip_list_new %>% select(enrolment.rounded) %>% sum()
+school_master %>% 
+  filter(year ==  2011, board_type_name == "English Catholic", panel == "Elementary") %>% 
+  filter(!(otg == 0 & ade == 0)) %>% 
+  filter(ade / otg <=2) %>% 
+  select(ade) %>% 
+  sum()
+
+trip_list %>% filter(treso.id.por == 6879, enrolment.rounded > 1) %>% arrange(desc(enrolment.rounded))
+trip_list_new %>% filter(treso.id.por == 6879, enrolment.rounded > 1) %>% arrange(desc(enrolment.rounded))
 ```
 
 
