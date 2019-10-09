@@ -2285,7 +2285,7 @@ school_master <- readRDS("output/school_treso_master.rds") %>%
   mutate(panel = ifelse(panel == "S", "Secondary", panel))
 
 # Manually create 2025 student population for zones in Sarnia
-por <- readRDS("output/treso_por_2011.rds") %>%
+por <- readRDS("cache/treso_por_2017.rds") %>%
   # Create 2025 scenario manually
   mutate(enrolment.scaled = replace(enrolment.scaled,
                                     (treso.id.por == 6879 & panel == "Elementary" & board_type_name == "English Catholic"), 
@@ -2293,7 +2293,7 @@ por <- readRDS("output/treso_por_2011.rds") %>%
   mutate(enrolment.scaled = replace(enrolment.scaled,
                                     (treso.id.por == 6877 & panel == "Elementary" & board_type_name == "English Catholic"), 
                                     350)) %>% 
-  saveRDS("output/treso_por_2025.rds")
+  saveRDS("cache/treso_por_2025.rds")
 
 por <- readRDS("output/treso_por_2025.rds") %>%
   filter(panel == panel_id, board_type_name == board_id) %>%
@@ -2870,10 +2870,8 @@ treso_level_sampling_2011 <- observed_2011_treso %>%
 
 # Observed school demand for scaling
 school_sfis_2011 <- readRDS("output/school_treso_master.rds") %>%
-  filter(year == 2011) %>%
-  mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
-  # Remove schools with capacity of 0
-  filter(otg != 0)
+  filter(year == 2011, zero_otg_flag == 0, excessive_util_flag == 0) %>%
+  mutate(utilization = ifelse(otg != 0, ade / otg, 0))
 
 #Scale TRESO sampled enrollemnt to observed school demand by board type and panel
 board_panel_summary_2011 <- school_sfis_2011 %>%
@@ -3132,5 +3130,73 @@ ggplot(data=combined_tlfd_2, aes(x=bin, y=enrolment, fill=flag)) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
   ggtitle(paste0("Closest TLFD - ", board_id, "/", panel_id)) +
   theme_bw()
+```
+
+## Creating TRESO 2017 POR Data
+```{r sample treso population in 2017}
+observed_2011_treso <- readRDS("cache/treso_tb.rds") %>% 
+  select(treso_zone, n_ele_pop, n_sec_pop) %>% 
+  gather(key = "panel", value = "enrolment", n_ele_pop, n_sec_pop) %>% 
+  filter(enrolment > 0) %>% 
+  mutate(panel = ifelse(panel == "n_ele_pop", "Elementary", "Secondary")) %>% 
+  left_join(select(read.csv("input/treso/treso_zone_system.csv"), csduid, csdname, treso_id),
+            by = c("treso_zone" = "treso_id")) %>% 
+  rename(treso.id.por = treso_zone)
+
+board_type_sample_spread <- readRDS("cache/board_type_sample_spread.rds")
+
+# Apply the board sampling probabilities to the students
+treso_level_sampling_2011 <- observed_2011_treso %>%
+  select(treso.id.por, enrolment, panel, csduid) %>%
+  left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
+  group_by(treso.id.por, panel) %>%
+  summarise(
+    csduid = first(csduid),
+    csdname = first(csdname),
+    enrolment = sum(enrolment),
+    `English Catholic` = mean(`English Catholic`),
+    `English Public` = mean(`English Public`),
+    `French Catholic` = mean(`French Catholic`),
+    `French Public` = mean(`French Public`)
+  ) %>%
+  filter(!is.na(csdname)) %>%
+  # Create probability list for sample
+  unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
+  rowwise() %>%
+  mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
+  # Sample the different board types 
+  mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
+  mutate(`English Catholic` = sum(sample.result == "EC"),
+         `English Public` = sum(sample.result == "EP"),
+         `French Catholic` = sum(sample.result == "FC"),
+         `French Public` = sum(sample.result == "FP"))
+
+# Observed school demand for scaling
+school_sfis_2017 <- readRDS("output/school_treso_master.rds") %>%
+  filter(year == 2017, zero_otg_flag == 0, excessive_util_flag == 0) %>%
+  mutate(utilization = ifelse(otg != 0, ade / otg, 0))
+
+#Scale TRESO sampled enrollemnt to observed school demand by board type and panel
+board_panel_summary_2017 <- school_sfis_2017 %>%
+  group_by(board_type_name, panel)%>%
+  summarise (ade.sum = sum(ade)) 
+
+treso_level_sampling_2017_sum <- treso_level_sampling_2011 %>%
+  group_by(panel)%>%
+  summarise(`English Catholic` = sum(`English Catholic`), 
+            `English Public` = sum(`English Public`),
+            `French Catholic` = sum(`French Catholic`),
+            `French Public` = sum(`French Public`)) %>% 
+  gather(key="board_type_name", value="enrolment.sum", `English Catholic`:`French Public`) %>%
+  left_join(board_panel_summary_2017, by=c("panel", "board_type_name")) %>%
+  mutate(ratio = ade.sum/enrolment.sum)
+
+treso_por_2017 <- select(treso_level_sampling_2011, treso.id.por, panel, csduid, csdname, 
+                         `English Catholic`:`French Public`) %>%
+  gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`) %>%
+  left_join(select(treso_level_sampling_2017_sum, panel, board_type_name, ratio), by=c("panel", "board_type_name")) %>%
+  mutate(enrolment.scaled = enrolment * ratio) %>%
+  select(treso.id.por, enrolment.scaled, panel, board_type_name) 
+saveRDS(treso_por_2017, "cache/treso_por_2017.rds")
 ```
 
