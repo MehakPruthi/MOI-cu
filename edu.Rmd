@@ -415,54 +415,6 @@ rm(g, g_subtotal)
 
 ## Travel Time TLFD plots
 
-The intra-zonal travel times from TRESO is 0, this required some extra work to take care of. 
-The assumption is intra-zonal trips which are less than or equal to 2.5 km in length
-are performed by walking at an average speed of 5 km/hr. 
-Intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
-Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and 
-euclidean travel time at 30 km/hr) are set to euclidean travel time.
-
-### 90th Percentile plots
-
-```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
-student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
-  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
-  drop_na(treso.id.por) %>%
-  # Get the travel time skims
-  left_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-  rename(travel.time = value) %>%
-  # Get the school board type names
-  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-  # Get the MOF regions
-  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-  # Get the panel information
-  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-  # expand the rows based on enrollment number
-  uncount(enrolment)
-
-summary(student_tlfd_90$travel.time)
-
-student_tlfd_90 <- student_tlfd_90 %>%
-  # intra-zonal trip assumptions
-  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                        euclidean.dist / 5 * 60,
-                                        euclidean.dist / 30 * 60)) %>%
-  mutate(travel.time = ifelse(travel.time == 0,
-                              euclidean.travel.time,
-                              travel.time)) %>%
-  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
-  mutate(travel.time = ifelse(compare.travel.time > 30,
-                              euclidean.travel.time,
-                              travel.time))
-
-summary(student_tlfd_90$travel.time)
-
-ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
-g <- plot_travel_time_tlfd(student_tlfd_90)
-plot(g)
-```
-
-
 ### Intra-zonal travel time 
 
 The TLFD estimation has some assumptions made for intra-zonal travel times and extremely large travel times.
@@ -528,6 +480,45 @@ travel_time1 <- travel_time %>%
 
 saveRDS(travel_time1, "output/treso_travel_time.rds")
 ```
+
+### 90th Percentile plots
+
+```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
+student_tlfd_90 <- readRDS("output/observed_por_pos_90.rds") %>%
+  # Drop NAs in POR, it didn't overlay on the TRESO shapefile
+  drop_na(treso.id.por) %>%
+  # Get the travel time skims
+  left_join(treso_travel_time, by = c("treso.id.por", "treso.id.pos")) %>%
+  rename(travel.time = value) %>%
+  # Get the school board type names
+  left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
+  # Get the MOF regions
+  left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
+  # Get the panel information
+  left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+  # expand the rows based on enrollment number
+  uncount(enrolment)
+
+summary(student_tlfd_90$travel.time)
+
+ggsave(file = "output/tlfd_90th_percentile.png", plot_travel_time_tlfd(student_tlfd_90), height = 28, width = 10)
+g <- plot_travel_time_tlfd(student_tlfd_90)
+plot(g)
+```
+```{r export travel time in 2017, include = FALSE}
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
+school_travel_time <- readRDS("output/observed_por_pos_90.rds") %>% 
+  drop_na(treso.id.por) %>%
+  left_join(treso_travel_time, by = c("treso.id.por", "treso.id.pos")) %>%
+  rename(travel.time = value) %>%
+  group_by(sfis) %>% 
+  summarise(avg.travel.time = weighted.mean(travel.time, enrolment),
+            avg.travel.dist = weighted.mean(manhattan.dist, enrolment))
+
+saveRDS(school_travel_time, "output/school_travel_2017.rds")
+```
+
 
 ## Exploration of demand modelling methods {.tabset .tabset-fade}
 
@@ -2295,7 +2286,7 @@ por <- readRDS("cache/treso_por_2017.rds") %>%
                                     350)) %>% 
   saveRDS("cache/treso_por_2025.rds")
 
-por <- readRDS("output/treso_por_2025.rds") %>%
+por <- readRDS("cache/treso_por_2025.rds") %>%
   filter(panel == panel_id, board_type_name == board_id) %>%
   select(treso.id.por, enrolment.scaled) %>%
   right_join(por_full, by=c("treso.id.por" = "orig")) %>%
@@ -2870,7 +2861,8 @@ treso_level_sampling_2011 <- observed_2011_treso %>%
 
 # Observed school demand for scaling
 school_sfis_2011 <- readRDS("output/school_treso_master.rds") %>%
-  filter(year == 2011, zero_otg_flag == 0, excessive_util_flag == 0) %>%
+  filter(year == 2011) %>% 
+  filter(zero_otg_flag == 0 | excessive_util_flag == 0) %>%
   mutate(utilization = ifelse(otg != 0, ade / otg, 0))
 
 #Scale TRESO sampled enrollemnt to observed school demand by board type and panel
@@ -3173,7 +3165,8 @@ treso_level_sampling_2011 <- observed_2011_treso %>%
 
 # Observed school demand for scaling
 school_sfis_2017 <- readRDS("output/school_treso_master.rds") %>%
-  filter(year == 2017, zero_otg_flag == 0, excessive_util_flag == 0) %>%
+  filter(year == 2017) %>% 
+  filter(zero_otg_flag == 0 | excessive_util_flag == 0) %>%
   mutate(utilization = ifelse(otg != 0, ade / otg, 0))
 
 #Scale TRESO sampled enrollemnt to observed school demand by board type and panel
