@@ -581,7 +581,7 @@ caretypes <- healthHBAMprojected %>%
   - Age group filters exclude "7 (Missing)"
   - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
   - Filter HBAM CSDs to remove origin CSDs not in Ontario
-  - Join HBAM with Asset data to establish master ID list
+  - Join HBAM with Asset data to establish master ID list (loss of 1,151,954 cases to join)
   
 ```{r, include=FALSE, eval=TRUE}
 # Bed Census Data
