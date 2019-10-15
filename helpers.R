@@ -1,22 +1,23 @@
-# Convert degrees to radians
+
 convertDegrees <- function(deg) {
-  rad <- deg * pi / 180
-  return(rad)
+  #' Convert degrees to radians
+  #' 
+  #' @param deg The degree value to be converted
+  #' @return radian equivalent of the input
+  return(deg * pi / 180)
 }
 
-# Haversine / Euclidean Distance
-haverFunction <- function(lat1, lon1, lat2, lon2){
-  '
-  Calculate the straightline distance between a pair of points.
+haverFunctionEuclidean <- function(lat1, lon1, lat2, lon2) {
+  #' Haversine / Euclidean Distance
+  #' 
+  #' Calculates the euclidean (or crow's fly) distance between two points
+  #' 
+  #' @param lat1 Latitude value of the first point
+  #' @param lon1 Longitude value of the first point
+  #' @param lat2 Latitude value of the second point
+  #' @param lon2 Longitude value of the second point
+  #' @return Euclidean distance in KM between the two points
 
-  Inputs: Point1 lat, Point1 lon, Point2 lat, Point2 lon
-  Output: Straightline distance in km between two points.
-
-  #haversine = sin^2(theta/2)
-  #d = [2r][arcsin(sqrt(hav(lat2 - lat1)+cos(lat1)*cos(lat2)*hav(long2 - long1))]
-  #d = [2r][arcsin(sqrt(sin^2((lat2 - lat1)/2)+cos(lat1)*cos(lat2)*sin^2((long2 - long1)/2)))]
-  '
-  
   earthRadius <- 6378.1 #in km
   lat1Rad <- convertDegrees(lat1)
   lat2Rad <- convertDegrees(lat2)
@@ -30,15 +31,16 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   return(d)
 }
 
-# Manhattan Distance using Haversine
-manhattan <- function(lat1, lon1, lat2, lon2){
-  '
-  Calculate the Manhattan (i.e., grid) distance between a pair of points.
-
-  Inputs: Point1 lat, Point1 lon, Point2 lat, Point2 lon
-  Output: Manhattan distance in km between two points.
-
-  '
+haverFunctionManhattan <- function(lat1, lon1, lat2, lon2) {
+  #' Haversine / Manhattan Distance
+  #' 
+  #' Calculates the manhattan (or grid) distance between two points
+  #' 
+  #' @param lat1 Latitude value of the first point
+  #' @param lon1 Longitude value of the first point
+  #' @param lat2 Latitude value of the second point
+  #' @param lon2 Longitude value of the second point
+  #' @return Manhattan distance in KM between the two points
   
   # Determine 'corner' point in Pythagorean triangle by assiging lat, lon from other points
   lat3 <- lat1
@@ -54,6 +56,13 @@ manhattan <- function(lat1, lon1, lat2, lon2){
 }
 
 balance <- function(matrix, tot, axis) {
+  #' Balance function
+  #' 
+  #' @param matrix The matrix to be balanced
+  #' @param tot The vector to be balanced against
+  #' @param axis The direction of the balance, 1 indicates rows, 2 indicates columns
+  #' @return A balanced matrix
+
   if (axis == 1) {
     sum <- rowSums(matrix)
   } else if (axis == 2) {
@@ -67,14 +76,20 @@ balance <- function(matrix, tot, axis) {
   return(matrix2)
 }
 
-calc_error <- function(matrix, a, b) {
+calc_error <- function(matrix, a, b) {  
+  #' Error calculation function
+  #' 
+  #' @param matrix The matrix
+  #' @param a The row vector
+  #' @param b The column vector
+  #' @return The total difference between the row sum of the matrix and the row vector and the column sum of the matrix and column vector
+
   row_sum <- sum(abs(a - rowSums(matrix)))
   col_sum <- sum(abs(b - colSums(matrix)))
   return(row_sum + col_sum)
 }
 
 matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
-  
   #' One dimensional balances a matrix
   #' 
   #' One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
@@ -136,14 +151,20 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
   return(matrix2)
 }
 
-matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_iterations = 10000, rel_error = 0.0001) {
-  '
-  Two dimensional matrix balancing.
-  
-  Inputs: Propensity matrix, Origin totals to balance against, Destination totals to balance against, 
-          The method of matching the totals, Maximum iterations to be used, Relative error to be required
-  Ouput: Balanced matrix
-  '
+matrix_balancing_2d <- function(matrix, a, b, totals_to_use="raise", max_iterations=10000, rel_error=0.0001) {
+  #' Two dimensional balances a matrix
+  #' 
+  #' Two dimensional matrix balancing with the option to scale the rows or columns to match one another or the average of the two.
+  #' The user can control the number of iterations and the relative error this function uses to terminate the iterative procedure. 
+  #' 
+  #' @param matrix The matrix to be balanced
+  #' @param a The row vector to be balanced against
+  #' @param b The column vector to be balanced against
+  #' @param totals_to_use A flag to determine which totals to use, it could be "row", "column" or "average"
+  #' @param max_iterations The maximum number of iterations this procedure should run for
+  #' @param rel_error The stopping threshold for this procedure
+  #' @return Two dimentionally balanced matrix
+
   valid_totals_to_use = c("rows", "columns", "average", "raise")
   if (!(totals_to_use %in% valid_totals_to_use)) {
     stop("totals_to_use is invalid, not one of ('rows', 'columns', 'average', 'raise')")
@@ -193,9 +214,18 @@ matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_itera
   return(matrix2)
 }
 
-# Calculate the simulated trips based on alpha and beta values
-calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
-  cfunc <- cost %>%
+calculate_simulated_trips <- function(observed_trips, travel_time, alpha, beta) {
+  #' Calculate the simulated trips based on alpha and beta values
+  #' 
+  #' The cost function between every origin and destination pair is computed based on the equation: \eqn{cost = t^{\alpha} * e^{\beta * t|}
+  #' 
+  #' @param observed_trips The observed trip list 
+  #' @param travel_time The travel time matrix
+  #' @param alpha The alpha value to compute the cost function
+  #' @param beta The beta value to compute the cost function
+  #' @return Simulated trips
+  
+  cfunc <- travel_time %>%
     mutate(value = value^alpha * exp(beta*value)) %>%
     replace_na(value = 0.001)
   
@@ -207,27 +237,29 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
     mutate(prob_scaled = value / rowsum) %>%
     select(treso.id.por, treso.id.pos, prob_scaled)
   
-  
-  print(sum(cfunc_rowsums$rowsum))
-  print(sum(t$prob_scaled))
-  
   simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
     group_by(treso.id.por) %>%
     summarise(enrolment = sum(enrolment)) %>%
     left_join(t, by = "treso.id.por") %>%
     mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(cost, by = c("treso.id.por", "treso.id.pos"))
+    left_join(travel_time, by = c("treso.id.por", "treso.id.pos"))
   
   return(simulated_trips)
 }
 
-# Read observed trips and travel time skim with the calculated intra-zonal travel times
-read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
-                                panel_id = "Elementary", board_id = "English Public") {
-  #'
-  #'
-  #'
-  #'
+# TODO check that renaming school_panel_def didn't mess anything up
+read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_panel_def, travel_time_skim,
+                                panel_id = "", board_id = "") {
+  #' Read the observed trip list and return the trips of the specified panel and board type with travel time, travel distance and enrolment
+  #' 
+  #' @param filepath The filepath to the observed trip list
+  #' @param school_board_def The school board definition file to convert DSB index to board types
+  #' @param treso_zone_def The treso zone definition file
+  #' @param school_panel_def The school panel defintion file based on sfis
+  #' @param travel_time_skim The travel time skim 
+  #' @param panel_id The panel id string
+  #' @param board_id The board id string
+  #' @return Observed trip list with 
   
   # Check if panel and board_type_name are valid
   if (!(panel_id %in% c("Elementary", "Secondary")) | !(board_id %in% c("English Public", "English Catholic", "French Public", "French Catholic"))) {
@@ -239,7 +271,7 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     drop_na(treso.id.por) %>%
     left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
     left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-    left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+    left_join(select(school_panel_def, sfis, panel), by = "sfis") %>%
     # Filter the user selected panel and board type name
     filter(panel == panel_id, board_type_name == board_id) %>%
     # Join with travel_time_skim
