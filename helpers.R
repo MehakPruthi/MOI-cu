@@ -199,52 +199,22 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
   
   cfunc_rowsums <- cfunc %>%
     group_by(treso.id.por) %>%
-    summarise(rowsum = sum(value))
+    summarise(rowsum = sum(value)) 
   
   t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
     mutate(prob_scaled = value / rowsum) %>%
-    select(treso.id.por, treso.id.pos, prob_scaled)
+    select(treso.id.por, treso.id.pos, prob_scaled) 
   
-  
-  print(sum(cfunc_rowsums$rowsum))
-  print(sum(t$prob_scaled))
-  
-  simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
-    group_by(treso.id.por) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    left_join(t, by = "treso.id.por") %>%
-    mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(cost, by = c("treso.id.por", "treso.id.pos"))
+  simulated_trips <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
+    cbind(select(t, prob_scaled)) %>%
+    group_by(treso.id.por) %>% 
+    mutate(sum.enrol = sum(enrolment)) %>% 
+    mutate(enrolment = sum.enrol * prob_scaled) %>%
+    arrange(treso.id.por, treso.id.pos)
   
   return(simulated_trips)
 }
 
-# calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
-#   cfunc <- cost %>%
-#     mutate(value = value^alpha * exp(beta*value)) %>%
-#     replace_na(value = 0.001)
-#   
-#   cfunc_rowsums <- cfunc %>%
-#     group_by(treso.id.por) %>%
-#     summarise(rowsum = sum(value))
-#   
-#   t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
-#     mutate(prob_scaled = value / rowsum) %>%
-#     select(treso.id.por, treso.id.pos, prob_scaled)
-#   
-#   
-#   print(sum(cfunc_rowsums$rowsum))
-#   print(sum(t$prob_scaled))
-#   
-#   simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
-#     group_by(treso.id.por) %>%
-#     summarise(enrolment = sum(enrolment)) %>%
-#     left_join(t, by = "treso.id.por") %>%
-#     mutate(enrolment = enrolment * prob_scaled) %>%
-#     left_join(cost, by = c("treso.id.por", "treso.id.pos"))
-#   
-#   return(simulated_trips)
-# }
 
 # Read observed trips and travel time skim with the calculated intra-zonal travel times
 read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
@@ -274,11 +244,13 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     ungroup() %>% 
     # Join with travel_time_skim
     right_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
-    replace_na(list(enrolment = 0, manhattan.dist = 0, euclidean.dist = 0))
-    
+    replace_na(list(enrolment = 0, manhattan.dist = 0, euclidean.dist = 0)) %>% 
+    arrange(treso.id.por, treso.id.pos)
+  
   
   return(observed_trips)
 }
+
 
 trip_mean <- function(zone_trips, calc_type) {
   '
@@ -339,13 +311,13 @@ trip_percentile <- function(zone_trips, calc_type, percentile) {
 
 generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
   obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    mutate(bin = fct_explicit_na(cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))), na_level = "+") %>%
     group_by(bin) %>%
     summarise(enrolment = sum(enrolment)) %>%
     transform(., flag = "obs")
   
   sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
+    mutate(bin = fct_explicit_na(cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))), na_level = "+") %>%
     group_by(bin) %>%
     summarise(enrolment = sum(enrolment)) %>%
     transform(., flag = "model")

@@ -38,6 +38,9 @@ travel_time_skim <- travel_time_skim_square %>%
   filter(orig %in% treso_shp@data$Treso_ID) %>%
   filter(dest %in% treso_shp@data$Treso_ID)
 
+#Full treso travel time matrix
+treso_travel_time <- readRDS('output/treso_travel_time.rds')
+
 # Definition files
 school_board_def <- read_csv("input/edu/school_board_types.csv")
 treso_zone_def <- read.csv("input/treso/treso_zone_system.csv", stringsAsFactors = FALSE)
@@ -793,27 +796,26 @@ rm(board_type_sample, elementary_board_type_sample_spread, secondary_board_type_
 - The estimated `alpha` and `beta` values are saved in .csv file in cache
 
 ```{r estimate tlfd friction function, echo=FALSE, eval=FALSE, fig.width=10, fig.height=8}
-# Read in the travel time skim with intra-zonal assumptions
-treso_travel_time <- readRDS('output/treso_travel_time.rds')
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
-                                          panel_id = "Elementary", board_id = "English Public")
+                                          panel_id = "Elementary", board_id = "English Public") 
+  
 
 # Calculate observed average trip travel time
 tlfd_obs <- sum(observed_trips$value * observed_trips$enrolment) / sum(observed_trips$enrolment)
 print(paste0("For English Public Elementary, the average travel time to be calibrated to is " , tlfd_obs))
 
 # Setup parameters for the cost function iteration
-initbeta <- -1/log(sum(cost$value)) - runif(1)/10
-initalpha <- 1/log(sum(cost$value)) + runif(1)/10
+initbeta <- -1/log(sum(treso_travel_time$value)) - runif(1)/10
+initalpha <- 1/log(sum(treso_travel_time$value)) + runif(1)/10
 beta <- initbeta
 alpha <- initalpha
 max_value = 85
-bin_size = 1
+bin_size = 3
 
 # Iterate through the alpha and beta
-iterations <- 20
+iterations <- 10
 for (j in 1:iterations) {
   print(j)
   
@@ -832,30 +834,18 @@ for (j in 1:iterations) {
     print(paste0("The beta value in this iteriation of the combined function is ", beta))
   }
   
-  obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "obs")
-  
-  sim_tlfd <- select(simulated_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
-    mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
-    group_by(bin) %>%
-    summarise(enrolment = sum(enrolment)) %>%
-    transform(., flag = "model")
-  
   join_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size) %>%
     spread(flag, enrolment) %>%
     mutate(max.enrol = pmax(obs, model), min.enrol = pmin(obs, model))
   
   # Calculate the coincidence ratio
-  minsum = sum(join_tlfd$min.enrol)
-  maxsum = sum(join_tlfd$max.enrol)
+  minsum = sum(join_tlfd$min.enrol, na.rm = TRUE)
+  maxsum = sum(join_tlfd$max.enrol, na.rm = TRUE)
   cr = minsum/maxsum
   print(paste0("The CR value for this iteration is ", cr))
 }
 
-rm(observed_trips, simulated_trips, obs_tlfd, sim_tlfd, join_tlfd, minsum, maxsum, CR, tlfd_sim, tlfd_obs)
+rm(observed_trips, simulated_trips, obs_tlfd, sim_tlfd, join_tlfd, minsum, maxsum, cr, tlfd_sim, tlfd_obs)
 
 ```
 
@@ -868,7 +858,7 @@ Generate the simulated trips using the estimated `alpha` and `beta` values
 panel_id = "Elementary"
 board_id = "English Public"
 max_value = 80
-bin_size = 5
+bin_size = 1
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
@@ -881,10 +871,17 @@ beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
+  geom_col(position = position_dodge(0.5), alpha = 1) +
+  scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
+  theme_bw()
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -934,7 +931,7 @@ por <- observed_por_pos_90 %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
-pos <- observed_por_pos_90 %>%
+pos_otg_constraint <- observed_por_pos_90 %>%
   left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
   filter(panel == panel_id, board_type_name == board_id) %>%
   distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
@@ -946,16 +943,31 @@ pos <- observed_por_pos_90 %>%
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
+pos_enrolment_constraint <- observed_por_pos_90 %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  group_by(treso.id.pos) %>%
+  summarise(enrolment = sum(enrolment)) %>%
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.pos) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
+  data.matrix()
+
 prop_matrix_EPE <- readRDS("cache/cfunc_EPE.rds")
 
 # 1D balacne the matrix
-prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=TRUE)
+prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos_otg_constraint, constrained = TRUE)
+#prop_matrix2_EPE <- matrix_balancing_2d(prop_matrix_EPE, por, pos_otg_constraint, totals_to_use = "rows", max_iterations = 1000, rel_error = 0.01)
 
 # Save the balanced POR-POS trip list
 trip_list_EPE <- melt(prop_matrix2_EPE) %>% 
   arrange(Var1, Var2)
 colnames(trip_list_EPE) <- c('treso.id.por', 'treso.id.pos', 'trips')
 saveRDS(trip_list_EPE, "cache/balanced_trip_list_EPE_constrained.rds")
+
+
+#rm(por, pos, prop_matrix2_EPE, prop_matrix_EPE, trip_list_EPE)
+
 ```
 
 Distribute each the POS demand to the individual schools
@@ -966,7 +978,7 @@ pos_school_weight <- calculate_school_weight(observed_por_pos_90, school_board_d
 
 print(paste0("For ", panel_id, "-", board_id, ", there are ", nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)), " TRESO zones with a single school, and ", nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)), " TRESO zones with multiple schools."))
 
-trip_list_EPE <- readRDS(paste0("cache/balanced_trip_list_EPE.rds")) %>%
+trip_list_EPE <- readRDS(paste0("cache/balanced_trip_list_EPE_unconstrained.rds")) %>%  ## Unconstrained trip list without boolean used
   left_join(pos_school_weight, by = "treso.id.pos")
 
 # Apply bucket rounding to chunks of data by TRESO POS
@@ -1052,29 +1064,31 @@ Generate the simulated trips using the estimated `alpha` and `beta` values
 panel_id = "Secondary"
 board_id = "English Public"
 max_value = 80
-bin_size = 5
+bin_size = 1
 treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
-                                          panel_id = panel_id, board_id = board_id) %>% 
-  rename(distance = euclidean.dist)
+                                          panel_id = panel_id, board_id = board_id)
 
 tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
 alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
 beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
-
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
+
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
   geom_col(position = position_dodge(0.5), alpha = 1) +
   scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EP/SEC - alpha: ", alpha, " beta: ", beta)) +
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
   theme_bw()
-  #theme(panel.background = element_blank())
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -1085,13 +1099,13 @@ CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
 # Save the cost function from the estimated alpha and beta
-cost <- treso_travel_time %>%
+cost <- treso_travel_time %>% 
   mutate(value = value^alpha * exp(beta*value)) %>%
   replace_na(value = 0.001) %>%
-  arrange(treso.id.por, treso.id.pos) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
   spread(key=treso.id.pos, value=value) %>%
   column_to_rownames(var = "treso.id.por") %>%
-  data.matrix() %>%
+  data.matrix() %>% 
   saveRDS("cache/cfunc_EPS.rds")
   
 ```
@@ -1120,7 +1134,7 @@ por <- observed_por_pos_90 %>% #need second half of these two to redirect 2 colu
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix()
 
-pos <- observed_por_pos_90 %>%
+pos_otg_constraint <- observed_por_pos_90 %>%
   left_join(select(school_sfis_2017, otg, sfis), by = "sfis") %>%
   filter(panel == panel_id, board_type_name == board_id) %>%
   distinct(sfis, treso.id.pos, .keep_all = TRUE) %>%
@@ -1132,10 +1146,20 @@ pos <- observed_por_pos_90 %>%
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
+pos_enrolment_constraint <- observed_por_pos_90 %>%
+  filter(panel == panel_id, board_type_name == board_id) %>%
+  group_by(treso.id.pos) %>%
+  summarise(enrolment = sum(enrolment)) %>%
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+  replace_na(list(enrolment = 0)) %>%
+  arrange(treso.id.pos) %>% 
+  column_to_rownames(var = "treso.id.pos") %>%
+  data.matrix()
+
 prop_matrix_EPS <- readRDS("cache/cfunc_EPS.rds")
 
 # 1D balacne the matrix
-prop_matrix2_EPS <- matrix_balancing_1d(prop_matrix_EPS, por, pos, constrained=FALSE)
+prop_matrix2_EPS <- matrix_balancing_1d(prop_matrix_EPS, por, pos_otg_constraint, constrained=FALSE)
 
 # Save the balanced POR-POS trip list
 trip_list_EPS <- melt(prop_matrix2_EPS) %>%
@@ -1238,29 +1262,31 @@ ggplot(data=simulated_compare_EPS.data) +
 panel_id = "Elementary"
 board_id = "English Catholic"
 max_value = 80
-bin_size = 5
+bin_size = 1
 treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
-                                          panel_id = panel_id, board_id = board_id) %>% 
-  rename(distance = euclidean.dist)
+                                          panel_id = panel_id, board_id = board_id)
 
 tlfd_parameter <- read_csv("cache/tlfd_parameters.csv")
 alpha = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$alpha
 beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
-
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
+
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
 
 ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
   geom_col(position = position_dodge(0.5), alpha = 1) +
   scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EP/SEC - alpha: ", alpha, " beta: ", beta)) +
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
   theme_bw()
-  #theme(panel.background = element_blank())
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -1271,13 +1297,13 @@ CR = minsum/maxsum
 print(paste0("The CR value for this iteration is ", CR))
 
 # Save the cost function from the estimated alpha and beta
-cost <- treso_travel_time %>%
+cost <- treso_travel_time %>% 
   mutate(value = value^alpha * exp(beta*value)) %>%
   replace_na(value = 0.001) %>%
-  arrange(treso.id.por, treso.id.pos) %>%
+  arrange(treso.id.por, treso.id.pos) %>% 
   spread(key=treso.id.pos, value=value) %>%
   column_to_rownames(var = "treso.id.por") %>%
-  data.matrix() %>%
+  data.matrix() %>% 
   saveRDS("cache/cfunc_ECE.rds")
 
 ```
@@ -1420,6 +1446,7 @@ panel_id = "Secondary"
 board_id = "English Catholic"
 max_value = 85
 bin_size = 1
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
@@ -1432,10 +1459,17 @@ beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
+  geom_col(position = position_dodge(0.5), alpha = 1) +
+  scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
+  theme_bw()
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -1454,6 +1488,7 @@ cost <- treso_travel_time %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix() %>% 
   saveRDS("cache/cfunc_ECS.rds")
+
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1594,6 +1629,7 @@ panel_id = "Elementary"
 board_id = "French Public"
 max_value = 85
 bin_size = 1
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
@@ -1606,10 +1642,17 @@ beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
+  geom_col(position = position_dodge(0.5), alpha = 1) +
+  scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
+  theme_bw()
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -1628,6 +1671,7 @@ cost <- treso_travel_time %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix() %>% 
   saveRDS("cache/cfunc_FPE.rds")
+
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1768,6 +1812,7 @@ panel_id = "Secondary"
 board_id = "French Public"
 max_value = 85
 bin_size = 1
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
@@ -1780,10 +1825,17 @@ beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
+  geom_col(position = position_dodge(0.5), alpha = 1) +
+  scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
+  theme_bw()
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -1802,6 +1854,8 @@ cost <- treso_travel_time %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix() %>% 
   saveRDS("cache/cfunc_FPS.rds")
+
+
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -1942,6 +1996,7 @@ panel_id = "Elementary"
 board_id = "French Catholic"
 max_value = 85
 bin_size = 1
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
@@ -1954,10 +2009,17 @@ beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
+  geom_col(position = position_dodge(0.5), alpha = 1) +
+  scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
+  theme_bw()
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -1976,6 +2038,7 @@ cost <- treso_travel_time %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix() %>% 
   saveRDS("cache/cfunc_FCE.rds")
+
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
@@ -2116,6 +2179,7 @@ panel_id = "Secondary"
 board_id = "French Catholic"
 max_value = 85
 bin_size = 1
+treso_travel_time <- readRDS("output/treso_travel_time.rds")
 
 observed_trips <- read_observed_trips("output/observed_por_pos_90.rds", school_board_def,
                                           treso_zone_def, school_sfis_2017, treso_travel_time,
@@ -2128,10 +2192,17 @@ beta = filter(tlfd_parameter, panel == panel_id, board_type == board_id)$beta
 simulated_trips <- calculate_simulated_trips(observed_trips, treso_travel_time, alpha=alpha, beta=beta)
 combined_tlfd <- generate_tlfd(observed_trips, simulated_trips, max_value, bin_size)
 
-ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
-  geom_line(size = 1) +
+# ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, group=flag, color=flag)) +
+#   geom_line(size = 1) +
+#   theme(axis.text.x = element_text(angle=90, hjust=1)) +
+#   ggtitle(paste0("EP/ELEM - alpha: ", alpha, " beta: ", beta))
+
+ggplot(data=combined_tlfd, aes(x=bin, y=enrolment, fill=flag)) +
+  geom_col(position = position_dodge(0.5), alpha = 1) +
+  scale_fill_manual(values = c("obs" = "#a73b90", "model" = "#f3aba2")) +
   theme(axis.text.x = element_text(angle=90, hjust=1)) +
-  ggtitle(paste0("EC/ELEM - alpha: ", alpha, " beta: ", beta))
+  ggtitle(paste0(board_id, "/", panel_id, " - alpha: ", alpha, " beta: ", beta)) +
+  theme_bw()
 
 tlfdjoin <- spread(combined_tlfd, flag, enrolment) %>%
   mutate(max.enrol = pmax(obs, model)) %>%
@@ -2150,6 +2221,8 @@ cost <- treso_travel_time %>%
   column_to_rownames(var = "treso.id.por") %>%
   data.matrix() %>% 
   saveRDS("cache/cfunc_FCS.rds")
+
+
 ```
 
 1D balance the POR and weight by POS using the calibrated cfunc stored in simulated trips
