@@ -219,6 +219,33 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
   return(simulated_trips)
 }
 
+# calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
+#   cfunc <- cost %>%
+#     mutate(value = value^alpha * exp(beta*value)) %>%
+#     replace_na(value = 0.001)
+#   
+#   cfunc_rowsums <- cfunc %>%
+#     group_by(treso.id.por) %>%
+#     summarise(rowsum = sum(value))
+#   
+#   t <- left_join(cfunc, cfunc_rowsums, by = "treso.id.por") %>%
+#     mutate(prob_scaled = value / rowsum) %>%
+#     select(treso.id.por, treso.id.pos, prob_scaled)
+#   
+#   
+#   print(sum(cfunc_rowsums$rowsum))
+#   print(sum(t$prob_scaled))
+#   
+#   simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
+#     group_by(treso.id.por) %>%
+#     summarise(enrolment = sum(enrolment)) %>%
+#     left_join(t, by = "treso.id.por") %>%
+#     mutate(enrolment = enrolment * prob_scaled) %>%
+#     left_join(cost, by = c("treso.id.por", "treso.id.pos"))
+#   
+#   return(simulated_trips)
+# }
+
 # Read observed trips and travel time skim with the calculated intra-zonal travel times
 read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
                                 panel_id = "Elementary", board_id = "English Public") {
@@ -240,13 +267,15 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
     # Filter the user selected panel and board type name
     filter(panel == panel_id, board_type_name == board_id) %>%
-    # Join with travel_time_skim
-    left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
     group_by(treso.id.por, treso.id.pos) %>%
-    summarise(value = weighted.mean(value, enrolment),
-              manhattan.dist = weighted.mean(manhattan.dist, enrolment),
+    summarise(manhattan.dist = weighted.mean(manhattan.dist, enrolment),
               euclidean.dist = weighted.mean(euclidean.dist, enrolment),
-              enrolment = sum(enrolment))
+              enrolment = sum(enrolment)) %>% 
+    ungroup() %>% 
+    # Join with travel_time_skim
+    right_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
+    replace_na(list(enrolment = 0, manhattan.dist = 0, euclidean.dist = 0))
+    
   
   return(observed_trips)
 }
