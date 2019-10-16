@@ -138,7 +138,7 @@ baseyearmodels_adj <- baseyearmodels %>%
   mutate(Year = Year + max(crthrs2$year))
 
 ##Create starting year part rates, then calculate starting year (most recent data year)hours
-crtrs_master <- crthrs2 %>% 
+crthrs_master <- crthrs2 %>% 
   na.omit() %>% 
   mutate(pop_rate = hours/population) %>% 
   left_join(baseyearmodels_adj, by = c('year' = 'Year')) %>% 
@@ -147,7 +147,7 @@ crtrs_master <- crthrs2 %>%
          mod3_cust = weight_custom*pop_rate)
 
 ## Calculate the base year part rate by model
-baseyear <- crtrs_master %>% 
+baseyear <- crthrs_master %>% 
   group_by(location, address, cd, casetypes) %>% 
   summarise_at(c('mod1_5y','mod2_cr','mod3_cust'),sum) %>%
   left_join(filter(ontpopx_long, year == starting_forecast_year), by = c('cd', 'casetypes'))
