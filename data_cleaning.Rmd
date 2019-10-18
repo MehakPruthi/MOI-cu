@@ -1277,3 +1277,39 @@ ALC_master <- rbind(siteid_ALC, facilityid_ALC)
 ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalALCdays))
 
 ```
+
+# Court Data Cleaning
+
+## Import Court Data
+
+```{r import court data}
+court_master <- read_csv("input/mag/MAG_asset_inventory.csv") %>% 
+  rename(year = Collection_Year, bid = BID, name = BuildingName, address = Address1,
+         postal.code = PostalCode, city = City, courthouse.lat = Latitude, courthouse.long = Longitude,
+         courtrooms = Courtrooms, region = Region, rentable.square.feet = Rentable_square_feet,
+         gross.square.feet = Gross_square_feet) %>% 
+  mutate(gross.square.feet = as.numeric(gross.square.feet)) %>% 
+  replace_na(list(gross.square.feet = 0))
+```
+
+## Clean Courthouse Master List
+
+```{r clean courthouse}
+# There are some wrong lat/long info
+court_master <- court_master %>%
+  filter(name != "Big Trout Lake Fly-in Court") %>% # This is a fly-in satelite courthouse
+  mutate(courthouse.lat = replace(courthouse.lat, name == "Essex County SCJ Courthouse", 42.3185169)) %>% 
+  mutate(courthouse.long = replace(courthouse.long, name == "Essex County SCJ Courthouse", -83.0389607)) %>% 
+  mutate(courthouse.lat = replace(courthouse.lat, name == "Frontenac County Courthouse", 44.2278027)) %>%
+  mutate(courthouse.long = replace(courthouse.long, name == "Frontenac County Courthouse", -76.4919045)) %>% 
+  mutate(courthouse.lat = replace(courthouse.lat, name == "Ignace Satellite Court", 49.4166267)) %>%
+  mutate(courthouse.long = replace(courthouse.long, name == "Ignace Satellite Court", -91.6638118)) %>% 
+  mutate(courthouse.lat = replace(courthouse.lat, name == "Sioux Lookout Courthouse", 50.0992084)) %>%
+  mutate(courthouse.long = replace(courthouse.long, name == "Sioux Lookout Courthouse", -91.9163588)) %>% 
+  mutate(courthouse.lat = replace(courthouse.lat, name == "Armstrong Fly-In Court", 50.3036023)) %>%
+  mutate(courthouse.long = replace(courthouse.long, name == "Armstrong Fly-In Court", -89.03744)) %>% 
+  mutate(courthouse.lat = replace(courthouse.lat, name == "Exeter Satellite Court", 43.3490773)) %>%
+  mutate(courthouse.long = replace(courthouse.long, name == "Exeter Satellite Court", -81.4812056))
+saveRDS(court_master, "cache/mag/courthouse_master.rds")
+```
+
