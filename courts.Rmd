@@ -10,6 +10,8 @@ library(stringr)
 library(tidyr)
 ```
 
+
+
 # Court-Hours Forecasting
 
 ## Import Data
@@ -17,7 +19,7 @@ library(tidyr)
   - Clean Data
   - SHOULD THIS BE ADDED TO 'DATA CLEANING' RMD?
 ```{r}
-crthrs <- read.csv('C:/Users/cane070735/Documents/MOI/Modelling/Courts/Model/MAG_CRT_HRS_DB.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
+crthrs <- read.csv('input/mag/MAG_CRT_HRS_DB.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
   rename(SCJfam = 'SCJ._FAMILY') %>% 
   mutate(Year = as.numeric(str_sub(Year, 1,4)),
          location = toupper(LOCATION),
@@ -38,7 +40,7 @@ crthrs <- read.csv('C:/Users/cane070735/Documents/MOI/Modelling/Courts/Model/MAG
          no_crtrms = "Number.of.courtrooms",
          total = TOTAL)
 
-ontpop <- read.csv('C:/Users/cane070735/Documents/MOI/Modelling/Courts/Model/MOF_POP.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
+ontpop <- read.csv('input/mag/MOF_POP.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
   mutate(SGCId = as.numeric(SGCId) - 3500) %>% 
   rename(year = 'Year',
          age = 'Age',
@@ -48,7 +50,9 @@ ontpop <- read.csv('C:/Users/cane070735/Documents/MOI/Modelling/Courts/Model/MOF
          region = 'Region',
          cd = 'SGCId')
 
-city_cd_xwalk <- read.csv('C:/Users/cane070735/Documents/MOI/Modelling/Courts/Model/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
+treso_population <- readRDS("popsyn-scaling/output/treso_populations.rds")
+
+city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
   select(short_name = 'Short.Name',
          cd_name = 'CD_Name',
          cd = 'CD_Number') %>% 
@@ -61,8 +65,8 @@ city_cd_xwalk <- read.csv('C:/Users/cane070735/Documents/MOI/Modelling/Courts/Mo
   - Create Business Line parameter matrices
   
 ```{r}
-casetypes <- c('OCJCrim','SCJCrim','OCJFam','SCJFam','Civil','SmaC' )
-maxmagage <- c(49,49,59,17,69,69)
+casetypes <- c('OCJCrim','SCJCrim','OCJFam','SCJFam','Civil','SmaC' ) ##OCJFam & SCJFam age groups are flipped - Salah Flipped them back
+maxmagage <- c(49,49,17,59,69,69)
 minmagage <- c(12,18,0,0,20,20)
 projperiod <- 10
 baseyearmodels <- tibble('Year'=c(-4,-3,-2,-1,0),
@@ -232,8 +236,8 @@ for(proj in 6:length(projection))
   ##convert the number of crt_hrs into a utilization rate for conversion to number of courtrooms
   projection_temp<-projection_temp%>%
     left_join(cur,by=c('casetypes'))%>%
-    mutate(UT=ifelse(X<=inflect_hrs,base_hrs_dy+(inflect_hrs_dy-base_hrs_dy)*(X/inflect_hrs),
-              ifelse(X>inflect_hrs& X<=max_hrs,inflect_hrs_dy+(max_hrs-inflect_hrs)*(X-inflect_hrs)/(max_hrs-inflect_hrs)
+    mutate(UT=ifelse(X<=inflect_hrs,base_hrs_dy+(inflect_hrs_dy-base_hrs_dy)/(inflect_hrs-0) *(X),
+              ifelse(X>inflect_hrs& X<=max_hrs,inflect_hrs_dy+(max_hrs_dy-inflect_hrs_dy)*(X-inflect_hrs)/(max_hrs-inflect_hrs)
               ,max_hrs_dy)))%>%
     mutate(space=round(X/(UT*249),digits = 2))
   
