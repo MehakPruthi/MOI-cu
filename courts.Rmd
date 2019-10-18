@@ -40,23 +40,30 @@ crthrs <- read.csv('input/mag/MAG_CRT_HRS_DB.csv', stringsAsFactors = FALSE, hea
          no_crtrms = "Number.of.courtrooms",
          total = TOTAL)
 
-ontpop <- read.csv('input/mag/MOF_POP.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
-  mutate(SGCId = as.numeric(SGCId) - 3500) %>% 
-  rename(year = 'Year',
-         age = 'Age',
-         sex = 'Sex',
-         pop = 'Population',
-         forecast = 'Forecast',
-         region = 'Region',
-         cd = 'SGCId')
+## We are replacing MOI's ontario population forecasts with treso populations 
+# ontpop <- read.csv('input/mag/MOF_POP.csv', stringsAsFactors = FALSE, header = TRUE) %>%
+#   mutate(SGCId = as.numeric(SGCId) - 3500) %>%
+#   rename(year = 'Year',
+#          age = 'Age',
+#          sex = 'Sex',
+#          pop = 'Population',
+#          forecast = 'Forecast',
+#          region = 'Region',
+#          cd = 'SGCId')
 
-treso_population <- readRDS("popsyn-scaling/output/treso_populations.rds")
+treso_population <- readRDS("input/mag/treso_population_mag.rds")
 
-city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
-  select(short_name = 'Short.Name',
-         cd_name = 'CD_Name',
-         cd = 'CD_Number') %>% 
-  mutate(short_name = toupper(short_name))
+
+## We are matching Treso zones to CD's
+treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
+
+
+##No need for this anymore
+# city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
+#   select(short_name = 'Short.Name',
+#          cd_name = 'CD_Name',
+#          cd = 'CD_Number') %>% 
+#   mutate(short_name = toupper(short_name))
 
 
 ```
@@ -81,39 +88,110 @@ starting_forecast_year <- max(crthrs$year)
 
 ```{r}
 ##Population Preparation
-ontpopx <- ontpop %>% 
-  distinct(year,
-           cd) %>% 
-  filter(year > 2000)
+# ontpopx <- ontpop %>%
+#   distinct(year,
+#            cd) %>%
+#   filter(year > 2000)
 
-##Loop to capture population by CD within Business Line age ranges by year
-for(i in 1:length(casetypes)) {
-  holdingdf <- ontpop %>% 
-    filter(age >= minmagage[i] &
-           age <= maxmagage[i] &
-           year > 2000) %>% 
-    group_by(year, cd) %>% 
-    summarise(casetypes = sum(pop, na.rm = TRUE))
-  
-  colnames(holdingdf)[length(holdingdf)] <- casetypes[i]
-  
-  ontpopx <- left_join(ontpopx, holdingdf, by = c('year', 'cd'))
-}
+treso_population_x <- treso_population %>% 
+  left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id")) %>% 
+  select(-csduid) %>% 
+  rename_at(vars(3:19), funs(substr(.,12,15))) %>% 
+  gather(key="year", value = "population", -treso_zone, -age_group, -cduid)
 
-rm(holdingdf)
+#transform age ranges to business line populations
+treso_population_OCJCrim <- treso_population_x %>% 
+  group_by(treso_zone, year) %>% 
+  filter(age_group == "12-17" | age_group=="18" | age_group=="19" | age_group =="20-49") %>% 
+  mutate(OCJCrim = sum(population))%>% 
+  summarise(OCJCrim = first(OCJCrim))
+
+treso_population_SCJCrim <- treso_population_x %>% 
+  group_by(treso_zone, year) %>% 
+  filter(age_group=="18" | age_group=="19" | age_group =="20-49") %>% 
+  mutate(SCJCrim = sum(population))%>% 
+  summarise(SCJCrim = first(SCJCrim))
+
+treso_population_OCJFam <- treso_population_x %>% 
+  group_by(treso_zone, year) %>% 
+  filter(age_group=="0-11" | age_group=="12-17") %>% 
+  mutate(OCJFam = sum(population))%>% 
+  summarise(OCJFam = first(OCJFam))
+
+treso_population_SCJFam <- treso_population_x %>% 
+  group_by(treso_zone, year) %>% 
+  filter(age_group=="0-11" | age_group=="12-17" | age_group=="18" | age_group=="19" | age_group =="20-49" | age_group =="50-59") %>% 
+  mutate(SCJFam = sum(population))%>% 
+  summarise(SCJFam = first(SCJFam))
+
+treso_population_Civil <- treso_population_x %>% 
+  group_by(treso_zone, year) %>% 
+  filter(age_group =="20-49" | age_group =="50-59"| age_group =="60-69") %>% 
+  mutate(Civil = sum(population))%>% 
+  summarise(Civil = first(Civil))
+
+treso_population_Smac <- treso_population_x %>% 
+  group_by(treso_zone, year) %>% 
+  filter(age_group =="20-49" | age_group =="50-59"| age_group =="60-69") %>% 
+  mutate(Smac = sum(population)) %>% 
+  summarise(Smac = first(Smac))
+
+treso_population_bl <- treso_population_x %>% 
+  select(-age_group, - population) %>% 
+  group_by(treso_zone, year) %>% 
+  left_join(select(treso_population_OCJCrim, OCJCrim, treso_zone, year), by = c("treso_zone", "year")) %>% 
+  left_join(select(treso_population_SCJCrim, SCJCrim, treso_zone, year), by = c("treso_zone", "year")) %>%
+  left_join(select(treso_population_OCJFam, OCJFam, treso_zone, year), by = c("treso_zone", "year")) %>%
+  left_join(select(treso_population_SCJFam, SCJFam, treso_zone, year), by = c("treso_zone", "year")) %>%
+  left_join(select(treso_population_Civil, Civil, treso_zone, year), by = c("treso_zone", "year")) %>%
+  left_join(select(treso_population_Smac, Smac, treso_zone, year), by = c("treso_zone", "year")) %>% 
+  summarise(OCJCrim = first(OCJCrim), SCJCrim = first(SCJCrim), OCJFam = first(OCJFam), SCJFam = first(SCJFam), Civil = first(Civil), Smac = first(Smac)) %>% 
+  left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id"))
+  
+rm(treso_population_Smac, treso_population_Civil, treso_population_SCJFam, treso_population_OCJFam, treso_population_SCJCrim, treso_population_OCJCrim)
+
+# ##Loop to capture population by CD within Business Line age ranges by year
+# for(i in 1:length(casetypes)) {
+#   holdingdf <- ontpop %>% 
+#     filter(age >= minmagage[i] &
+#            age <= maxmagage[i] &
+#            year > 2000) %>% 
+#     group_by(year, cd) %>% 
+#     summarise(casetypes = sum(pop, na.rm = TRUE))
+#   
+#   colnames(holdingdf)[length(holdingdf)] <- casetypes[i]
+#   
+#   ontpopx <- left_join(ontpopx, holdingdf, by = c('year', 'cd'))
+# }
+# 
+# rm(holdingdf)
 
 ##Calculate population growth rates
-ontpopx_long <- ontpopx %>%
+
+treso_population_bl_long <- treso_population_bl %>%
   rename(civil = 'Civil',
          OCJcrim = 'OCJCrim',
          SCJcrim = 'SCJCrim',
          OCJfam = 'OCJFam',
          SCJfam = 'SCJFam',
-         smac = 'SmaC') %>% 
-  gather(casetypes,population,OCJcrim:smac) %>% 
-  arrange(cd, casetypes , year) %>% 
-  mutate(gr_rate = (population/lag(population))) %>% 
-  filter(year != 2001)
+         smac = 'Smac') %>%
+  gather(casetypes,population,OCJcrim:smac) %>%
+  arrange(treso_zone, casetypes , year) %>%
+  mutate(gr_rate = (population/lag(population))) %>%
+  mutate(gr_rate = replace(gr_rate, year == "2016", NA))
+
+
+# ontpopx_long <- ontpopx %>%
+#   rename(civil = 'Civil',
+#          OCJcrim = 'OCJCrim',
+#          SCJcrim = 'SCJCrim',
+#          OCJfam = 'OCJFam',
+#          SCJfam = 'SCJFam',
+#          smac = 'SmaC') %>%
+#   gather(casetypes,population,OCJcrim:smac) %>%
+#   arrange(cd, casetypes , year) %>%
+#   mutate(gr_rate = (population/lag(population))) %>%
+#   filter(year != 2001)
 
 
 ## The lag function simply applies the value of one row to the one previous
