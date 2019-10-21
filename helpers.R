@@ -697,8 +697,8 @@ create_court_xy <- function(court_master) {
   # Convert the school dataframe into SpatialPointsDataframe
   court_spdf <- court_master %>%
     ungroup() %>%
-    select(BID, Latitude, Longitude) %>%
-    mutate(lat = Latitude, long = Longitude) %>%
+    select(bid, courthouse.lat, courthouse.long) %>%
+    mutate(lat = courthouse.lat, long = courthouse.long) %>%
     mutate(id = row_number())
   coordinates(court_spdf) <- c('long', 'lat')
   
@@ -761,11 +761,11 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
   else if (type == 'court') {
     # Find the treso zones which the school points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(lat = xy_location@data$Latitude,
-            long = xy_location@data$Longitude,
-            BID = xy_location@data$BID) %>%
+      cbind(lat = xy_location@data$courthouse.lat,
+            long = xy_location@data$courthouse.long,
+            bid = xy_location@data$bid) %>%
       as_tibble() %>%
-      select(Treso_ID, BID, lat, long) %>%
+      select(Treso_ID, bid, lat, long) %>%
       rename(treso.id.pos = Treso_ID)
   }
   else if (type == 'marker') {

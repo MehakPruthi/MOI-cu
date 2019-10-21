@@ -66,10 +66,10 @@ treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
 
 
 ##No need for this anymore
-# city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
+# city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>%
 #   select(short_name = 'Short.Name',
 #          cd_name = 'CD_Name',
-#          cd = 'CD_Number') %>% 
+#          cd = 'CD_Number') %>%
 #   mutate(short_name = toupper(short_name))
 
 
@@ -160,15 +160,15 @@ rm(treso_population_Smac, treso_population_Civil, treso_population_SCJFam, treso
 
 # ##Loop to capture population by CD within Business Line age ranges by year
 # for(i in 1:length(casetypes)) {
-#   holdingdf <- ontpop %>% 
+#   holdingdf <- ontpop %>%
 #     filter(age >= minmagage[i] &
 #            age <= maxmagage[i] &
-#            year > 2000) %>% 
-#     group_by(year, cd) %>% 
+#            year > 2000) %>%
+#     group_by(year, cd) %>%
 #     summarise(casetypes = sum(pop, na.rm = TRUE))
-#   
+# 
 #   colnames(holdingdf)[length(holdingdf)] <- casetypes[i]
-#   
+# 
 #   ontpopx <- left_join(ontpopx, holdingdf, by = c('year', 'cd'))
 # }
 # 
@@ -208,23 +208,34 @@ treso_population_bl_long <- treso_population_bl %>%
 
 
 ##Match courts with TRESO IDs
-create_court_xy(read_csv("input/mag/MAG_asset_inventory.csv"))
+court_xy <- create_court_xy(readRDS("cache/mag/courthouse_master.rds"))
   # Create the overlays to get the TRESO zone each court XY coordinate falls on
-  court_overlay <- create_overlay(court_xy, treso_shp, "court") %>% 
+court_overlay <- create_overlay(court_xy, treso_shp, "court") %>% 
     rename("treso_id" = "treso.id.pos")
-  saveRDS(court_overlay, "cache/court_overlay.rds")
+saveRDS(court_overlay, "cache/court_overlay.rds")
 
-##Assign courts to CD name/number
-crthrs2 <- crthrs %>% 
-  select(-region,
-         -total) %>% 
-  left_join(select(city_cd_xwalk, short_name, cd_name, cd), by = c('location' = 'short_name')) %>% 
-  gather(casetypes, hours, civil:smac) %>% 
-  left_join(select(ontpopx_long, -gr_rate), by = c('year', 'casetypes', 'cd')) %>% 
-  filter(!is.na(population))
 
-missingvalues <- crthrs2 %>% 
-  filter(is.na(population))
+##sum up from the treso population to the cd population of the courts and attach a treso id to each court all to the crthrs2
+
+
+
+
+
+
+  
+#No need for below anymore
+  
+# #Assign courts to CD name/number
+# crthrs2 <- crthrs %>%
+#   select(-region,
+#          -total) %>%
+#   left_join(select(city_cd_xwalk, short_name, cd_name, cd), by = c('location' = 'short_name')) %>%
+#   gather(casetypes, hours, civil:smac) %>%
+#   left_join(select(ontpopx_long, -gr_rate), by = c('year', 'casetypes', 'cd')) %>%
+#   filter(!is.na(population))
+# 
+# missingvalues <- crthrs2 %>%
+#   filter(is.na(population))
 
 ```
 
