@@ -687,6 +687,30 @@ create_school_xy_simple <- function(school_sfis) {
   return(school_xy)
 }
 
+create_court_xy <- function(court_master) {
+  '
+  This function takes in the court dataframe. 
+  
+  input: Dataframe of court with lat long
+  output: SpatialPointsDataFrame of each court
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  court_spdf <- court_master %>%
+    ungroup() %>%
+    select(bid, courthouse.lat, courthouse.long) %>%
+    mutate(lat = courthouse.lat, long = courthouse.long) %>%
+    mutate(id = row_number())
+  coordinates(court_spdf) <- c('long', 'lat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(court_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  court_xy <- spTransform(court_spdf, CRS(treso_projarg))
+  
+  return(court_xy)
+}
+
 create_overlay <- function(xy_location, treso_shp, type = 'student') {
   '
   This function takes the SpatialPointsDataFrame of either school or students and maps the
@@ -732,6 +756,16 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
             sfis = xy_location@data$sfis) %>%
       as_tibble() %>%
       select(Treso_ID, sfis, school.lat, school.long) %>%
+      rename(treso.id.pos = Treso_ID)
+  }
+  else if (type == 'court') {
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(lat = xy_location@data$courthouse.lat,
+            long = xy_location@data$courthouse.long,
+            bid = xy_location@data$bid) %>%
+      as_tibble() %>%
+      select(Treso_ID, bid, lat, long) %>%
       rename(treso.id.pos = Treso_ID)
   }
   else if (type == 'marker') {

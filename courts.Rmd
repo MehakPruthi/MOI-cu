@@ -8,6 +8,7 @@ library(tidyverse)
 library(magrittr)
 library(stringr)
 library(tidyr)
+source("helpers.R")
 ```
 
 
@@ -19,6 +20,12 @@ library(tidyr)
   - Clean Data
   - SHOULD THIS BE ADDED TO 'DATA CLEANING' RMD?
 ```{r}
+
+# TRESO 
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_tb <- readRDS("cache/treso_tb.rds")
+
+
 crthrs <- read.csv('input/mag/MAG_CRT_HRS_DB.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
   rename(SCJfam = 'SCJ._FAMILY') %>% 
   mutate(Year = as.numeric(str_sub(Year, 1,4)),
@@ -59,10 +66,10 @@ treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
 
 
 ##No need for this anymore
-# city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
+# city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>%
 #   select(short_name = 'Short.Name',
 #          cd_name = 'CD_Name',
-#          cd = 'CD_Number') %>% 
+#          cd = 'CD_Number') %>%
 #   mutate(short_name = toupper(short_name))
 
 
@@ -80,7 +87,7 @@ baseyearmodels <- tibble('Year'=c(-4,-3,-2,-1,0),
                             'Weight_5y'=c(.2,.2,.2,.2,.2),
                             'Weight_cr'=c(0,0,0,0,1),
                             'weight_custom'=c(0,0,0,0,0))
-starting_forecast_year <- max(crthrs$year)
+#starting_forecast_year <- max(crthrs$year)
 
 ```
 
@@ -93,13 +100,14 @@ starting_forecast_year <- max(crthrs$year)
 #            cd) %>%
 #   filter(year > 2000)
 
+##input and manipulate treso zone level population data by age groups
 treso_population_x <- treso_population %>% 
   left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id")) %>% 
   select(-csduid) %>% 
-  rename_at(vars(3:19), funs(substr(.,12,15))) %>% 
+  rename_at(vars(3:24), funs(substr(.,12,15))) %>% 
   gather(key="year", value = "population", -treso_zone, -age_group, -cduid)
 
-#transform age ranges to business line populations
+#transform age ranges to business line populations by zone and projection year
 treso_population_OCJCrim <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
   filter(age_group == "12-17" | age_group=="18" | age_group=="19" | age_group =="20-49") %>% 
@@ -152,15 +160,15 @@ rm(treso_population_Smac, treso_population_Civil, treso_population_SCJFam, treso
 
 # ##Loop to capture population by CD within Business Line age ranges by year
 # for(i in 1:length(casetypes)) {
-#   holdingdf <- ontpop %>% 
+#   holdingdf <- ontpop %>%
 #     filter(age >= minmagage[i] &
 #            age <= maxmagage[i] &
-#            year > 2000) %>% 
-#     group_by(year, cd) %>% 
+#            year > 2000) %>%
+#     group_by(year, cd) %>%
 #     summarise(casetypes = sum(pop, na.rm = TRUE))
-#   
+# 
 #   colnames(holdingdf)[length(holdingdf)] <- casetypes[i]
-#   
+# 
 #   ontpopx <- left_join(ontpopx, holdingdf, by = c('year', 'cd'))
 # }
 # 
@@ -178,7 +186,7 @@ treso_population_bl_long <- treso_population_bl %>%
   gather(casetypes,population,OCJcrim:smac) %>%
   arrange(treso_zone, casetypes , year) %>%
   mutate(gr_rate = (population/lag(population))) %>%
-  mutate(gr_rate = replace(gr_rate, year == "2016", NA))
+  mutate(gr_rate = replace(gr_rate, year == "2011", NA))
 
 
 # ontpopx_long <- ontpopx %>%
@@ -198,17 +206,36 @@ treso_population_bl_long <- treso_population_bl %>%
 ## that means taht it will join different case types in the first year
 ##the first year should be dropped, this also removes NAs introduced by the function
 
-##Assign courts to CD name/number
-crthrs2 <- crthrs %>% 
-  select(-region,
-         -total) %>% 
-  left_join(select(city_cd_xwalk, short_name, cd_name, cd), by = c('location' = 'short_name')) %>% 
-  gather(casetypes, hours, civil:smac) %>% 
-  left_join(select(ontpopx_long, -gr_rate), by = c('year', 'casetypes', 'cd')) %>% 
-  filter(!is.na(population))
 
-missingvalues <- crthrs2 %>% 
-  filter(is.na(population))
+##Match courts with TRESO IDs
+court_xy <- create_court_xy(readRDS("cache/mag/courthouse_master.rds"))
+  # Create the overlays to get the TRESO zone each court XY coordinate falls on
+court_overlay <- create_overlay(court_xy, treso_shp, "court") %>% 
+    rename("treso_id" = "treso.id.pos")
+saveRDS(court_overlay, "cache/court_overlay.rds")
+
+
+##sum up from the treso population to the cd population of the courts and attach a treso id to each court all to the crthrs2
+
+
+
+
+
+
+  
+#No need for below anymore
+  
+# #Assign courts to CD name/number
+# crthrs2 <- crthrs %>%
+#   select(-region,
+#          -total) %>%
+#   left_join(select(city_cd_xwalk, short_name, cd_name, cd), by = c('location' = 'short_name')) %>%
+#   gather(casetypes, hours, civil:smac) %>%
+#   left_join(select(ontpopx_long, -gr_rate), by = c('year', 'casetypes', 'cd')) %>%
+#   filter(!is.na(population))
+# 
+# missingvalues <- crthrs2 %>%
+#   filter(is.na(population))
 
 ```
 
