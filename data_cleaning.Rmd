@@ -1466,7 +1466,12 @@ court_master <- read_csv("input/mag/MAG_asset_inventory.csv") %>%
 ```{r clean courthouse}
 # There are some wrong lat/long info
 court_master <- court_master %>%
-  filter(name != "Big Trout Lake Fly-in Court") %>% # This is a fly-in satelite courthouse
+   # Remove duplicated courthouses (most of these are not main components)
+  filter(name != "Big Trout Lake Fly-in Court", name != "Portable Holding Cells",
+         name != "OVSS Office", name != "Gore Bay Courthouse - Office",
+         name != "Sudbury Courthouse Annex", name != "Barrie Land Registry Office",
+         name != "Barrie Courthouse - Modular Addition", name != "Newmarket Courthouse - Modular Addition",
+         name != "Parry Sound Jail - Holding Cells", name != "Portable Secure Holding Cells (Trailers)") %>%
   mutate(courthouse.lat = replace(courthouse.lat, name == "Essex County SCJ Courthouse", 42.3185169)) %>% 
   mutate(courthouse.long = replace(courthouse.long, name == "Essex County SCJ Courthouse", -83.0389607)) %>% 
   mutate(courthouse.lat = replace(courthouse.lat, name == "Frontenac County Courthouse", 44.2278027)) %>%
