@@ -11,8 +11,6 @@ library(RODBC)
 library(sp)
 library(rgdal)
 library(rgeos)
-# library(modeest)
-# library(genefilter)
 source("helpers.R")
 ```
 
@@ -1466,7 +1464,7 @@ courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>%
   rename_at(vars(contains(",_")), funs(sub(",_", "_", .))) %>% 
   rename(number_of_courtrooms = "number of courtrooms") %>% 
   mutate(year = as.numeric(substr(year, 1, 4))) %>% 
-  mutate(city = capitalize(tolower(city)),
+  mutate(city = stringr::str_to_title(city),
          region = toupper(tolower(region)))
 ```
 
@@ -1476,19 +1474,81 @@ courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>%
 - There is a mismatch between asset data and historical data, the asset data splits up the satellite courthouses while the historical data combines them as one entry
 
 ```{r clean courthouse}
+
+courthouse_asset <- courthouse_asset %>%
+   # Remove entries wh ich are not base court or satelite court
+  filter(building.type %in% c("Base Court", "Satellite Court")) %>%
+  # Remove entries manually
+  filter(!(city == "Barrie" & courtrooms == 0)) %>% 
+  filter(name != "Milton Courthouse (Double with 18784)") %>% 
+  filter(name != "Sarnia Courthouse- Land Registry Office Building") %>% 
+  filter(name != "Newmarket Courthouse - Modular Addition") %>% 
+  filter(!(city == "Sault Ste. Marie" & courtrooms == 0)) %>% 
+  filter(!(city == "Sudbury" & courtrooms == 0))
+
+# Group the 3 Toronto Courthouses into 1 entry at 130 QUEEN, 330/393 UNIVERSITY St
+temp <- filter(courthouse_asset, address %in% c("130 Queen St W", "393 University Ave", "330 University Ave")) %>% 
+  group_by(city) %>% 
+  summarise(courtrooms = sum(courtrooms),
+            rentable.square.feet = sum(rentable.square.feet), 
+            gross.square.feet = sum(gross.square.feet))
+
+courthouse_asset <- courthouse_asset %>% 
+  filter(!(address %in% c("130 Queen St W", "330 University Ave"))) %>% 
+  mutate(courtrooms = replace(courtrooms, address == "393 University Ave", temp$courtrooms)) %>% 
+  mutate(rentable.square.feet = replace(rentable.square.feet, address == "393 University Ave", temp$rentable.square.feet)) %>% 
+  mutate(gross.square.feet = replace(gross.square.feet, address == "393 University Ave", temp$gross.square.feet))
+
 # Spread the 5 year data into wide format
 courthouse_hours_wide <- courthouse_hours %>% 
   gather(variable, value, -(year:address)) %>% 
   unite(temp, year, variable) %>%
-  spread(key = "temp", value = "value")
+  spread(key = "temp", value = "value") %>% 
+  mutate(city = replace(city, city == "L'orignal", "L'Orignal")) %>% 
+  mutate(address = ifelse(is.na(address), address, paste0(address, " St"))) %>% 
+  mutate(address = replace(address, address == "36 Wyndham St", "36 Wyndham St S")) %>% 
+  mutate(address = replace(address, address == "245 Windsor St", "245 Windsor Ave")) %>% 
+  mutate(address = replace(address, address == "48 Spruce St", "48 Spruce Street North")) %>% 
+  mutate(address = replace(address, address == "1023 King St", "1023-1025 King St")) %>% 
+  mutate(address = replace(address, address == "97 Thomas St", "97 Thomas St E")) %>% 
+  mutate(address = replace(address, address == "49 Place D'Armes St", "49 Place D'Armes")) %>% 
+  mutate(address = replace(address, address == "55 Main St", "55 Main St W")) %>% 
+  mutate(address = replace(address, address == "45 Main St", "45 Main Street E")) %>% 
+  mutate(address = replace(address, address == "70 Simcoe St", "70-110 Simcoe St")) %>% 
+  mutate(address = replace(address, address == "1000 FINCH St", "1000 Finch Ave W")) %>% 
+  mutate(address = replace(address, address == "2201 FINCH St", "2201 Finch Ave W")) %>% 
+  mutate(address = replace(address, address == "361 UNIVERSITY St", "361 University Ave")) %>%
+  mutate(address = replace(address, address == "130 QUEEN, 330/393 UNIVERSITY St", "393 University Ave")) %>% 
+  mutate(address = replace(address, address == "311 JARVIS St", "311 Jarvis St")) %>% 
+  mutate(address = replace(address, address == "COLLEGE PARK St", "444 Yonge Street")) %>% 
+  mutate(address = replace(address, address == "OLD CITY HALL St", "60 Queen St W"))
 
-courthouse_asset <- courthouse_asset %>%
-   # Remove entries which are not base court or satelite court
-  filter(building.type %in% c("Base Court", "Satellite Court")) %>%
-  # Remove entries manually
-  filter(!(grepl("Barrie", name) & courtrooms == 0))
+# Join the courthouse_asset dataset to get lat/long information
+courthouse_hours_wide_location <- courthouse_hours_wide %>% 
+  left_join(select(courthouse_asset, bid, name, address, city, courthouse.lat, courthouse.long), by = c("city", "address")) %>% 
+  left_join(select(distinct(courthouse_asset, city, .keep_all = TRUE), bid, name, address, city, courthouse.lat, courthouse.long), by = c("city")) %>%
+  mutate(bid = ifelse(is.na(bid.x), bid.y, bid.x)) %>% 
+  mutate(name = ifelse(is.na(name.x), name.y, name.x)) %>% 
+  mutate(address = ifelse(is.na(address.x), address.y, address.x)) %>% 
+  mutate(courthouse.lat = ifelse(is.na(courthouse.lat.x), courthouse.lat.y, courthouse.lat.x)) %>% 
+  mutate(courthouse.long = ifelse(is.na(courthouse.long.x), courthouse.long.y, courthouse.long.x)) %>% 
+  select(-bid.x, -bid.y, -name.x, -name.y, -address.x, -address.y,
+         -courthouse.lat.x, -courthouse.lat.y, -courthouse.long.x, -courthouse.long.y)
 
-print(paste0("There is a difference between the number of courthouses in the asset data (", nrow(courthouse_asset), "), and the number of courthouses in the historical data (", nrow(courthouse_hours_wide), "). Thus, certain assumptions must be made to combine "))
+# Overlay on TRESO zones to get the CDUID
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
+court_xy <- create_court_xy(courthouse_hours_wide_location)
+court_overlay <- create_overlay(court_xy, treso_shp, type = "court")
+court_overlay <- court_overlay %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(courthouse_hours_wide_location, by = "bid")
+
+# Save the court hour dataset
+saveRDS(court_overlay, "cache/mag/courthouse_hours.rds")
+
+# There is a difference between courthouse_hours data and courthouse_asset data in terms of the number of courtrooms
+print(paste0("There is a difference between the number of courtrooms in the asset data (", sum(courthouse_asset$courtrooms), "), and the number of courtrooms in the historical data (", sum(courthouse_hours_wide_location$`2018_number_of_courtrooms`), "). Thus, certain assumptions must be made to combine the two dataset"))
 
 saveRDS(courthouse_asset, "cache/mag/courthouse_master.rds")
 ```
