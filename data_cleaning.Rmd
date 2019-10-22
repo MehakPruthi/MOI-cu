@@ -1561,7 +1561,7 @@ court_overlay <- court_overlay %>%
 
 
 #issue long form of court hour dataset for easy use
-court_overlay_long <- unique(court_overlay) %>% #Remove unique after Paul fixes duplicates
+court_overlay_long <- court_overlay %>%
   gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
   separate(year, c("year", "casetypes"), sep = 4)
 
