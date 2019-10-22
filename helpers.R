@@ -765,6 +765,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
             long = xy_location@data$courthouse.long,
             bid = xy_location@data$bid) %>%
       as_tibble() %>%
+      mutate(bid = as.character(bid)) %>% 
       select(Treso_ID, bid, lat, long) %>%
       rename(treso.id.pos = Treso_ID)
   }

@@ -1553,28 +1553,44 @@ courthouse_hours_wide_location <- courthouse_hours_wide %>%
 # Overlay on TRESO zones to get the CDUID
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
-court_xy <- create_court_xy(courthouse_hours_wide_location)
-court_overlay <- create_overlay(court_xy, treso_shp, type = "court")
-court_overlay <- court_overlay %>% 
+courthouse_hours_xy <- create_court_xy(courthouse_hours_wide_location)
+courthouse_hours_overlay <- create_overlay(courthouse_hours_xy, treso_shp, type = "court")
+courthouse_hours_overlay <- courthouse_hours_overlay %>% 
   left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
   left_join(courthouse_hours_wide_location, by = "bid")
 
 # Save the wide court hour dataset
-saveRDS(court_overlay, "cache/mag/courthouse_hours.rds")
+saveRDS(courthouse_hours_overlay, "cache/mag/courthouse_hours.rds")
 
-
-
-#issue long form of court hour dataset for easy use
-court_overlay_long <- unique(court_overlay) %>% #Remove unique after Paul fixes duplicates
+# issue long form of court hour dataset for easy use
+court_overlay_long <- unique(courthouse_hours_overlay) %>% #Remove unique after Paul fixes duplicates
   gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
   separate(year, c("year", "casetypes"), sep = 4) %>% 
   spread(key = casetypes, value = value)
 
+# Relying on the assumption that satellite courthouses are 1 courtroom and satellite courthouses are within the same
+# CD as the base courthouse, create an ID system for the courthouse asset
+courthouse_asset_xy <- create_court_xy(courthouse_asset)
+courthouse_asset_overlay <- create_overlay(courthouse_asset_xy, treso_shp, type = "court") %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(courthouse_asset, by = "bid") %>% 
+  mutate(building.type = replace(building.type, building.type %in% c("Office", "Court Support Office"), "Base Court")) %>% 
+  select(-courtrooms) %>% 
+  left_join(select_at(courthouse_hours_overlay, vars(bid, contains("number_of_courtrooms"))), by = "bid")
+
+# Distribute the base courthouse's courtrooms to satellite courthouses
+multiple_courthouse_asset <- courthouse_asset_overlay %>% 
+  mutate_at(vars(contains("number_of_courtrooms")), funs(ifelse(is.na(.), 1, .))) %>% 
+  group_by(cdname, bid, name, lat, long, treso.id.pos, building.type) %>%
+  summarise_at(vars(contains("number_of_courtrooms")), sum) %>% 
+  filter(building.type == "Base Court") %>% 
+  group_by(cdname) %>% 
+  summarise(mutilple.basecourts.tag = ifelse(n() > 1, 1, 0))
+
+courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset, by = "cdname") %>% 
+  group_by(cdname, )
 
 
-
-# There is a difference between courthouse_hours data and courthouse_asset data in terms of the number of courtrooms
-print(paste0("There is a difference between the number of courtrooms in the asset data (", sum(courthouse_asset$courtrooms), "), and the number of courtrooms in the historical data (", sum(courthouse_hours_wide_location$`2018_number_of_courtrooms`), "). Thus, certain assumptions must be made to combine the two dataset"))
 
 saveRDS(courthouse_asset, "cache/mag/courthouse_master.rds")
 
