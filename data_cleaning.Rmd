@@ -1536,7 +1536,7 @@ courthouse_hours_wide_location <- courthouse_hours_wide %>%
          -courthouse.lat.x, -courthouse.lat.y, -courthouse.long.x, -courthouse.long.y)
 
 # Overlay on TRESO zones to get the CDUID
-treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 court_xy <- create_court_xy(courthouse_hours_wide_location)
 court_overlay <- create_overlay(court_xy, treso_shp, type = "court")
@@ -1544,8 +1544,19 @@ court_overlay <- court_overlay %>%
   left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
   left_join(courthouse_hours_wide_location, by = "bid")
 
-# Save the court hour dataset
+# Save the wide court hour dataset
 saveRDS(court_overlay, "cache/mag/courthouse_hours.rds")
+
+
+
+#issue long form of court hour dataset for easy use
+court_overlay_long <- unique(court_overlay) %>% #Remove unique after Paul fixes duplicates
+  gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
+  separate(year, c("year", "casetypes"), sep = 4) %>% 
+  spread(key = casetypes, value = value)
+
+
+
 
 # There is a difference between courthouse_hours data and courthouse_asset data in terms of the number of courtrooms
 print(paste0("There is a difference between the number of courtrooms in the asset data (", sum(courthouse_asset$courtrooms), "), and the number of courtrooms in the historical data (", sum(courthouse_hours_wide_location$`2018_number_of_courtrooms`), "). Thus, certain assumptions must be made to combine the two dataset"))
