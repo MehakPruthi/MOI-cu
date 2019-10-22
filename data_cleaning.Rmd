@@ -1544,18 +1544,17 @@ court_overlay <- court_overlay %>%
   left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
   left_join(courthouse_hours_wide_location, by = "bid")
 
-# Save the wide court hour dataset
-saveRDS(court_overlay, "cache/mag/courthouse_hours.rds")
-
-
 
 #issue long form of court hour dataset for easy use
 court_overlay_long <- unique(court_overlay) %>% #Remove unique after Paul fixes duplicates
   gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
-  separate(year, c("year", "casetypes"), sep = 4) %>% 
-  spread(key = casetypes, value = value)
+  separate(year, c("year", "casetypes"), sep = 4)
+
+court_overlay_long$casetypes <- substring(court_overlay_long$casetypes, 2)
 
 
+# Save the wide court hour dataset
+saveRDS(court_overlay_long, "cache/mag/courthouse_hours.rds")
 
 
 # There is a difference between courthouse_hours data and courthouse_asset data in terms of the number of courtrooms
