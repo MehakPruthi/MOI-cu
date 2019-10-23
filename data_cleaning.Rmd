@@ -1453,10 +1453,12 @@ ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalA
 courthouse_asset <- read_csv("input/mag/Court asset data.csv") %>% 
   select(year = Collection_Year, bid = BID, name = BuildingName, address = Address1,
          postal.code = PostalCode, city = City, courthouse.lat = Latitude, courthouse.long = Longitude,
-         building.type = BuildingType, courtrooms = Courtrooms, region = Region, rentable.square.feet = Rentable_square_feet,
+         building.type = BuildingType, courtrooms = Courtrooms, region = Region, 
+         rentable.square.feet = Rentable_square_feet,
          gross.square.feet = Gross_square_feet) %>% 
   mutate(gross.square.feet = as.numeric(gross.square.feet), courtrooms = as.numeric(courtrooms)) %>% 
   replace_na(list(gross.square.feet = 0, courtrooms = 0)) %>% 
+  mutate(courtrooms = ifelse(building.type == "Satellite Court" & courtrooms == 0, 1, courtrooms)) %>% 
   mutate(city = replace(city, name == "Toronto SCJ + Family Courthouse", "Toronto")) %>% 
   mutate(city = replace(city, name == "Toronto Courthouse", "Toronto"))
 
@@ -1584,9 +1586,10 @@ courthouse_asset_overlay <- create_overlay(courthouse_asset_xy, treso_shp, type 
                                  "Base Court")) %>% 
   # There are a few satellite courts in Sudbury but base court is in Greater Sudbury, replace those manually
   mutate(cdname = replace(cdname, cdname == "Sudbury", "Greater Sudbury / Grand Sudbury")) %>% 
-  mutate(cduid = replace(cduid, cduid == 3552, 3553)) %>% 
-  select(-courtrooms) %>% 
-  left_join(select_at(courthouse_hours_overlay, vars(bid, contains("number_of_courtrooms"))), by = "bid")
+  mutate(cduid = replace(cduid, cduid == 3552, 3553)) %>%
+  left_join(select(courthouse_hours_overlay, bid, `2018_number_of_courtrooms`), by = "bid") %>% 
+  mutate(courtrooms = ifelse(building.type == "Satellite Court", courtrooms, `2018_number_of_courtrooms`)) %>% 
+  select(-`2018_number_of_courtrooms`)
 
 # Distribute the base courthouse's courtrooms to satellite courthouses
 multiple_courthouse_asset <- courthouse_asset_overlay %>% 
@@ -1596,9 +1599,38 @@ multiple_courthouse_asset <- courthouse_asset_overlay %>%
 
 courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset, by = "cdname") 
 
+multiple_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
+  filter(building.type == "Satellite Court") %>% 
+  group_by(cdname) %>% 
+  summarise(total.satellite.rooms = sum(courtrooms))
+
 multiple_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
-  select_at(vars(bid, cdname, cduid, name, lat, long, building.type, contains("number_of_courtrooms"))) %>%    
-  mutate_at(vars(contains("number_of_courtrooms")), funs(ifelse(building.type == "Satellite Court", 1, .)))
+  left_join(multiple_basecourts_satellite_rooms, by = "cdname") %>% 
+  replace_na(list("total.satellite.rooms" = 0))
+
+multiple_basecourts_satellite_room_share <- multiple_basecourts %>% 
+  filter(building.type == "Base Court") %>% 
+  group_by(cdname) %>% 
+  mutate(total.base.courts = n()) %>% 
+  ungroup() %>% 
+  mutate(share.of.satellite = total.satellite.rooms / total.base.courts) %>% 
+  arrange(cdname)
+
+# Apply bucket rounding to chunks of data by TRESO POS
+bucket_round_share <- by(multiple_basecourts_satellite_room_share$share.of.satellite, 
+                         multiple_basecourts_satellite_room_share[c("cdname")], smart_round, simplify = FALSE)
+
+# Convert the output of by() to a dataframe
+temp <- sapply(bucket_round_share, I) %>% 
+  data.table::melt() %>% 
+  rename(share.of.satellite.rounded = value, cdname = L1) %>% 
+  mutate(share.of.satellite.rounded = as.numeric(share.of.satellite.rounded)) %>% 
+  arrange(cdname) %>% 
+  select(-cdname) %>% 
+  cbind(multiple_basecourts_satellite_room_share) %>% 
+  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - share.of.satellite.rounded, courtrooms))
+
+# If there are negative courtooms in any base courts, move them over from another base court
 
 single_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
   select_at(vars(bid, cdname, cduid, name, building.type, contains("number_of_courtrooms"))) %>%    
