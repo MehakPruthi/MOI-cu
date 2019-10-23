@@ -1514,7 +1514,7 @@ courthouse_asset <- courthouse_asset %>%
   filter(name != "OPP Sally Port") %>% 
   filter(name != "Elliot Lake Victim Witness Assiatance Program Office") %>% 
   filter(name != "Renfrew SCJ Small Claims Administration Office") %>% 
-  filter(name != "Land Registry Office") %>% 
+  filter(!(city == "St. Thomas" & courtrooms == 0)) %>% 
   filter(!(city == "Barrie" & courtrooms == 0)) %>% 
   filter(!(city == "Sault Ste. Marie" & courtrooms == 0)) %>% 
   filter(!(city == "Sudbury" & courtrooms == 0)) 
@@ -1562,12 +1562,13 @@ courthouse_hours_overlay <- courthouse_hours_overlay %>%
 # Save the wide court hour dataset
 saveRDS(courthouse_hours_overlay, "cache/mag/courthouse_hours.rds")
 
-# issue long form of court hour dataset for easy use
-court_overlay_long <- unique(courthouse_hours_overlay) %>% #Remove unique after Paul fixes duplicates
+#issue long form of court hour dataset for easy use
+court_overlay_long <- courthouse_hours_overlay %>%
   gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
   separate(year, c("year", "casetypes"), sep = 4) %>% 
+  mutate(casetypes = substring(casetypes, 2)) %>% 
   spread(key = casetypes, value = value)
-
+  
 rm(temp)
 ```
 
