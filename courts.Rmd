@@ -26,51 +26,16 @@ treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatinea
 treso_tb <- readRDS("cache/treso_tb.rds")
 
 
-crthrs <- read.csv('input/mag/MAG_CRT_HRS_DB.csv', stringsAsFactors = FALSE, header = TRUE) %>% 
-  rename(SCJfam = 'SCJ._FAMILY') %>% 
-  mutate(Year = as.numeric(str_sub(Year, 1,4)),
-         location = toupper(LOCATION),
-         SCJfam = FAMILY_COURT_BRANCH + SCJfam,
-         smac = DIVISIONAL_COURT + SMALL_CLAIMS_COURT) %>% 
-  select(year = Year,
-         location,
-         address = ADDRESS,
-         region = REGION,
-         civil = CIVIL,
-         SCJdiv = DIVISIONAL_COURT,
-         famcb = FAMILY_COURT_BRANCH,
-         OCJcrim= 'OCJ._CRIMINAL',
-         OCJfam= 'OCJ._FAMILY',
-         SCJcrim= 'SCJ._CRIMINAL',
-         SCJfam,
-         smac,
-         no_crtrms = "Number.of.courtrooms",
-         total = TOTAL)
+#updated courthouse hrs dataset (update in date_cleaning.rmd)
+crthrs <- readRDS("cache/mag/courthouse_hours.rds")
 
-## We are replacing MOI's ontario population forecasts with treso populations 
-# ontpop <- read.csv('input/mag/MOF_POP.csv', stringsAsFactors = FALSE, header = TRUE) %>%
-#   mutate(SGCId = as.numeric(SGCId) - 3500) %>%
-#   rename(year = 'Year',
-#          age = 'Age',
-#          sex = 'Sex',
-#          pop = 'Population',
-#          forecast = 'Forecast',
-#          region = 'Region',
-#          cd = 'SGCId')
 
+#cleaned treso population estimates from 2011-2041
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
 
 
-## We are matching Treso zones to CD's
+## To match Treso zones to CDs and courts
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
-
-
-##No need for this anymore
-# city_cd_xwalk <- read.csv('input/mag/Muni_cd_xwalk.csv', stringsAsFactors = FALSE, header = TRUE) %>%
-#   select(short_name = 'Short.Name',
-#          cd_name = 'CD_Name',
-#          cd = 'CD_Number') %>%
-#   mutate(short_name = toupper(short_name))
 
 
 ```
@@ -87,92 +52,72 @@ baseyearmodels <- tibble('Year'=c(-4,-3,-2,-1,0),
                             'Weight_5y'=c(.2,.2,.2,.2,.2),
                             'Weight_cr'=c(0,0,0,0,1),
                             'weight_custom'=c(0,0,0,0,0))
-#starting_forecast_year <- max(crthrs$year)
+starting_forecast_year <- max(crthrs$year) #update with paul's list
 
 ```
 
 ## Data Preparation
 
 ```{r}
-##Population Preparation
-# ontpopx <- ontpop %>%
-#   distinct(year,
-#            cd) %>%
-#   filter(year > 2000)
 
 ##input and manipulate treso zone level population data by age groups
 treso_population_x <- treso_population %>% 
   left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id")) %>% 
   select(-csduid) %>% 
   rename_at(vars(3:24), funs(substr(.,12,15))) %>% 
-  gather(key="year", value = "population", -treso_zone, -age_group, -cduid)
+  gather(key="year", value = "population", -treso_zone, -age.group, -cduid)
 
 #transform age ranges to business line populations by zone and projection year
 treso_population_OCJCrim <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
-  filter(age_group == "12-17" | age_group=="18" | age_group=="19" | age_group =="20-49") %>% 
+  filter(age.group == "12-17" | age.group=="18" | age.group=="19" | age.group =="20-49") %>% 
   mutate(OCJCrim = sum(population))%>% 
   summarise(OCJCrim = first(OCJCrim))
 
 treso_population_SCJCrim <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
-  filter(age_group=="18" | age_group=="19" | age_group =="20-49") %>% 
+  filter(age.group=="18" | age.group=="19" | age.group =="20-49") %>% 
   mutate(SCJCrim = sum(population))%>% 
   summarise(SCJCrim = first(SCJCrim))
 
 treso_population_OCJFam <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
-  filter(age_group=="0-11" | age_group=="12-17") %>% 
+  filter(age.group=="0-11" | age.group=="12-17") %>% 
   mutate(OCJFam = sum(population))%>% 
   summarise(OCJFam = first(OCJFam))
 
 treso_population_SCJFam <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
-  filter(age_group=="0-11" | age_group=="12-17" | age_group=="18" | age_group=="19" | age_group =="20-49" | age_group =="50-59") %>% 
+  filter(age.group=="0-11" | age.group=="12-17" | age.group=="18" | age.group=="19" | age.group =="20-49" | age.group =="50-59") %>% 
   mutate(SCJFam = sum(population))%>% 
   summarise(SCJFam = first(SCJFam))
 
 treso_population_Civil <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
-  filter(age_group =="20-49" | age_group =="50-59"| age_group =="60-69") %>% 
+  filter(age.group =="20-49" | age.group =="50-59"| age.group =="60-69") %>% 
   mutate(Civil = sum(population))%>% 
   summarise(Civil = first(Civil))
 
 treso_population_Smac <- treso_population_x %>% 
   group_by(treso_zone, year) %>% 
-  filter(age_group =="20-49" | age_group =="50-59"| age_group =="60-69") %>% 
+  filter(age.group =="20-49" | age.group =="50-59"| age.group =="60-69") %>% 
   mutate(Smac = sum(population)) %>% 
   summarise(Smac = first(Smac))
 
 treso_population_bl <- treso_population_x %>% 
-  select(-age_group, - population) %>% 
+  select(-age.group, - population) %>% 
   group_by(treso_zone, year) %>% 
-  left_join(select(treso_population_OCJCrim, OCJCrim, treso_zone, year), by = c("treso_zone", "year")) %>% 
-  left_join(select(treso_population_SCJCrim, SCJCrim, treso_zone, year), by = c("treso_zone", "year")) %>%
-  left_join(select(treso_population_OCJFam, OCJFam, treso_zone, year), by = c("treso_zone", "year")) %>%
-  left_join(select(treso_population_SCJFam, SCJFam, treso_zone, year), by = c("treso_zone", "year")) %>%
-  left_join(select(treso_population_Civil, Civil, treso_zone, year), by = c("treso_zone", "year")) %>%
-  left_join(select(treso_population_Smac, Smac, treso_zone, year), by = c("treso_zone", "year")) %>% 
+  full_join(select(treso_population_OCJCrim, OCJCrim, treso_zone, year), by = c("treso_zone", "year")) %>% 
+  full_join(select(treso_population_SCJCrim, SCJCrim, treso_zone, year), by = c("treso_zone", "year")) %>%
+  full_join(select(treso_population_OCJFam, OCJFam, treso_zone, year), by = c("treso_zone", "year")) %>%
+  full_join(select(treso_population_SCJFam, SCJFam, treso_zone, year), by = c("treso_zone", "year")) %>%
+  full_join(select(treso_population_Civil, Civil, treso_zone, year), by = c("treso_zone", "year")) %>%
+  full_join(select(treso_population_Smac, Smac, treso_zone, year), by = c("treso_zone", "year")) %>% 
   summarise(OCJCrim = first(OCJCrim), SCJCrim = first(SCJCrim), OCJFam = first(OCJFam), SCJFam = first(SCJFam), Civil = first(Civil), Smac = first(Smac)) %>% 
-  left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id"))
+  left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id")) %>% 
+  replace(., is.na(.), 0)
   
 rm(treso_population_Smac, treso_population_Civil, treso_population_SCJFam, treso_population_OCJFam, treso_population_SCJCrim, treso_population_OCJCrim)
-
-# ##Loop to capture population by CD within Business Line age ranges by year
-# for(i in 1:length(casetypes)) {
-#   holdingdf <- ontpop %>%
-#     filter(age >= minmagage[i] &
-#            age <= maxmagage[i] &
-#            year > 2000) %>%
-#     group_by(year, cd) %>%
-#     summarise(casetypes = sum(pop, na.rm = TRUE))
-# 
-#   colnames(holdingdf)[length(holdingdf)] <- casetypes[i]
-# 
-#   ontpopx <- left_join(ontpopx, holdingdf, by = c('year', 'cd'))
-# }
-# 
-# rm(holdingdf)
 
 ##Calculate population growth rates
 
@@ -184,58 +129,19 @@ treso_population_bl_long <- treso_population_bl %>%
          SCJfam = 'SCJFam',
          smac = 'Smac') %>%
   gather(casetypes,population,OCJcrim:smac) %>%
-  arrange(treso_zone, casetypes , year) %>%
-  mutate(gr_rate = (population/lag(population))) %>%
-  mutate(gr_rate = replace(gr_rate, year == "2011", NA))
-
-
-# ontpopx_long <- ontpopx %>%
-#   rename(civil = 'Civil',
-#          OCJcrim = 'OCJCrim',
-#          SCJcrim = 'SCJCrim',
-#          OCJfam = 'OCJFam',
-#          SCJfam = 'SCJFam',
-#          smac = 'SmaC') %>%
-#   gather(casetypes,population,OCJcrim:smac) %>%
-#   arrange(cd, casetypes , year) %>%
-#   mutate(gr_rate = (population/lag(population))) %>%
-#   filter(year != 2001)
-
-
-## The lag function simply applies the value of one row to the one previous
-## that means taht it will join different case types in the first year
-##the first year should be dropped, this also removes NAs introduced by the function
-
-
-##Match courts with TRESO IDs
-court_xy <- create_court_xy(readRDS("cache/mag/courthouse_master.rds"))
-  # Create the overlays to get the TRESO zone each court XY coordinate falls on
-court_overlay <- create_overlay(court_xy, treso_shp, "court") %>% 
-    rename("treso_id" = "treso.id.pos")
-saveRDS(court_overlay, "cache/court_overlay.rds")
-
+  arrange(treso_zone, casetypes , year)
 
 ##sum up from the treso population to the cd population of the courts and attach a treso id to each court all to the crthrs2
 
+treso_population_rolled_cd <- treso_population_bl_long %>% 
+  group_by(year, cduid,casetypes) %>%
+  summarise(population = sum(population))
 
-
-
-
-
-  
-#No need for below anymore
-  
-# #Assign courts to CD name/number
-# crthrs2 <- crthrs %>%
-#   select(-region,
-#          -total) %>%
-#   left_join(select(city_cd_xwalk, short_name, cd_name, cd), by = c('location' = 'short_name')) %>%
-#   gather(casetypes, hours, civil:smac) %>%
-#   left_join(select(ontpopx_long, -gr_rate), by = c('year', 'casetypes', 'cd')) %>%
-#   filter(!is.na(population))
-# 
-# missingvalues <- crthrs2 %>%
-#   filter(is.na(population))
+crthrs2 <- crthrs %>% ##this needs to be updated with the table paul is updating
+  left_join(treso_population_rolled_cd, by = c('year', 'casetypes', 'cduid')) %>% 
+  mutate_at("year", as.numeric) %>% 
+  rename(hours = value, treso_id = treso.id.pos) %>% 
+  select(-lat, -long, -csduid, -csdname, - courthouse.lat, - courthouse.long)
 
 ```
 
@@ -248,62 +154,35 @@ baseyearmodels_adj <- baseyearmodels %>%
 
 ##Create starting year part rates, then calculate starting year (most recent data year)hours
 crthrs_master <- crthrs2 %>% 
-  na.omit() %>% 
   mutate(pop_rate = hours/population) %>% 
   left_join(baseyearmodels_adj, by = c('year' = 'Year')) %>% 
   mutate(mod1_5y = Weight_5y*pop_rate,
          mod2_cr = Weight_cr*pop_rate,
          mod3_cust = weight_custom*pop_rate)
 
-## Calculate the base year part rate by model
+## Calculate the base year part rate by model to be applied to future years
 baseyear <- crthrs_master %>% 
-  group_by(location, address, cd, casetypes) %>% 
-  summarise_at(c('mod1_5y','mod2_cr','mod3_cust'),sum) %>%
-  left_join(filter(ontpopx_long, year == starting_forecast_year), by = c('cd', 'casetypes'))
+  group_by(bid, name, treso_id, cduid, casetypes) %>%
+  summarise_at(c('mod1_5y','mod2_cr','mod3_cust'),sum)
 
-## add in the starting year population and calculate starting hours
-baseyear_proj <- baseyear %>%
-  select(-gr_rate) %>% 
-  mutate(proj1_5y = round(mod1_5y*population,digits=2),
-         proj2_cr = round(mod2_cr*population,digits=2),
-         proj3_cust = round(mod3_cust*population,digits = 2))
 ```
 
 ## Projections
 
 ```{r}
-##create final table and modify ontpopx to projection years
-projection <- baseyear_proj %>% 
-  select(-mod1_5y,
-         -mod2_cr,
-         -mod3_cust,
-         -population)
+##develop table that applies the 5-year rate to projection years by business lines - rate calculation method can be changed later on
 
-ontpop_proj_years <- ontpopx_long %>% 
-  select(-population)%>% 
-  filter(year >= starting_forecast_year,
-         year <= (starting_forecast_year + projperiod)) 
+future_pop_bl <- baseyear %>%
+  left_join(treso_population_rolled_cd, by =c("cduid", "casetypes")) %>%
+  spread(key = "year", value = "population") %>%
+  select(-"2011",-"2012",-"2013", -"2014", -"2015", -"2016", -"2017") %>%
+  #mutate_at(group_cols('2018':'2041'), as.numeric) %>%
+  #mutate_at("mod1_5y", as.numeric) %>%
+  mutate_at(.funs = funs(.*mod1_5y), .vars = vars(starts_with("20"))) %>%
+  select(-mod1_5y,-mod2_cr,-mod3_cust) %>%
+  gather(year, crthrs, `2018`:`2041`)
 
-for (i in 1:projperiod) {
-  
-  proj_2 <- projection %>% 
-    filter(year == max(year)) %>% 
-    rename(proj1_5yt = proj1_5y,
-           proj2_crt = proj2_cr,
-           proj3_custt = proj3_cust)
-  proj_2$year <- proj_2$year+1
-  proj_2 <- proj_2 %>% 
-    left_join(ontpop_proj_years, by = c('year', 'cd', 'casetypes')) %>% 
-    mutate(proj1_5y = round(proj1_5yt*(gr_rate),digits=2),
-           proj2_cr = round(proj2_crt*(gr_rate),digits=2),
-           proj3_cust = round(proj3_custt*(gr_rate),digits=2)) %>% 
-    select(-proj1_5yt,
-           -proj2_crt,
-           -proj3_custt,
-           -gr_rate)
-  projection <- union_all(projection,proj_2)
-  
-}
+
 ```
 
 # Courtroom Conversion
@@ -314,7 +193,7 @@ for (i in 1:projperiod) {
 days_yr<-249
 
 ##Utilization Factors
-casetypes<- c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac' )
+casetypes<- c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac' ) #error in hours - flipped by Salah
 base_hrs_dy <-c(3.5, 2.6,2.7,2.7,2.4,2.7)
 inflect_hrs_dy<-c(4.4,3.7,4.3,4.1,3.5,4.0)
 max_hrs_dy<-c(4.5,3.8,4.4,4.3,3.6,4.1)
@@ -323,6 +202,7 @@ max_hrs<-c(30000,18000,10000,12000,10000,12000)
 cur<-data.frame(casetypes,
                 base_hrs_dy,inflect_hrs_dy,max_hrs_dy,inflect_hrs,max_hrs,
                 stringsAsFactors = FALSE)
+saveRDS(cur,"cache/mag/cur.rds")
 ## There should be a slider for user input changes to max hrs a day to reflect modernization effects
 ## There should be a slider for higher or lower than forecast hours
 
@@ -331,36 +211,27 @@ cur<-data.frame(casetypes,
 ## Courtrooms Needed
 
 ```{r}
-projection_cur<-projection
-
-for(proj in 6:length(projection))
-  {
-  projection_temp<-projection
-  colnames(projection_temp)[proj]<-'X'
-
-  ##convert the number of crt_hrs into a utilization rate for conversion to number of courtrooms
-  projection_temp<-projection_temp%>%
-    left_join(cur,by=c('casetypes'))%>%
-    mutate(UT=ifelse(X<=inflect_hrs,base_hrs_dy+(inflect_hrs_dy-base_hrs_dy)/(inflect_hrs-0) *(X),
-              ifelse(X>inflect_hrs& X<=max_hrs,inflect_hrs_dy+(max_hrs_dy-inflect_hrs_dy)*(X-inflect_hrs)/(max_hrs-inflect_hrs)
-              ,max_hrs_dy)))%>%
-    mutate(space=round(X/(UT*249),digits = 2))
+#project by case
+projection_casetype_needs <- future_pop_bl %>% 
+  left_join(cur, by = "casetypes") %>% 
+  mutate(utilization = 0) %>% 
+  mutate(utilization = ifelse(crthrs <= inflect_hrs,
+                              base_hrs_dy + (inflect_hrs_dy - base_hrs_dy) / (inflect_hrs - 0 ) * crthrs,
+                              utilization)) %>% 
+  mutate(utilization = ifelse(crthrs > inflect_hrs & crthrs <= max_hrs,
+                              inflect_hrs_dy + (max_hrs_dy - inflect_hrs_dy) * (crthrs - inflect_hrs) / (max_hrs - inflect_hrs),
+                              utilization)) %>% 
+  mutate(utilization = ifelse(crthrs > max_hrs,
+                              max_hrs_dy,
+                              utilization)) %>% 
+  mutate(courtrooms_needed = round(crthrs / (utilization * 249), digits = 2))
   
-  projection_cur<-projection_cur%>%
-    left_join(select(projection_temp,location,address,cd,casetypes,year,UT,space),
-              by=c('location','address',
-                   'cd','casetypes','year'))
-  
-  ##dplyr rename is garbage when it comes to dynamic naming syntax
-  ##Base R colnames along with the know positions works
-   colnames(projection_cur)[length(projection_cur)-1]<- paste(colnames(projection)[proj],'cur',sep='_')
-   colnames(projection_cur)[length(projection_cur)]<- paste(colnames(projection)[proj],'crt_rms',sep='_')
-}
-rm(projection_temp)
-
-##sum the courtrooms by Year and Location to get total number needed
-crts_needed<-select(projection_cur,year,location,address,cd,contains('rms'))%>%
-  group_by(year,location,address,cd)%>%
-  summarise_all(sum,na.rm=TRUE)
+  total_court_needs <- projection_casetype_needs %>%
+    select(-c("base_hrs_dy":"max_hrs")) %>%
+    group_by(bid, name, year, cduid) %>% 
+    summarise(total_courts_needs = sum(courtrooms_needed)) %>% 
+    left_join(select(crthrs, name, number_of_courtrooms), by = "name") %>%
+    group_by(name, year, bid, cduid) %>% 
+    summarise(number_of_courtrooms = first(number_of_courtrooms), total_courts_needs = first(total_courts_needs), courtrooms_reqd = total_courts_needs - number_of_courtrooms)
 
 ```
