@@ -1500,8 +1500,7 @@ courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>%
   - If there are multiple base courthouse in the CD; the closer base courthouse is taken to be the base of the satellite courthouses
   - The total number of courtrooms in the satellite courthouses and their base courthouse will be equal to the value in the court-hour dataset
 
-```{r clean courthouse}
-
+```{r clean courthouse hours}
 courthouse_asset <- courthouse_asset %>%
    # Remove entries which are not base court or satelite court
   filter(building.type %in% c("Base Court", "Satellite Court") | name == "Napanee OCJ Courthouse + VWAP Office" |
@@ -1515,6 +1514,7 @@ courthouse_asset <- courthouse_asset %>%
   filter(name != "OPP Sally Port") %>% 
   filter(name != "Elliot Lake Victim Witness Assiatance Program Office") %>% 
   filter(name != "Renfrew SCJ Small Claims Administration Office") %>% 
+  filter(name != "Land Registry Office") %>% 
   filter(!(city == "Barrie" & courtrooms == 0)) %>% 
   filter(!(city == "Sault Ste. Marie" & courtrooms == 0)) %>% 
   filter(!(city == "Sudbury" & courtrooms == 0)) 
@@ -1568,32 +1568,72 @@ court_overlay_long <- unique(courthouse_hours_overlay) %>% #Remove unique after 
   separate(year, c("year", "casetypes"), sep = 4) %>% 
   spread(key = casetypes, value = value)
 
+rm(temp)
+```
+
+```{r clean courthouse asssets}
 # Relying on the assumption that satellite courthouses are 1 courtroom and satellite courthouses are within the same
 # CD as the base courthouse, create an ID system for the courthouse asset
 courthouse_asset_xy <- create_court_xy(courthouse_asset)
 courthouse_asset_overlay <- create_overlay(courthouse_asset_xy, treso_shp, type = "court") %>% 
   left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
   left_join(courthouse_asset, by = "bid") %>% 
-  mutate(building.type = replace(building.type, building.type %in% c("Office", "Court Support Office"), "Base Court")) %>% 
+  mutate(building.type = replace(building.type, 
+                                 building.type %in% c("Office", "Court Support Office"), 
+                                 "Base Court")) %>% 
+  # There are a few satellite courts in Sudbury but base court is in Greater Sudbury, replace those manually
+  mutate(cdname = replace(cdname, cdname == "Sudbury", "Greater Sudbury / Grand Sudbury")) %>% 
+  mutate(cduid = replace(cduid, cduid == 3552, 3553)) %>% 
   select(-courtrooms) %>% 
   left_join(select_at(courthouse_hours_overlay, vars(bid, contains("number_of_courtrooms"))), by = "bid")
 
 # Distribute the base courthouse's courtrooms to satellite courthouses
 multiple_courthouse_asset <- courthouse_asset_overlay %>% 
-  mutate_at(vars(contains("number_of_courtrooms")), funs(ifelse(is.na(.), 1, .))) %>% 
-  group_by(cdname, bid, name, lat, long, treso.id.pos, building.type) %>%
-  summarise_at(vars(contains("number_of_courtrooms")), sum) %>% 
   filter(building.type == "Base Court") %>% 
   group_by(cdname) %>% 
   summarise(mutilple.basecourts.tag = ifelse(n() > 1, 1, 0))
 
-courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset, by = "cdname") %>% 
-  group_by(cdname, )
+courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset, by = "cdname") 
 
+multiple_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
+  select_at(vars(bid, cdname, cduid, name, lat, long, building.type, contains("number_of_courtrooms"))) %>%    
+  mutate_at(vars(contains("number_of_courtrooms")), funs(ifelse(building.type == "Satellite Court", 1, .)))
 
+single_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
+  select_at(vars(bid, cdname, cduid, name, building.type, contains("number_of_courtrooms"))) %>%    
+  mutate_at(vars(contains("number_of_courtrooms")), funs(ifelse(building.type == "Satellite Court", 1, .))) %>% 
+  group_by(cdname) %>% 
+  mutate_at(vars(contains("number_of_courtrooms")), list(sum = sum)) %>% 
+  ungroup() %>% 
+  # Didn't spend time to find an easy way to generalize this...so here is explicit code
+  mutate(`2014_number_of_courtrooms_distributed` = 
+           `2014_number_of_courtrooms` +  (`2014_number_of_courtrooms` - `2014_number_of_courtrooms_sum`)) %>% 
+  mutate(`2014_number_of_courtrooms` = ifelse(building.type == "Base Court", 
+                                              `2014_number_of_courtrooms_distributed`,
+                                              `2014_number_of_courtrooms`)) %>% 
+  mutate(`2015_number_of_courtrooms_distributed` = 
+           `2015_number_of_courtrooms` +  (`2015_number_of_courtrooms` - `2015_number_of_courtrooms_sum`)) %>% 
+  mutate(`2015_number_of_courtrooms` = ifelse(building.type == "Base Court", 
+                                              `2015_number_of_courtrooms_distributed`,
+                                              `2015_number_of_courtrooms`)) %>% 
+  mutate(`2016_number_of_courtrooms_distributed` = 
+           `2016_number_of_courtrooms` +  (`2016_number_of_courtrooms` - `2016_number_of_courtrooms_sum`)) %>% 
+    mutate(`2016_number_of_courtrooms` = ifelse(building.type == "Base Court", 
+                                              `2016_number_of_courtrooms_distributed`,
+                                              `2016_number_of_courtrooms`)) %>% 
+  mutate(`2017_number_of_courtrooms_distributed` = 
+           `2017_number_of_courtrooms` +  (`2017_number_of_courtrooms` - `2017_number_of_courtrooms_sum`)) %>% 
+  mutate(`2017_number_of_courtrooms` = ifelse(building.type == "Base Court", 
+                                              `2017_number_of_courtrooms_distributed`,
+                                              `2017_number_of_courtrooms`)) %>% 
+  mutate(`2018_number_of_courtrooms_distributed` = 
+           `2018_number_of_courtrooms` +  (`2018_number_of_courtrooms` - `2018_number_of_courtrooms_sum`)) %>% 
+  mutate(`2018_number_of_courtrooms` = ifelse(building.type == "Base Court", 
+                                              `2018_number_of_courtrooms_distributed`,
+                                              `2018_number_of_courtrooms`)) %>% 
+  select_at(vars(bid, ends_with("number_of_courtrooms")))
 
 saveRDS(courthouse_asset, "cache/mag/courthouse_master.rds")
-
-rm(temp)
 ```
+
 
