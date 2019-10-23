@@ -1462,11 +1462,15 @@ courthouse_asset <- read_csv("input/mag/Court asset data.csv") %>%
   mutate(city = replace(city, name == "Toronto SCJ + Family Courthouse", "Toronto")) %>% 
   mutate(city = replace(city, name == "Toronto Courthouse", "Toronto"))
 
+
 courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>% 
   rename(year = Year, region = REGION, city = LOCATION, address = ADDRESS) %>% 
   rename_at(vars(contains("CJ"), contains("COURT"), contains("TOTAL"), contains("CIVIL")), tolower) %>% 
   rename_at(vars(contains(",_")), funs(sub(",_", "_", .))) %>% 
   rename(number_of_courtrooms = "number of courtrooms") %>% 
+  mutate(SCJfam = family_court_branch + scj_family, smac = divisional_court+small_claims_court) %>% 
+  select(-family_court_branch, -scj_family, -divisional_court, -small_claims_court) %>%
+  rename(OCJcrim= 'ocj_criminal', OCJfam= 'ocj_family', SCJcrim= 'scj_criminal') %>% 
   mutate(year = as.numeric(substr(year, 1, 4))) %>% 
   mutate(city = stringr::str_to_title(city),
          region = toupper(tolower(region))) %>% 
@@ -1568,11 +1572,22 @@ saveRDS(courthouse_hours_overlay, "cache/mag/courthouse_hours.rds")
 court_overlay_long <- courthouse_hours_overlay %>%
   gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
   separate(year, c("year", "casetypes"), sep = 4) %>% 
-  mutate(casetypes = substring(casetypes, 2)) %>% 
-  spread(key = casetypes, value = value)
+  spread(key = casetypes, value) %>% 
+  select(-"_number_of_courtrooms","_number_of_courtrooms" ) %>% 
+  gather(key="casetypes", value, `_civil`:`_smac`) %>% 
+  rename("number_of_courtrooms" = "_number_of_courtrooms", "total" = "_total") %>% 
+  select(-"total", -"number_of_courtrooms", "total", "number_of_courtrooms") %>% 
+  mutate(casetypes = substring(casetypes, 2))
+
+court_overlay_long$casetypes <- substring(court_overlay_long$casetypes, 2)
+
+# Save the wide court hour dataset
+saveRDS(court_overlay_long, "cache/mag/courthouse_hours.rds")
+  
   
 rm(temp)
 ```
+
 
 ```{r clean courthouse asssets}
 # Relying on the assumption that satellite courthouses are 1 courtroom and satellite courthouses are within the same
