@@ -25,7 +25,9 @@ library(FNN)
 [x] Aggregate HBAM Historical caseload to TRESO zone level for Destination trips
 [x] Balance O-D pairing
 [x] Separate Pediatric (0-17), Adult (18-74) and Senior (75+) age groups
-[] Calculate Origin trips by TRESO zone for each caretype by CSD case-rates
+[x] Calculate Origin trips by TRESO zone for each caretype by CSD case-rates
+[] Calculate projections for Origins based on historical CSD caserates
+[] Scale origins to match projected HBAM destinations
 
 ## Import Relevant Files
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
@@ -74,6 +76,13 @@ travel_time_skim <- travel_time_skim_square %>%
   melt(id = c("p/q/[val]")) %>%
   rename(orig = "p/q/[val]", dest = variable) %>%
   mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest])
+
+prop_matrix <- travel_time_skim %>%
+  mutate(value = replace(value, value == 0, 0.00000001),
+         value = 1/value) %>% #change if something bad happens 
+  spread(key = dest, value=value) %>%
+  column_to_rownames(var = "orig") %>%
+  data.matrix()
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
@@ -792,7 +801,7 @@ am_destination_cd_full_ped <- travel_time_skim %>%
 ##Create OD matrices for CSD rates using loops below once manual structure was established using CD rates as per chunk above
 
 caretypes = c("at", "cr", "gr", "mh", "am")
-age_groups = c("ad", "ped")
+age_groups = c("ad", "ped", "sr")
 
 #Adult
 for (ct in caretypes) {
@@ -906,12 +915,6 @@ rm(destination_csd_ad, destination_csd_ped, destination_csd_sr, destination_csd_
   - Calculate propensity matrix for each care type
   
 ```{r}
-prop_matrix <- travel_time_skim %>%
-  mutate(value = replace(value, value == 0, 0.00000001),
-         value = 1/value) %>% #change if something bad happens 
-  spread(key = dest, value=value) %>%
-  column_to_rownames(var = "orig") %>%
-  data.matrix()
 
 balance <- function(matrix, tot, axis) {
   if (axis == 1) {
@@ -2108,11 +2111,10 @@ am_treso_csd_sr <- am_origin_csd_sr %>%
 ```{r}
 base_year <- 2016 #can set it to min(HBAM$year) to help streamline, requires insertion of 'year' in original HBAM code
 proj_max_year <- max(HBAMprojected_master$year)
-proj_year <- 2025 #user selected projection year
+proj_year <- 2022 #user selected projection year
 x1 = 2041 - proj_year
 x2 = proj_year - 2016
-proj_ct_list <- c('AT', 'CR', 'GR', 'MH', 'AM')
-
+caretypes = c("at", "cr", "gr", "mh", "am")
 age_clusters <- c('ad', 'ad', 'ad', 'ped', 'sr', 'sr')
 age_groups <- c(2:4, 1, 5:6)
 agegroup_ref <- data.frame(age_clusters,
@@ -2194,44 +2196,44 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
 HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = c('agegroup'))
 
-#Filter out Adult age groups
-HBAMprojected_master_ad <- HBAMprojected_master_tz %>% 
-  select(year,
-         siteid,
-         name,
-         caretype,
-         agegroup,
-         totalcases,
-         los,
-         beddays,
-         treso_zone) %>% 
-  filter(agegroup %in% (2:4))
-
-#Filter Pediatric Age Groups  
-HBAMprojected_master_ped <- HBAMprojected_master_tz %>%
-  select(year,
-         siteid,
-         name,
-         caretype,
-         agegroup,
-         totalcases,
-         los,
-         beddays,
-         treso_zone) %>%
-  filter(agegroup == 1)
-
-#Filter Senior Age Groups
-HBAMprojected_master_sr <- HBAMprojected_master_tz %>% 
-  select(year,
-         siteid,
-         name,
-         caretype,
-         agegroup,
-         totalcases,
-         los,
-         beddays,
-         treso_zone) %>% 
-  filter(agegroup %in% (5:6)) 
+# #Filter out Adult age groups
+# HBAMprojected_master_ad <- HBAMprojected_master_tz %>% 
+#   select(year,
+#          siteid,
+#          name,
+#          caretype,
+#          agegroup,
+#          totalcases,
+#          los,
+#          beddays,
+#          treso_zone) %>% 
+#   filter(agegroup %in% (2:4))
+# 
+# #Filter Pediatric Age Groups  
+# HBAMprojected_master_ped <- HBAMprojected_master_tz %>%
+#   select(year,
+#          siteid,
+#          name,
+#          caretype,
+#          agegroup,
+#          totalcases,
+#          los,
+#          beddays,
+#          treso_zone) %>%
+#   filter(agegroup == 1)
+# 
+# #Filter Senior Age Groups
+# HBAMprojected_master_sr <- HBAMprojected_master_tz %>% 
+#   select(year,
+#          siteid,
+#          name,
+#          caretype,
+#          agegroup,
+#          totalcases,
+#          los,
+#          beddays,
+#          treso_zone) %>% 
+#   filter(agegroup %in% (5:6)) 
 
 #For Loop to simplify NEEDS FIXING
 for (a in unique(agegroup_ref$age_clusters)) {
@@ -2252,6 +2254,7 @@ for (a in unique(agegroup_ref$age_clusters)) {
 }
 
 rm(HBAMprojected_age)
+
 ```
 
 ### Projected HBAM Destination Vectors
@@ -2259,39 +2262,26 @@ rm(HBAMprojected_age)
   - Add Year variable in destination matrix
   
 ```{r}
-# Aggregate Historical HBAM to corresponding TRESO level
-proj_destination_trips_ad <- HBAMprojected_master_ad %>%
-  rename('d_trips' = 'totalcases') %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
+# # Aggregate Historical HBAM to corresponding TRESO level
+# proj_destination_trips_ad <- HBAMprojected_master_ad %>%
+#   rename('d_trips' = 'totalcases') %>% 
+#   group_by(treso_zone,
+#            caretype) %>% 
+#   summarise(d_trips = sum(d_trips))
+# 
+# proj_destination_trips_ped <- HBAMprojected_master_ped %>%
+#   rename('d_trips' = 'totalcases') %>% 
+#   group_by(treso_zone,
+#            caretype) %>% 
+#   summarise(d_trips = sum(d_trips))
+# 
+# proj_destination_trips_sr <- HBAMprojected_master_sr %>% 
+#   rename('d_trips' = 'totalcases') %>% 
+#   group_by(treso_zone,
+#            caretype) %>% 
+#   summarise(d_trips = sum(d_trips))
 
-proj_destination_trips_ped <- HBAMprojected_master_ped %>%
-  rename('d_trips' = 'totalcases') %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
-
-proj_destination_trips_sr <- HBAMprojected_master_sr %>% 
-  rename('d_trips' = 'totalcases') %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
-
-for (ct in proj_ct_list) {
-  for (a in age_clusters) {
-    
-    proj_destination_trips <- HBAMprojected_master_tz %>% 
-      filter(agegroup == a,
-             caretype == ct) %>% 
-      group_by(treso_zone) %>% 
-      summarise(d_trips = sum(totalcases))
-    
-    saveRDS(proj_destination_trips, file = paste0("cache/hospitals/", tolower(ct), "_proj_destination_", a,".rds"))
-  }
-}
-
-rm(proj_destination_trips)
+readRDS('cache/hospitals/am_proj_destination_ad.rds')
 
 #Total Cases Summarise
 calcases_proj_destination_ad <- proj_destination_trips_ad %>% 
@@ -2395,31 +2385,169 @@ proj_origin <- left_join(treso_caserates, proj_year_summary, by = c('treso_id' =
   mutate(origin_cases = caserate*proj_year_pop) %>% 
   select(-cdname, - cduid, -area, mof_region)
 
-for (ct in proj_ct_list) {
+
+```
+
+### Forecasting Function
+
+```{r AM Adult}
+
+ct <- 'am'
+a <- 'ad'
+assign(paste0(ct,"_proj_origin_", a), readRDS(paste0('cache/hospitals/', ct, '_proj_origin_', a,'.rds')))
+
+proj_odv_rcall <- function(ct, a) {
+  proj_origin <- readRDS(paste0('cache/hospitals/', ct, '_proj_origin_', a,'.rds'))
+  proj_origin_full <- readRDS(paste0('cache/hospitals/', ct, '_proj_origin_full_', a, '.rds'))
+  proj_destination <- readRDS(paste0('cache/hospitals/', ct, '_proj_destination_', a,'.rds'))
+  proj_destination_full <- assign(paste0(ct, '_proj_destination_full_', a), readRDS(paste0('cache/hospitals/', ct,'_proj_destination_full_', a, '.rds')))
+  
+  return(proj_origin, proj_origin_full, proj_destination, proj_destination_full)
+}
+
+proj_odv_rcall('am','ped')
+```
+
+```{r}
+#Create OD Full matrices for balancing and prop matrix
+#Adult
+
+#TURN INTO FUNCTION:
+
+for (ct in caretypes) {
     for (a in age_clusters) {
       
       ct_origin <- proj_origin %>% 
         filter(age_clusters == a,
-               caretype == ct) %>% 
+               caretype == toupper(ct)) %>% 
         group_by(treso_id) %>% 
         summarise(o_trips = sum(origin_cases)) %>% 
         replace_na(list(o_trips = 0))
       
-      saveRDS(ct_origin, file = paste0("cache/hospitals/", tolower(ct), "_proj_origin_", a,".rds"))
+      saveRDS(ct_origin, file = paste0("cache/hospitals/", ct, "_proj_origin_", a,".rds"))
+      
+      proj_origin_full <- travel_time_skim %>% 
+        distinct(orig) %>% 
+        left_join(ct_origin, by = c('orig' = 'treso_id')) %>% 
+        replace_na(list(o_trips = 0)) %>%
+        column_to_rownames(var = "orig") %>%
+        data.matrix()
+      
+      saveRDS(proj_origin_full_ad, file = paste0("cache/hospitals/", ct, "_proj_origin_full_", a, ".rds"))
+
+      proj_destination_trips <- HBAMprojected_master_tz %>% 
+        filter(age_clusters == a,
+             caretype == toupper(ct)) %>% 
+        group_by(treso_zone) %>% 
+        summarise(d_trips = sum(totalcases))
+    
+     saveRDS(proj_destination_trips, file = paste0("cache/hospitals/", ct, "_proj_destination_", a,".rds"))
+     
+      proj_destination_full <- travel_time_skim %>% 
+        distinct(dest) %>% 
+        left_join(proj_destination_trips, by = c('dest' = 'treso_zone')) %>% 
+        replace_na(list(d_trips = 0)) %>%
+        column_to_rownames(var = "dest") %>%
+        data.matrix()
+    
+     saveRDS(proj_destination_full_ad, file = paste0("cache/hospitals/", ct, "_proj_destination_full_", a, ".rds"))
+
     }
 }
 
-rm(ct_origin)
+am_proj_prop_matrix_ad <- matrix_balancing_1d(prop_matrix, am_proj_destination_full_ad, am_proj_origin_full_ad, axis = 2, constrained = TRUE)
 
-
-
+#FUNCTION TO RETURN TRESO ORIGIN TO TRESO DESTINATION, RETURN BALANCED MATRIX IN FUNCTION
+#SUM MATRICES THAT ARE THE SAME SIZE FOR SINGLE CARETYPE TO COMBINE TOTAL AGE
 
 ```
 
+```{r}
+#OD Matrices FUNCTION
+
+proj_matrix <- function(ct) {
+  
+  for (a in unique(agegroup_ref$age_clusters)) {
+    
+      ct_origin <- proj_origin %>% 
+        filter(age_clusters == a,
+               caretype == toupper(ct)) %>% 
+        group_by(treso_id) %>% 
+        summarise(o_trips = sum(origin_cases)) %>% 
+        replace_na(list(o_trips = 0))
+      
+      proj_origin_full <- travel_time_skim %>% 
+        distinct(orig) %>% 
+        left_join(ct_origin, by = c('orig' = 'treso_id')) %>% 
+        replace_na(list(o_trips = 0)) %>%
+        column_to_rownames(var = "orig") %>%
+        data.matrix()
+      
+      proj_destination_trips <- HBAMprojected_master_tz %>% 
+        filter(age_clusters == a,
+             caretype == toupper(ct),
+             year == proj_year) %>% 
+        group_by(treso_zone) %>% 
+        summarise(d_trips = sum(totalcases))
+    
+      proj_destination_full <- travel_time_skim %>% 
+        distinct(dest) %>% 
+        left_join(proj_destination_trips, by = c('dest' = 'treso_zone')) %>% 
+        replace_na(list(d_trips = 0)) %>%
+        column_to_rownames(var = "dest") %>%
+        data.matrix()
+    
+     proj_prop_matrix <- matrix_balancing_1d(prop_matrix, proj_destination_full, proj_origin_full, axis = 2, constrained = TRUE)
+     
+     saveRDS(proj_prop_matrix, file = paste0("cache/hospitals/", ct, "_proj_prop_matrix_", a, ".rds"))
+     
+     # proj_summary_table <- proj_prop_matrix %>% 
+     #   melt() %>% 
+     #   rename('origin' = 'Var1',
+     #          'destination' = 'Var2',
+     #          'trips' = 'value')
+     
+     # assign(paste0('proj_summary_table_', a), proj_prop_matrix %>% 
+     #   melt() %>% 
+     #   rename('origin' = 'Var1',
+     #          'destination' = 'Var2',
+     #          'trips' = 'value'))
+
+     # saveRDS(proj_summary_table, file = paste0("cache/hospitals/", ct, "_proj_summary_table_", a, ".rds"))
+
+  }
+
+  pm_ad <- readRDS(paste0('cache/hospitals/', ct, '_proj_prop_matrix_ad', '.rds'))
+  pm_ped <- readRDS(paste0('cache/hospitals/', ct, '_proj_prop_matrix_ped', '.rds'))
+  pm_sr <- readRDS(paste0('cache/hospitals/', ct, '_proj_prop_matrix_sr', '.rds'))
+  pm_sum <- pm_ad + pm_ped + pm_sr
+  
+  return(pm_sum)
+  
+}
 
 
+# sen <- readRDS('cache/hospitals/am_proj_prop_matrix_sr.rds')
+# adu <- readRDS('cache/hospitals/am_proj_prop_matrix_ad.rds')
+# kid <- readRDS('cache/hospitals/am_proj_prop_matrix_ped.rds')
 
 
+proj_summary <- function(ct) {
+  
+  proj_summary_table <- proj_matrix(ct) %>%
+    melt() %>%
+    rename('origin' = 'Var1',
+          'destination' = 'Var2',
+          'trips' = 'value')
+  
+  return(proj_summary_table)
+}
+
+t1 <- proj_matrix(ct = 'am')
+t2 <- proj_summary(ct = 'am')
+  
+
+```
 
 
 
