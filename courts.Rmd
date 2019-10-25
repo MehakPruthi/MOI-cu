@@ -5,39 +5,28 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library(tidyverse)
-library(magrittr)
-library(stringr)
-library(tidyr)
+library(rgdal)
 source("helpers.R")
 ```
-
-
 
 # Court-Hours Forecasting
 
 ## Import Data
-  - Import Court hour data, MOF population data and City/CD cross-walk datasets
-  - Clean Data
-  - SHOULD THIS BE ADDED TO 'DATA CLEANING' RMD?
-```{r}
+
+```{r import data}
 
 # TRESO 
-treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_shp <- readOGR(dsn ="input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("cache/treso_tb.rds")
-
 
 #updated courthouse hrs dataset (update in date_cleaning.rmd)
 crthrs <- readRDS("cache/mag/courthouse_hours.rds")
 
-
 #cleaned treso population estimates from 2011-2041
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
 
-
 ## To match Treso zones to CDs and courts
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
-
-
 ```
 
 ## Parameters
