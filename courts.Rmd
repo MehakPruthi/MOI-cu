@@ -19,31 +19,30 @@ source("helpers.R")
   - Import Court hour data, MOF population data and City/CD cross-walk datasets
   - Clean Data
   - SHOULD THIS BE ADDED TO 'DATA CLEANING' RMD?
-```{r}
+```{r data import}
 
-# TRESO 
+#TRESO 
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("cache/treso_tb.rds")
-
 
 #updated courthouse hrs dataset (update in date_cleaning.rmd)
 crthrs <- readRDS("cache/mag/courthouse_hours.rds")
 
+#updated court asset lists that includes satellite & base courts (update in date_cleaning.rmd)
+courthouse_asset <- readRDS("cache/mag/courthouse_master.rds")
 
 #cleaned treso population estimates from 2011-2041
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
 
-
-## To match Treso zones to CDs and courts
+#to match Treso zones to CDs and courts
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
-
 
 ```
 
 ## Parameters
   - Create Business Line parameter matrices
   
-```{r}
+```{r business line parameter matrices}
 casetypes <- c('OCJCrim','SCJCrim','OCJFam','SCJFam','Civil','SmaC' ) ##OCJFam & SCJFam age groups are flipped - Salah Flipped them back
 maxmagage <- c(49,49,17,59,69,69)
 minmagage <- c(12,18,0,0,20,20)
@@ -58,7 +57,7 @@ starting_forecast_year <- max(crthrs$year) #update with paul's list
 
 ## Data Preparation
 
-```{r}
+```{r data preparation}
 
 ##input and manipulate treso zone level population data by age groups
 treso_population_x <- treso_population %>% 
@@ -147,7 +146,7 @@ crthrs2 <- crthrs %>% ##this needs to be updated with the table paul is updating
 
 ## Base Year Values
 
-```{r}
+```{r population rates for base year 2018}
 ## assign base year model weights to the appropriate year
 baseyearmodels_adj <- baseyearmodels %>% 
   mutate(Year = Year + max(crthrs2$year))
@@ -165,14 +164,17 @@ baseyear <- crthrs_master %>%
   group_by(bid, name, treso_id, cduid, casetypes) %>%
   summarise_at(c('mod1_5y','mod2_cr','mod3_cust'),sum)
 
+saveRDS(baseyear, "cache/mag/baseyear_rates")
+
 ```
+
 
 ## Projections
 
-```{r}
+```{r 5-year rates to projection years by business lines}
 ##develop table that applies the 5-year rate to projection years by business lines - rate calculation method can be changed later on
 
-future_pop_bl <- baseyear %>%
+future_pop_bl <- readRDS("cache/mag/baseyear_rates") %>%
   left_join(treso_population_rolled_cd, by =c("cduid", "casetypes")) %>%
   spread(key = "year", value = "population") %>%
   select(-"2011",-"2012",-"2013", -"2014", -"2015", -"2016", -"2017") %>%
@@ -182,6 +184,12 @@ future_pop_bl <- baseyear %>%
   select(-mod1_5y,-mod2_cr,-mod3_cust) %>%
   gather(year, crthrs, `2018`:`2041`)
 
+saveRDS(future_pop_bl, "cache/mag/future_pop_pl")
+
+##develop table that applies the 5-year rates to TRESO projections
+treso_population_bl_demand <- treso_population %>% 
+  left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id")) %>% 
+  select
 
 ```
 
@@ -189,7 +197,7 @@ future_pop_bl <- baseyear %>%
 
 ## Set Parameters
 
-```{r}
+```{r set business line hrs/day and hrs per year}
 days_yr<-249
 
 ##Utilization Factors
@@ -210,9 +218,9 @@ saveRDS(cur,"cache/mag/cur.rds")
 
 ## Courtrooms Needed
 
-```{r}
+```{r project future courtroom needs}
 #project by case
-projection_casetype_needs <- future_pop_bl %>% 
+projection_casetype_needs <- readRDS("cache/mag/future_pop_pl") %>% 
   left_join(cur, by = "casetypes") %>% 
   mutate(utilization = 0) %>% 
   mutate(utilization = ifelse(crthrs <= inflect_hrs,
@@ -235,3 +243,12 @@ projection_casetype_needs <- future_pop_bl %>%
     summarise(number_of_courtrooms = first(number_of_courtrooms), total_courts_needs = first(total_courts_needs), courtrooms_reqd = total_courts_needs - number_of_courtrooms)
 
 ```
+
+
+```{r match courtroom needs to current courtroom assets}
+
+courthouse_asset <- courthouse_asset %>% 
+  
+
+```
+
