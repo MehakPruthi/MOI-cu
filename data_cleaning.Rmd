@@ -18,8 +18,8 @@ source("helpers.R")
 # Import data
 ```{r import, include=FALSE}
 # TRESO data
-hhld_df <- data.table::fread("input/treso/households_2011.csv.gz")
-pop_df <- data.table::fread("input/treso/persons_2011.csv.gz")
+hhld_df <- data.table::fread("input/treso/final_households_2016.csv.gz")
+pop_df <- data.table::fread("input/treso/final_persons_2016.csv.gz")
 
 # School Data
 schoolCap <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
@@ -47,8 +47,8 @@ hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
 socio_economic_tb <- select(pop_df, hhid, treso_zone, age, hdgree, nocs_11, work_status, school_status) %>%
   as_tibble() %>%
   left_join(hhld_tb, by = c("hhid" , "treso_zone")) %>%
-  mutate(adult = ifelse(age >= 21, 1, 0)) %>%
-  mutate(child = ifelse(age < 21, 1, 0))
+  mutate(adult = ifelse(age >= 18, 1, 0)) %>%
+  mutate(child = ifelse(age < 18, 1, 0))
 
 hhld_structure <- socio_economic_tb %>%
   group_by(hhid) %>%
