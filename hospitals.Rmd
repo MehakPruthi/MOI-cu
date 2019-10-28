@@ -33,6 +33,14 @@ library(FNN)
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
   
 ```{r, include= FALSE, results='hide'}
+#Defining hospital parameters for care-types and age bands
+caretypes = c("at", "cr", "gr", "mh", "am")
+age_cluster <- c('ad', 'ad', 'ad', 'ped', 'sr', 'sr')
+age_groups <- c(2:4, 1, 5:6)
+agegroup_ref <- data.frame(age_cluster,
+                          agegroup = as.factor(age_groups)) %>% 
+  arrange(agegroup)
+
 #CD Caserates
 cd_caserates <- readRDS('cache/hospitals/cd_caserates.rds') %>% 
   select(cd,
@@ -163,7 +171,25 @@ hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
   - Filter master dataset for major age groups
 ```{r}
 #Update Master HBAM liste to Include TRESO Zones
-HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype'))
+HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+  left_join(agegroup_ref, by = 'agegroup')
+
+#For loop to separate HBAM observations by each age-group cluster
+for (a in unique(age_cluster)) {
+  HBAMhistorical_master_age <- HBAMhistorical_master_tz %>% 
+    filter(age_cluster == a) %>% 
+    select(siteid,
+           name,
+           caretype,
+           agegroup,
+           totalcases,
+           csd,
+           treso_zone)
+  
+  saveRDS(HBAMhistorical_master_age, file = paste0("cache/hospitals/HBAMhistorical_master_", a, ".rds"))
+}
+
+rm(HBAMhistorical_master_age)
 
 #Filter out Adult age groups
 HBAMhistorical_master_ad <- HBAMhistorical_master_tz %>% 
@@ -199,46 +225,33 @@ HBAMhistorical_master_sr <- HBAMhistorical_master_tz %>%
   filter(agegroup %in% (5:6))  
 ```
 
-## Destination Caseload Calculation
-  - Create TRESO destination caseload datasets
-  - Required to create two sets of destination datasets, one for CD caserate applications (that used matched HBAM/TRESO CDs) and one for matched HBAM/TRESO CSDs (some of which  mismatched)
-
-### CD Destination Caseload
+## HBAM Base Care-Type Matricies
 ```{r}
-# Aggregate Historical HBAM to corresponding TRESO level
-destination_trips_cd_ad <- HBAMhistorical_master_ad %>%
-  rename('d_trips' = 'totalcases') %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
+#For Loop to create HBAM Matrices for each care-type
 
-destination_trips_cd_ped <- HBAMhistorical_master_ped %>%
-  rename('d_trips' = 'totalcases') %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
+for (ct in caretypes) {
+  for (a in age_cluster) {
+    
+    hbam_matrix <- HBAMhistorical_master_tz %>%
+      filter(caretype == toupper(ct),
+             age_cluster == a) %>% 
+      group_by(csd, treso_zone) %>% 
+      summarise(trips = sum(totalcases)) %>% 
+      mutate(trips = trips/365)
+    
+    saveRDS(hbam_matrix, file = paste0('cache/hospitals/', ct, "_hbam_matrix_", a,".rds"))
+    
+  }
+  
+}
 
-destination_trips_cd_sr <- HBAMhistorical_master_sr %>% 
-  rename('d_trips' = 'totalcases') %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
+rm(hbam_matrix)
 
-#Total Cases Summarise
-calcases_destination_cd_ad <- destination_trips_cd_ad %>% 
-  ungroup() %>% 
-  summarise(sum(d_trips))
-
-calcases_destination_cd_ped <- destination_trips_cd_ped %>% 
-  ungroup() %>% 
-  summarise(sum(d_trips))
-
-calcases_destination_cd_sr <- destination_trips_cd_sr %>% 
-  ungroup() %>% 
-  summarise(sum(d_trips))
 ```
 
-### CSD Destination Caseload
+## Caseload Calculation
+  - Create TRESO destination caseload datasets for both Origin and Destination vectors
+
 ```{r}
 ###CSD caserates needed extra filtering steps as there are TRESO zones w/ 0 population that when aggregated to the CSD level created 'inf' outputs, as opposed to CDs which are larger and have a wider capture area
 
@@ -248,93 +261,23 @@ csd_destinations <- left_join(csd_caserates, HBAMhistorical_master_tz, by = c('c
          name,
          caretype,
          agegroup,
+         age_cluster,
          totalcases,
          treso_zone,
          csd) #sum of csd_destinations is less than original HBAMhistorical_master by 51k cases removed as NAs from CSD mismatch
 
-#Aggregate HBAM to corresponding TRESO level
-destination_trips_csd_ad <- csd_destinations %>%
-  rename('d_trips' = 'totalcases') %>% 
-  filter(agegroup %in% (2:4)) %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
-
-destination_trips_csd_ped <- csd_destinations %>% 
-  rename('d_trips' = 'totalcases') %>% 
-  filter(agegroup == 1) %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
-
-destination_trips_csd_sr <- csd_destinations %>% 
-  rename('d_trips' = 'totalcases') %>% 
-  filter(agegroup %in% (5:6)) %>% 
-  group_by(treso_zone,
-           caretype) %>% 
-  summarise(d_trips = sum(d_trips))
-
-#Total Cases Summarise
-calcases_destination_csd_ad <- destination_trips_csd_ad %>% 
-  ungroup() %>% 
-  summarise(sum(d_trips))
-
-calcases_destination_csd_ped <- destination_trips_csd_ped %>% 
-  ungroup() %>% 
-  summarise(sum(d_trips))
-
-calcases_destination_csd_sr <- destination_trips_csd_sr %>% 
-  ungroup() %>% 
-  summarise(sum(d_trips))
-
-sum(calcases_destination_csd_ad, calcases_destination_csd_ped, calcases_destination_csd_sr)
-```
-
-## HBAM Base Care-Type Matricies
-```{r}
-caretypes = c("at", "cr", "gr", "mh", "am")
-age_groups = c("ad", "ped")
-
-#For Loop to create HBAM Matrices for each care-type
-for (ct in caretypes) {
-  
-  hbam_matrix_ad <- HBAMhistorical_master_ad %>%
-    filter(caretype == toupper(ct)) %>% 
-    group_by(csd, treso_zone) %>% 
-    summarise(trips = sum(totalcases)) %>% 
-    mutate(trips = trips/365)
-  
-  saveRDS(hbam_matrix_ad, file = paste0('cache/hospitals/', ct, "_hbam_matrix_ad.rds"))
-  
-  hbam_matrix_ped <- HBAMhistorical_master_ped %>% 
-    filter(caretype == toupper(ct)) %>% 
-    group_by(csd, treso_zone) %>% 
-    summarise(trips = sum(totalcases)) %>% 
-    mutate(trips = trips/365)
-  
-  saveRDS(hbam_matrix_ped, file = paste0('cache/hospitals/', ct, "_hbam_matrix_ped.rds"))
-  
-  hbam_matrix_sr <- HBAMhistorical_master_sr %>% 
-    filter(caretype == toupper(ct)) %>% 
-    group_by(csd, treso_zone) %>% 
-    summarise(trips = sum(totalcases)) %>% 
-    mutate(trips = trips/365)   
-  
-  saveRDS(hbam_matrix_sr, file = paste0('cache/hospitals/', ct, "_hbam_matrix_sr.rds"))
-
-}
-
-rm(hbam_matrix_ad, hbam_matrix_ped, HBAMhistorical_master_sr)
+#Calculate CSD-level cases to be used as origin vector source
+csd_origins <- left_join(treso_health_long, csd_caserates, by = c('csd', 'agegroup')) %>% 
+  mutate(o_trips = (population*caserate))
 
 ```
 
 ## Origin Caseload Calculation
-  - Join CD Caserates to TRESO data
+  - Join CSD Caserates to TRESO data
   - Assuming one case = one trip (may be > 1 for most cases)
   - Calculate Origin vector cases / trips
   - Create totaling outputs
-  
-### CSD Origin Rates Applied
+
 ```{r}
 #Calculate Origin trips
 
@@ -384,11 +327,8 @@ calcases_csd_origin_sr <- origin_trips_csd_sr %>%
 sum(calcases_csd_origin_ad, calcases_csd_origin_ped, calcases_csd_origin_sr) #Total of 7,314,475 cases, difference of 57,854 cases from original HBAM due to mismatched CSDs (see mismatched_csd)
 ```
 
-## CSD-Rate O-D Matrices
+## CSD-Rate O-D Vectors
 ```{r}
-
-caretypes = c("at", "cr", "gr", "mh", "am")
-age_groups = c("ad", "ped", "sr")
 
 #Adult
 for (ct in caretypes) {
@@ -496,7 +436,7 @@ rm(origin_csd_ad, origin_csd_ped, origin_csd_sr, origin_csd_full_ad, origin_csd_
 rm(destination_csd_ad, destination_csd_ped, destination_csd_sr, destination_csd_full_ad, destination_csd_full_ped, destination_csd_full_sr)
 ```
 
-## Travel Demand Matricies 
+## Matrix Balancing Functions
   - Create function for matrix balancing
   - Calculate propensity matrix for each care type
   
@@ -542,8 +482,91 @@ matrix_balancing <- function(matrix, a, b, max_iterations = 10000, rel_error = 0
 }
 ```
 
-## Summarize CSD Matrices (Origin)
-  - Apply CSD case-rates
+## Summarize CSD Matrices
+  - Create O-D vectors and matrices for each care-type and age-cluster segment
+  - Balance matrices and create comparison table for simulated vs observed trips
+  - Assume 1 case = 1 trip
+
+```{r}
+#Create O-D vectors (where destination trips are taken directly from HBAM Historical and Origin trips are calculated using historical case-rates). Outputs are saved in the cache directory for greater analysis if needed.
+for (ct in caretypes) {
+  for (a in unique(age_cluster)) {
+    
+    #Create destination vectors
+    destination_csd <- csd_destinations %>%
+      rename('d_trips' = 'totalcases') %>% 
+      filter(age_cluster == a,
+             caretype == toupper(ct)) %>% 
+      group_by(treso_zone) %>% 
+      summarise(d_trips = (sum(d_trips)/365)) 
+    
+    saveRDS(destination_csd, file = paste0('cache/hospitals/', ct, '_destination_csd_', a, '.rds'))
+    
+    #Create full destination matrix
+    destination_csd_full <- travel_time_skim %>% 
+      distinct(dest) %>% 
+      left_join(destination_csd, by = c('dest' = 'treso_zone')) %>% 
+      replace_na(list(d_trips = 0)) %>%
+      column_to_rownames(var = "dest") %>%
+      data.matrix()
+    
+    saveRDS(destination_csd_full, file = paste0('cache/hospitals/', ct, '_destination_csd_full_', a, '.rds'))
+    
+    #Create Origin Vector
+    origin_csd <- csd_origins %>% 
+      filter(age_cluster == a,
+             caretype == toupper(ct)) %>% 
+      select(-caretype, -csd) %>% 
+      group_by(treso_zone) %>% 
+      summarise(o_trips = (sum(o_trips)/365))
+    
+    saveRDS(origin_csd, file = paste0('cache/hospitals/', ct, '_origin_csd_', a, '.rds'))
+    
+    #Create full origin matrix
+    origin_csd_full <- travel_time_skim %>% 
+      distinct(orig) %>% 
+      left_join(origin_csd, by = c('orig' = 'treso_zone')) %>% 
+      replace_na(list(o_trips = 0)) %>%
+      column_to_rownames(var = "orig") %>%
+      data.matrix()
+    
+    saveRDS(origin_csd_full, file = paste0('cache/hospitals/', ct, '_origin_csd_full_', a, '.rds'))
+    
+    #Create propensity matrix for care-type and age-cluster segment
+    prop_matrix_csd <- matrix_balancing(prop_matrix, origin_csd_full, destination_csd_full, 1000, 0.001)
+    saveRDS(prop_matrix_csd, file = paste0('cache/hospitals/', ct, '_prop_matrix_csd_', a, '.rds'))
+    
+    #Convert propensity matrix to long-format for ease of analysis
+    long_prop_matrix_csd <- prop_matrix_csd %>% 
+      melt() %>% 
+      rename('origin' = 'Var1',
+         'destination' = 'Var2',
+         'trips' = 'value')
+    saveRDS(long_prop_matrix_csd, file = paste0('cache/hospitals/', ct, '_long_prop_matrix_csd_', a, '.rds'))
+    
+    #Reaggregate TRESO trip values to CSD and compare to original HBAM dataset
+    sim_csd <- left_join(long_prop_matrix_csd, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
+      select(-area, -mof_region) %>% 
+      filter(!is.na(csduid)) %>% 
+      ungroup() %>% 
+      group_by(csduid, destination) %>% 
+      summarise(trips = sum(trips, na.rm = TRUE))
+    
+    #Create comparison table for simulated vs observed HBAM cases (requires reading in observed HBAM matrix)
+    HBAM_matrix <- readRDS(paste0('cache/hospitals/', ct, "_hbam_matrix_", a,".rds"))
+    
+    comp_sim_csd <- full_join(sim_csd, HBAM_matrix, by = c('destination'='treso_zone', 'csduid'='csd'), suffix = c('.csd', '.hbam')) %>% 
+      replace_na(list(trips.hbam = 0, trips.csd = 0)) %>% 
+      mutate(diff = abs(trips.csd - trips.hbam),
+             perc.diff = ((trips.csd - trips.hbam)/trips.hbam)*100)
+    
+    saveRDS(comp_sim_csd, file = paste0('cache/hospitals/', ct, '_comp_sim_csd_', a, '.rds'))
+    
+    rm(destination_csd, origin_csd, destination_csd_full, origin_csd_full, prop_matrix_csd, long_prop_matrix_csd, sim_csd, HBAM_matrix, comp_sim_csd)
+  }
+}
+
+```
 
 ### AT Matrices
 
@@ -1186,13 +1209,6 @@ proj_year <- 2022 #user selected projection year
 x1 = 2041 - proj_year
 x2 = proj_year - 2016
 
-#Defining hospital parameters for care-types and age bands
-caretypes = c("at", "cr", "gr", "mh", "am")
-age_clusters <- c('ad', 'ad', 'ad', 'ped', 'sr', 'sr')
-age_groups <- c(2:4, 1, 5:6)
-agegroup_ref <- data.frame(age_clusters,
-                          agegroup = as.factor(age_groups))
-
 ```
 
 ### 1D Matrix Balancing (temp for reference)
@@ -1271,10 +1287,10 @@ HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overl
 
 #Filter HBAM by age group cluster
 
-for (a in unique(agegroup_ref$age_clusters)) {
+for (a in unique(agegroup_ref$age_cluster)) {
   
   HBAMprojected_age <- HBAMprojected_master_tz %>% 
-    filter(age_clusters == a) %>% 
+    filter(age_cluster == a) %>% 
     select(year,
          siteid,
          name,
@@ -1409,11 +1425,11 @@ proj_odv_rcall('am','ped')
 
 proj_matrix <- function(ct) {
   
-  for (a in unique(agegroup_ref$age_clusters)) {
+  for (a in unique(agegroup_ref$age_cluster)) {
     
     #Origin filter operation by age-group cluster for selected care-type
       ct_origin <- proj_origin %>% 
-        filter(age_clusters == a,
+        filter(age_cluster == a,
                caretype == toupper(ct)) %>% 
         group_by(treso_id) %>% 
         summarise(o_trips = (sum(origin_cases)/365)) %>% #Calculate daily trips 
@@ -1427,8 +1443,9 @@ proj_matrix <- function(ct) {
         column_to_rownames(var = "orig") %>%
         data.matrix()
       
+    #Destination filter operation from projected HBAM of selected projection year  
       proj_destination_trips <- HBAMprojected_master_tz %>% 
-        filter(age_clusters == a,
+        filter(age_cluster == a,
              caretype == toupper(ct),
              year == proj_year) %>% 
         group_by(treso_zone) %>% 
