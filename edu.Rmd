@@ -44,7 +44,7 @@ school_board_def <- read_csv("input/edu/school_board_types.csv")
 treso_zone_def <- read.csv("input/treso/treso_zone_system.csv", stringsAsFactors = FALSE)
 
 # Student travel data
-student_travel_90 <- readRDS("cache/student_travel_0.9.rds") #TODO this rds is not updated to include manhattan distance
+student_travel_90 <- readRDS("cache/student_travel_0.9.rds")
 student_travel_80 <- readRDS("cache/student_travel_0.8.rds")
 student_travel_70 <- readRDS("cache/student_travel_0.7.rds")
 student_travel_60 <- readRDS("cache/student_travel_0.6.rds")
@@ -1212,7 +1212,7 @@ ggplot(data=simulated_compare_EPS.data) +
 
 #### English Catholic Elementary
 
-```{r simulate english public secondary trips, eval=FALSE, echo=FALSE}
+```{r simulate english catholic elementary trips, eval=FALSE, echo=FALSE}
 
 panel_id = "Elementary"
 board_id = "English Catholic"
@@ -2271,9 +2271,7 @@ year_id <- 2025
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/por_full.rds")
 pos_full <- readRDS("output/pos_full.rds")
-school_master <- readRDS("output/school_treso_master.rds") %>% 
-  mutate(panel = ifelse(panel == "E", "Elementary", panel)) %>% 
-  mutate(panel = ifelse(panel == "S", "Secondary", panel))
+school_master <- readRDS("output/school_treso_master.rds") 
 
 # Manually create 2025 student population for zones in Sarnia
 por <- readRDS("cache/treso_por_2017.rds") %>%
@@ -2530,22 +2528,6 @@ test <- school_master %>%
   replace_na(list(utilization = 0))
 
 ```
-
-```{r}
-trip_list_2011 %>% select(enrolment.rounded) %>% sum()
-trip_list %>% select(enrolment.rounded) %>% sum()
-trip_list_new %>% select(enrolment.rounded) %>% sum()
-school_master %>% 
-  filter(year ==  2011, board_type_name == "English Catholic", panel == "Elementary") %>% 
-  filter(!(otg == 0 & ade == 0)) %>% 
-  filter(ade / otg <=2) %>% 
-  select(ade) %>% 
-  sum()
-
-trip_list %>% filter(treso.id.por == 6879, enrolment.rounded > 1) %>% arrange(desc(enrolment.rounded))
-trip_list_new %>% filter(treso.id.por == 6879, enrolment.rounded > 1) %>% arrange(desc(enrolment.rounded))
-```
-
 
 ### Closest School Probability Choice
 
@@ -2821,7 +2803,7 @@ ggsave(file = "output/tlfd_closest_school_probability.png",
 
 ## Application of Gravity Model to 2011 Data
 
-```{r sample treso population in 2011}
+```{r sample treso population in 2011, include = FALSE}
 observed_2011_treso <- readRDS("cache/treso_tb.rds") %>% 
   select(treso_zone, n_ele_pop, n_sec_pop) %>% 
   gather(key = "panel", value = "enrolment", n_ele_pop, n_sec_pop) %>% 
@@ -2893,7 +2875,7 @@ saveRDS(treso_por_2011, "cache/treso_por_2011.rds")
 
 1D balance the POR and POS demand using the calibrated cfunc.
 
-```{r distribute english public elementary POR, echo=FALSE, eval=FALSE}
+```{r distribute english public elementary POR 2011, echo=FALSE, eval=FALSE}
 
 panel_id = "Elementary"
 board_id = "English Public"
@@ -2991,7 +2973,7 @@ saveRDS(trip_list_schools_EPE_2011_summed, "output/trip_list_schools_EPE_2011_su
 
 #### Compare simulated 2011 to market share 2011 and actual 2011
 
-```{r  english public elementary results comparison}
+```{r english public elementary results comparison 2011, include = FALSE}
 
 panel_id = "Elementary"
 board_id = "English Public"
@@ -3055,7 +3037,7 @@ ggplot(data_2011, aes(abs.diff, perc.diff, color=method)) +
 
 ## Calibration of TLFD
 
-```{r}
+```{r calibrate tlfd, include = FALSE}
 panel_id = "Elementary"
 board_id = "English Public"
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
@@ -3125,7 +3107,8 @@ ggplot(data=combined_tlfd_2, aes(x=bin, y=enrolment, fill=flag)) +
 ```
 
 ## Creating TRESO 2017 POR Data
-```{r sample treso population in 2017}
+
+```{r sample treso population in 2017, include = FALSE}
 observed_2011_treso <- readRDS("cache/treso_tb.rds") %>% 
   select(treso_zone, n_ele_pop, n_sec_pop) %>% 
   gather(key = "panel", value = "enrolment", n_ele_pop, n_sec_pop) %>% 
@@ -3192,4 +3175,118 @@ treso_por_2017 <- select(treso_level_sampling_2011, treso.id.por, panel, csduid,
   select(treso.id.por, enrolment.scaled, panel, board_type_name) 
 saveRDS(treso_por_2017, "cache/treso_por_2017.rds")
 ```
+
+## Application of gravity model {.tabset .tabset-fade}
+
+### Step 1 - Run 2017 Base Model
+
+```{r application of gravity model - step 1}
+
+# Read the saved full list of POR and POS TRESO zones once and save it in output
+por_full <- readRDS("output/por_full.rds")
+pos_full <- readRDS("output/pos_full.rds")
+school_master <- readRDS("output/school_treso_master.rds") 
+
+school_board_list <- c("English Public", "English Catholic", "French Public", "French Catholic")
+panel_list <- c("Elementary", "Secondary")
+year_id <- 2017
+
+for (board_id in school_board_list) {
+  for (panel_id in panel_list) {
+    segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
+                        str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
+                        str_split(panel_id, "")[[1]][1])
+    print(segment_id)
+    
+    # Read the propensity matrix
+    prop_matrix <- readRDS(paste0("cache/cfunc_", segment_id, ".rds"))
+    
+    # Create pos vector
+    pos <- school_master %>% 
+      filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
+      select(treso.id.pos, otg) %>%
+      group_by(treso.id.pos) %>%
+      summarise(otg = sum(otg)) %>%
+      right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+      replace_na(list(otg = 0)) %>%
+      arrange(treso.id.pos) %>%
+      column_to_rownames(var = "treso.id.pos") %>%
+      data.matrix()
+    
+    # Create por vector
+    por <- readRDS(paste0("cache/treso_por_", year_id, ".rds")) %>%
+        filter(panel == panel_id, board_type_name == board_id) %>%
+        select(treso.id.por, enrolment.scaled) %>%
+        right_join(por_full, by=c("treso.id.por" = "orig")) %>%
+        replace_na(list(enrolment.scaled = 0)) %>%
+        arrange(treso.id.por) %>% 
+        column_to_rownames(var = "treso.id.por") %>%
+        data.matrix()
+    
+    print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
+    
+    # 1D balancing
+    prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
+    trip_list <- melt(prop_matrix_balanced) %>%
+        arrange(Var1, Var2)
+    colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+    
+    # Calculate the school weight
+    pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, new_school = NULL,
+                                                             year_id, panel_id, board_id)
+    print(paste0("For ", panel_id, "-", board_id, ", there are ",
+                nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
+                " TRESO zones with a single school, and ",
+                nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
+                " TRESO zones with multiple schools."))
+
+    # Apply bucket rounding to chunks of data by TRESO POS
+    results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
+    
+    # Convert the output of by() to a dataframe
+    results2 <- sapply(results, I)
+    colnames(results2) <- colnames(prop_matrix)
+    rownames(results2) <- rownames(prop_matrix)
+    
+    df <- melt(results2) %>%
+        arrange(Var1, Var2)
+    colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+    
+    # After combining with travel time, trip list can be shortened
+    df <- filter(df, enrolment.rounded != 0)
+    
+    # Combine the school weight and sample using the weight
+    trip_list <- left_join(df, pos_school_weight, by=c("treso.id.pos"))
+    
+    plan(multiprocess)
+    results <- future_apply(trip_list, 1, sample_by_row)
+    results_tb <- t(as.data.table(results))
+    trip_list_schools <- cbind(trip_list, results_tb)
+    
+    trip_list_schools_summary <- trip_list_schools %>% 
+        unnest(results_tb) %>%
+        mutate(enrol.value = 1) %>%
+        rename(sfis = results_tb) %>% 
+        group_by(sfis) %>% 
+        summarise(simulated.ade = sum(enrol.value))
+    
+    
+   break 
+  }
+  break
+}
+
+
+```
+
+
+### Step 2 - Run 20xx Forecast Model
+
+### Step 3 - Calculate difference between Base and Forecast Models
+
+### Step 4 - Apply the difference to 20xx to obtain forecast ADE
+
+### Step 5 - Using the forecast ADE, run 2D constrained distribution. Iterate the distribution until no school is above the OTG threshold
+
+### Step 6 - Run 20xx Forecast Model with 2D constrained to the final ADE values to obtain OD pairs
 
