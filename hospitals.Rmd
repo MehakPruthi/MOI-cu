@@ -18,6 +18,7 @@ library(tictoc)
 library(gridExtra)
 library(future.apply)
 library(FNN)
+source('helpers.r')
 ```
 
 ## To-Do List
@@ -1404,17 +1405,17 @@ proj_origin <- left_join(treso_caserates, proj_year_summary, by = c('treso_id' =
 
 ```{r AM Adult}
 
-ct <- 'am'
-a <- 'ad'
-assign(paste0(ct,"_proj_origin_", a), readRDS(paste0('cache/hospitals/', ct, '_proj_origin_', a,'.rds')))
-
+#Recall function (NEEDS TO BE FIXED, ONLY RETURNS LAST OBJECT); could be a loop?
 proj_odv_rcall <- function(ct, a) {
   proj_origin <- readRDS(paste0('cache/hospitals/', ct, '_proj_origin_', a,'.rds'))
   proj_origin_full <- readRDS(paste0('cache/hospitals/', ct, '_proj_origin_full_', a, '.rds'))
   proj_destination <- readRDS(paste0('cache/hospitals/', ct, '_proj_destination_', a,'.rds'))
   proj_destination_full <- assign(paste0(ct, '_proj_destination_full_', a), readRDS(paste0('cache/hospitals/', ct,'_proj_destination_full_', a, '.rds')))
   
-  return(proj_origin, proj_origin_full, proj_destination, proj_destination_full)
+  return(proj_origin)
+  return(proj_origin_full)
+  return(proj_destination)
+  return(proj_destination_full)
 }
 
 proj_odv_rcall('am','ped')

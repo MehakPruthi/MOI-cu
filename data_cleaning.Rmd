@@ -685,7 +685,8 @@ hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>%
          pcode = 'Postal Code',
          lat = latitude,
          long = longitude) %>% 
-  left_join(select(HBAMhistorical, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+  left_join(select(HBAMhistorical, siteid, caretype), by = c('siteid', 'caretype')) %>%
+  left_join(select(HBAMprojected, siteid, caretype), by = c('siteid', 'caretype')) %>% 
   distinct()
 
 saveRDS(hospitallocations, file = 'cache/hospitals/hospitallocations.rds')
@@ -697,22 +698,55 @@ HBAMhistorical_master <- HBAMhistorical %>%
   group_by(siteid, caretype, agegroup, csd) %>% 
   summarise(totalcases = sum(totalcases)) %>% 
   left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
-  filter(!is.na(lat))
+  filter(!is.na(pcode))
 
 saveRDS(HBAMhistorical_master, file = 'cache/hospitals/hbamhistorical_master.rds')
 
 # HBAM Projected
 HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
-    select(year = Year, 
+  select(year = Year, 
          siteid = Hospital_Site_ID, 
          hospitalname = Hospital_Site_Name,
          caretype = Care_Type,
          agegroup = Age_Group, 
          totalcases = Number_of_Cases,
-         lengthofstay = Length_of_Stay)
+         lengthofstay = Length_of_Stay) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
+         agegroup = replace(agegroup, agegroup == '18-44', 2),
+         agegroup = replace(agegroup, agegroup == '45-64', 3),
+         agegroup = replace(agegroup, agegroup == '65-74', 4),
+         agegroup = replace(agegroup, agegroup == '75-84', 5),
+         agegroup = replace(agegroup, agegroup == '>85', 6),
+         agegroup = replace(agegroup, agegroup == '<1', 1),
+         agegroup = replace(agegroup, agegroup == '1-7', 1),
+         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         caretype = replace(caretype, caretype == 'IP', 'AT'),
+         caretype = replace(caretype, caretype == 'CCC', 'CR'),
+         caretype = replace(caretype, caretype == 'Rehab', 'GR'),
+         caretype = replace(caretype, caretype == 'ER', 'AM'),
+         caretype = replace(caretype, caretype == 'DS', 'AM'))
+
+saveRDS(HBAMprojected, file = 'cache/hospitals/hbamprojected.rds')
 
 # Projected HBAM Master Dataset
+HBAMprojected_master <- HBAMprojected %>% 
+  group_by(year, siteid, caretype, agegroup) %>% 
+  summarise(totalcases = sum(totalcases),
+            los = sum(lengthofstay)) %>% 
+  mutate(beddays = (totalcases*los)) %>% 
+  left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
+  filter(!is.na(pcode))
 
+saveRDS(HBAMprojected_master, file = 'cache/hospitals/hbamprojected_master.rds')
+
+## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.)
+unmatched_hosp <- HBAMprojected %>% 
+  group_by(year, siteid, caretype, agegroup) %>% 
+  summarise(totalcases = sum(totalcases),
+            los = sum(lengthofstay)) %>% 
+  mutate(beddays = (totalcases*los)) %>% 
+  left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
+  filter(is.na(pcode))
 
 #LHIN Data
 populationLHIN <- read_csv('input/health/dbo.Population_LHIN.csv')
