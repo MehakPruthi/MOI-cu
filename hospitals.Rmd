@@ -36,23 +36,24 @@ source('helpers.r')
 ```{r, include= FALSE, results='hide'}
 #Defining hospital parameters for care-types and age bands
 caretypes = c("at", "cr", "gr", "mh", "am")
-age_cluster <- c('ad', 'ad', 'ad', 'ped', 'sr', 'sr')
-age_groups <- c(2:4, 1, 5:6)
-agegroup_ref <- data.frame(age_cluster,
-                          agegroup = as.factor(age_groups)) %>% 
+age_cluster = c('ad', 'ped', 'sr')
+agegroup_ref <- data.frame(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
+                          agegroup = as.factor(c(2,3,4,1,5,6))) %>% 
   arrange(agegroup)
 
 #CD Caserates
 cd_caserates <- readRDS('cache/hospitals/cd_caserates.rds') %>% 
-  select(cd,
+  select(year,
+         cd,
          caretype,
          agegroup,
-         caserate) %>% 
+         cd_caserate = caserate) %>% 
   mutate(cd = as.numeric(cd))
 
 csd_caserates <- readRDS('cache/hospitals/csd_caserates.rds') %>% 
-  filter(caserate != Inf) %>% #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level (see below)
-  select(-totalcases, -population)
+  filter(csd_caserates != Inf) #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level (see below)
+
+caserates_comp <- readRDS('cache/hospitals/caserates_comp.rds')
 
 # Historical HBAM Master (w/ Asset data)
 HBAMhistorical_master <- readRDS('cache/hospitals/HBAMhistorical_master.rds')
@@ -88,23 +89,25 @@ treso_health_long <- gather(treso_health_slim_tb, agegroup, population, pop_ag1:
          agegroup = replace(agegroup, agegroup == 'pop_ag5', 5),
          agegroup = replace(agegroup, agegroup == 'pop_ag6', 6))
 
-travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
+#TRESO Travel time and Propensity Matrix
+treso_travel_time <- readRDS('output/treso_travel_time.rds') %>% 
+  rename('orig' = 'treso.id.por',
+         'dest' = 'treso.id.pos')
 
-travel_time_skim <- travel_time_skim_square %>%
-  melt(id = c("p/q/[val]")) %>%
-  rename(orig = "p/q/[val]", dest = variable) %>%
-  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest])
-
-prop_matrix <- travel_time_skim %>%
-  mutate(value = replace(value, value == 0, 0.00000001),
-         value = 1/value) %>% #change if something bad happens 
+prop_matrix <- treso_travel_time %>%
+  mutate(value = 1/value) %>% #change if something bad happens 
+  arrange(orig, dest) %>%
   spread(key = dest, value=value) %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
+saveRDS(prop_matrix, file = 'cache/hospitals/prop_matrix.rds')
+
+origin_full <- readRDS('output/por_full.rds')
+dest_full <- readRDS('output/pos_full.rds')
+
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
-rm(travel_time_skim_square)
 ```
 
 ## Link Hospital Site IDs to TRESO Zones:
@@ -140,17 +143,20 @@ hospital_xy <- spTransform(hospital_spdf, CRS(treso_projarg))
 
 hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
       cbind(pcode = hospital_xy@data$pcode,
-            name = hospital_xy@data$name,
+            hosp_name = hospital_xy@data$name,
             siteid = hospital_xy@data$siteid,
             caretype = hospital_xy@data$caretype) %>%
       as_tibble() %>%
       select(Treso_ID,
              pcode, 
              caretype,
-             name, 
+             hosp_name, 
              siteid) %>% 
       rename(treso_zone = Treso_ID) %>% 
-      mutate(caretype = as.character(caretype))
+      mutate(caretype = as.character(caretype)) %>% 
+      left_join(treso_zone_system, by = c('treso_zone' = 'treso_id'))
+
+saveRDS(hospital_overlay, file = 'cache/hospitals/hospital_overlay.rds')
 
 # Match Original Historical HBAM Site IDs with Orignal Asset Inventory to quantify mismatched IDs
 # hospital_id_join <- left_join(HBAMhistorical_destination, hospitallocations, by = c('siteid', 'caretype')) %>% 
@@ -172,15 +178,17 @@ hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
   - Filter master dataset for major age groups
 ```{r}
 #Update Master HBAM liste to Include TRESO Zones
-HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = 'agegroup')
 
 #For loop to separate HBAM observations by each age-group cluster
-for (a in unique(age_cluster)) {
+for (a in age_cluster) {
   HBAMhistorical_master_age <- HBAMhistorical_master_tz %>% 
     filter(age_cluster == a) %>% 
-    select(siteid,
+    select(year,
+           siteid,
            name,
+           hosp_csduid,
            caretype,
            agegroup,
            totalcases,
@@ -226,6 +234,36 @@ HBAMhistorical_master_sr <- HBAMhistorical_master_tz %>%
   filter(agegroup %in% (5:6))  
 ```
 
+```{r}
+#Reorganize HBAM Destination data at CSD-level
+HBAMhistorical_dest_csd <- HBAMhistorical_master_tz %>%
+  select(year,
+         siteid,
+         facilityid,
+         hosp_csduid,
+         csdname,
+         treso_zone,
+         caretype,
+         agegroup,
+         totalcases,
+         orig_csd = csd,
+         age_cluster) %>% 
+  group_by(year, siteid, agegroup, caretype) %>% 
+  mutate(sum.totalcases = sum(totalcases))  %>% 
+  group_by(year, siteid,agegroup, caretype, hosp_csduid, orig_csd) %>% 
+  mutate(in.csd = if_else(hosp_csduid == orig_csd, sum(totalcases), 0, missing = NULL),
+         out.csd = if_else(hosp_csduid != orig_csd, sum(totalcases), 0, missing = NULL),
+         perc.in.csd = (in.csd/sum.totalcases)*100,
+         perc.out.csd = (out.csd/sum.totalcases)*100) %>% 
+  group_by(year, siteid, caretype, age_cluster) %>% 
+  summarise(sum.in.csd = sum(in.csd),
+            sum.out.csd = sum(out.csd)) %>% 
+  mutate(perc.in.csd = sum.in.csd/(sum.in.csd + sum.out.csd),
+         perc.out.csd = sum.out.csd/(sum.in.csd + sum.out.csd))
+  
+  
+```
+
 ## HBAM Base Care-Type Matricies
 ```{r}
 #For Loop to create HBAM Matrices for each care-type
@@ -265,7 +303,7 @@ csd_destinations <- left_join(csd_caserates, HBAMhistorical_master_tz, by = c('c
          age_cluster,
          totalcases,
          treso_zone,
-         csd) #sum of csd_destinations is less than original HBAMhistorical_master by 51k cases removed as NAs from CSD mismatch
+         csd) #sum of csd_destinations is less than original HBAMhistorical_master by 57k cases removed as NAs from CSD mismatch
 
 #Calculate CSD-level cases to be used as origin vector source
 csd_origins <- left_join(treso_health_long, csd_caserates, by = c('csd', 'agegroup')) %>% 
@@ -437,52 +475,6 @@ rm(origin_csd_ad, origin_csd_ped, origin_csd_sr, origin_csd_full_ad, origin_csd_
 rm(destination_csd_ad, destination_csd_ped, destination_csd_sr, destination_csd_full_ad, destination_csd_full_ped, destination_csd_full_sr)
 ```
 
-## Matrix Balancing Functions
-  - Create function for matrix balancing
-  - Calculate propensity matrix for each care type
-  
-```{r}
-#Create functions for 2D matrix balancing
-balance <- function(matrix, tot, axis) {
-  if (axis == 1) {
-      sum <- rowSums(matrix)
-  } else if (axis == 2) {
-      sum <- colSums(matrix)
-  }
-  sc <- tot / sum 
-  sc[is.nan(sc)] <- 0
-  
-  # MARGIN = 1 indicates rows, MARGIN = 2 indicates columns
-  matrix2 <- sweep(matrix, MARGIN = axis, sc, `*`)
-  return(matrix2)
-}
-
-calc_error <- function(matrix, a, b) {
-  row_sum <- sum(abs(a - rowSums(matrix)))
-  col_sum <- sum(abs(b - colSums(matrix)))
-  return(row_sum + col_sum)
-}
-
-matrix_balancing <- function(matrix, a, b, max_iterations = 10000, rel_error = 0.0001) {
-  error <- 1.0
-  i <- 0
-  init_error <- calc_error(matrix, a, b)
-  matrix2 <- matrix
-  
-  while (error > rel_error) {
-    if (i > max_iterations) {
-      print("Matrix balancing did not converge within iteration limit")
-      break
-    }
-    matrix2 <- balance(matrix2, a, 1)
-    matrix2 <- balance(matrix2, b, 2)
-    error <- calc_error(matrix2, a, b) / init_error
-    i <- i + 1
-  }
-  return(matrix2)
-}
-```
-
 ## Summarize CSD Matrices
   - Create O-D vectors and matrices for each care-type and age-cluster segment
   - Balance matrices and create comparison table for simulated vs observed trips
@@ -534,7 +526,7 @@ for (ct in caretypes) {
     saveRDS(origin_csd_full, file = paste0('cache/hospitals/', ct, '_origin_csd_full_', a, '.rds'))
     
     #Create propensity matrix for care-type and age-cluster segment
-    prop_matrix_csd <- matrix_balancing(prop_matrix, origin_csd_full, destination_csd_full, 1000, 0.001)
+    prop_matrix_csd <- matrix_balancing_2d(prop_matrix, origin_csd_full, destination_csd_full, 'column', 1000, 0.001)
     saveRDS(prop_matrix_csd, file = paste0('cache/hospitals/', ct, '_prop_matrix_csd_', a, '.rds'))
     
     #Convert propensity matrix to long-format for ease of analysis
@@ -1202,87 +1194,17 @@ am_treso_csd_sr <- am_origin_csd_sr %>%
 #Forecasting parameters define base year for population calculation and user-selected projection year. This year will also be used in origin forecasting calculations and matrix balancing
 
 #Projection parameters:
-base_year <- 2016 #can set it to min(HBAM$year) to help streamline, requires insertion of 'year' in original HBAM code
-proj_max_year <- max(HBAMprojected_master$year)
-proj_year <- 2022 #user selected projection year
+base_year <- 2016 #can set it to max(HBAM$year) to help streamline, requires insertion of 'year' in original HBAM code
+target_year <- 2022 #user selected projection year
 
-#Population variable calculators
-x1 = 2041 - proj_year
-x2 = proj_year - 2016
-
-```
-
-### 1D Matrix Balancing (temp for reference)
-
-```{r}
-matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
-  
-  #' One dimensional balances a matrix
-  #' 
-  #' One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
-  #' applied to the propensity matrix, it can be supplied in argument `weight`. The `axis` argument determine which
-  #' direction to balance the matrix, 1 indicates rows (origin) and 2 indicates columns (destination). The 
-  #' `constrained` flag determines if the weighting vector is used as a hard limit or as a boolean value to 
-  #' prevent trips to be sent. 
-  #' 
-  #' @param matrix The propensity matrix
-  #' @param a The totals to balance against
-  #' @param weight The weight vector to scale against
-  #' @param axis The direction to perform the balance
-  #' @param constrianed A flag to determine if the weight is to be used as a constraint or not
-  #' @return One dimentionally balanced matrix
-  
-  # Check if `axis` is 1 or 2
-  if (!(axis %in% c(1, 2))) {
-    stop("`axis` value is invalid, not one of (1, 2)")
-  }
-  
-  # Check if weight vector is supplied
-  if (missing(weight)) {
-    print("`weight` was not supplied, 1D balancing done without any destination constraints")
-    tot = a
-    matrix2 <- balance(matrix, tot, axis)
-  } else {
-    print("`weight` was supplied, 1D balancing done with destination constraints")
-    tot = a
-    
-    # If constrained, scale the matrix to the values of the weight vector
-    # It not constrained, apply a boolean value to the matrix
-    if (!(constrained)) {
-      print("Weight is used as a boolean control for destination")
-      weight = ifelse(weight == 0.0, 0, 1)
-    } else {
-      print("Weight is used directly")
-    }
-    
-    # If `axis` is 1, balance the matrix against the rows but scale against the columns
-    if (axis == 1) {
-      sum = colSums(matrix)
-      axis_to_scale = 2
-    } 
-    # If `axis` is 2, balance the matrix against the columns but scale against the rows
-    else if (axis == 2) {
-      sum = rowSums(matrix)
-      axis_to_scale = 1
-    }
-    
-    # Scale the propensity matrix to the weight vector
-    matrix_scaled = sweep(matrix, MARGIN = axis_to_scale, weight, `*`)
-    # Normalize the propensity matrix to ensure the scaled probailitiy does not exceed 1
-    matrix_norm = sweep(matrix_scaled, MARGIN = axis_to_scale, sum, `/`)
-    
-    # 1D balance against the tot vector on the specified axis
-    matrix2 <- balance(matrix_scaled, tot, axis)
-  }
-  
-  return(matrix2)
-}
 ```
 
 ### Projected HBAM Age Group Separations
 
 ```{r}
 #Update Master HBAM liste to Include TRESO Zones
+hospital_overlay <- readRDS('cache/hospitals/hospital_overlay.rds')
+
 HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = c('agegroup'))
 
@@ -1309,82 +1231,6 @@ rm(HBAMprojected_age)
 
 ```
 
-### Population Forecasting (TRESO) Setup
-
-```{r}
-#Import TRESO population files (should be moved up later for consistency)
-csd_controls <- read_csv("C:/Users/cane070735/Documents/MOI/Modelling/popsyn-scaling/csd_controls.csv")
-hhld_2016 <- read_csv("C:/Users/cane070735/Documents/MOI/Modelling/popsyn-scaling/final_households_2016.csv.gz")
-pers_2016 <- read_csv("C:/Users/cane070735/Documents/MOI/Modelling/popsyn-scaling/final_persons_2016.csv.gz")
-hhld_2041 <- read_csv("C:/Users/cane070735/Documents/MOI/Modelling/popsyn-scaling/households_2041_p2g.csv.gz")
-pers_2041 <- read_csv("C:/Users/cane070735/Documents/MOI/Modelling/popsyn-scaling/persons_2041_p2g.csv.gz") 
-treso_zone_system <- read_csv("C:/Users/cane070735/Documents/MOI/Modelling/popsyn-scaling/treso_zone_system.csv")
-```
-
-```{r}
-#Summarize base year population data
-pers_2016_summary <- pers_2016 %>% 
-    mutate(age_group = "other",
-           age_group = ifelse(age <= 17 & age >= 0, 1, age_group),
-           age_group = ifelse(age <= 44 & age >= 18, 2, age_group),
-           age_group = ifelse(age <= 64 & age >= 45, 3, age_group),
-           age_group = ifelse(age <= 74 & age >= 65, 4, age_group),
-           age_group = ifelse(age <= 84 & age >= 75, 5, age_group),
-           age_group = ifelse(age >= 85, 6, age_group)) %>%
-    group_by(treso_zone, age_group) %>%
-    summarise(population = n()) %>% 
-    ungroup() %>% 
-    left_join(select(treso_zone_system, csduid, treso_id), by = c("treso_zone" = "treso_id"))
-
-#Scale treso age groups to match csd_controls for 2016
-pers_2016_summary_scaled <- pers_2016_summary %>% 
-    group_by(csduid) %>% 
-    mutate (total = sum(population)) %>% 
-    ungroup() %>% 
-    left_join(select(csd_controls, pop_2016, csduid), by = "csduid") %>% 
-    mutate(scale_factor = pop_2016/total) %>% 
-    mutate(population = population*scale_factor, perc_of_csd_pop_16 = (population/pop_2016)) %>% 
-    select(treso_zone, age_group, csduid, population, perc_of_csd_pop_16)
-    
-#Summarize max forecast (TRESO) year
-pers_2041_summary <- pers_2041 %>% 
-    mutate(age_group = "other",
-           age_group = ifelse(age <= 17 & age >= 0, 1, age_group),
-           age_group = ifelse(age <= 44 & age >= 18, 2, age_group),
-           age_group = ifelse(age <= 64 & age >= 45, 3, age_group),
-           age_group = ifelse(age <= 74 & age >= 65, 4, age_group),
-           age_group = ifelse(age <= 84 & age >= 75, 5, age_group),
-           age_group = ifelse(age >= 85, 6, age_group)) %>%
-    group_by(treso_zone, age_group) %>%
-    summarise(population = n()) %>% 
-    ungroup() %>% 
-    left_join(select(treso_zone_system, csduid, treso_id), by = c("treso_zone" = "treso_id"))
-
-#Scale treso age groups to match csd_controls for 2041
-pers_2041_summary_scaled <- pers_2041_summary %>% 
-    group_by(csduid) %>% 
-    mutate (total = sum(population)) %>% 
-    ungroup() %>% 
-    left_join(select(csd_controls, pop_2041, csduid), by = "csduid") %>% 
-    mutate(scale_factor = pop_2041/total) %>% 
-    mutate(population = population*scale_factor, perc_of_csd_pop_41 = (population/pop_2041)) %>% 
-    select(treso_zone, age_group, csduid, population, perc_of_csd_pop_41)
-
-#Calculate the percent change for proj_year and calculate projected year allocation using linear (straight-line) projection rate
-
-proj_year_summary <- select(pers_2041_summary_scaled, treso_zone, age_group, csduid, perc_of_csd_pop_41) %>% 
-    left_join(select(pers_2016_summary_scaled, treso_zone, age_group, csduid, perc_of_csd_pop_16), by = c("treso_zone", "age_group", "csduid")) %>% 
-    replace(., is.na(.), 0)%>% 
-    mutate(proj_year_csd_perc = (((perc_of_csd_pop_41 - perc_of_csd_pop_16)/(proj_max_year-base_year))*x2+perc_of_csd_pop_16)) %>% 
-    left_join(select(csd_controls, csduid, paste0("pop_",proj_year)), by = "csduid") %>% 
-    mutate(proj_year_pop = proj_year_csd_perc * get(paste0("pop_",proj_year))) %>% 
-    select(treso_zone, age_group, csduid, proj_year_pop, proj_year_csd_perc)
-
-#combined dataset for base, max and projected year population w/ percent change
-pers_combined <- full_join(pers_2016_summary_scaled, pers_2041_summary_scaled, by = c("treso_zone", "age_group", "csduid"), suffix = c("_2016", "_2041")) %>%  
-    left_join(proj_year_summary, by = c("treso_zone", "age_group", "csduid"))
-```
-
 ### Origin forecast
 
 ```{r}
@@ -1393,11 +1239,14 @@ treso_caserates <- left_join(treso_zone_system, csd_caserates, by = c('csduid' =
   filter(!is.na(caserate))
 
 #Join TRESO case-rates to projection year population allocation for origin cases / trips
-proj_origin <- left_join(treso_caserates, proj_year_summary, by = c('treso_id' = 'treso_zone', 'csduid' = 'csduid', 'agegroup' = 'age_group')) %>% 
+proj_origin <- right_join(treso_caserates, proj_year_summary, by = c('treso_id' = 'treso_zone', 'csduid' = 'csduid', 'agegroup' = 'age_group')) %>% 
   left_join(agegroup_ref, by = c('agegroup')) %>% 
   mutate(origin_cases = caserate*proj_year_pop) %>% 
   select(-cdname, - cduid, -area, mof_region)
 
+proj_origin_na <- proj_origin %>% 
+  filter(!is.na(proj_year_pop),
+         is.na(caserate))
 
 ```
 
@@ -1424,12 +1273,15 @@ proj_odv_rcall('am','ped')
 ```{r}
 #Function developed to calculate the origin and destination cases for each care-type and age-group cluster. Function will return the balanced matrix of total trips / cases but breakdown of cases / trips by age-group cluster will be saved in working directory.
 
-proj_matrix <- function(ct) {
+#TODO: ADD OUTSIDE OBJECTS INTO FUNCTION VARIALBES
+proj_matrix <- function(ct,proj_cases,HBAM_cases,origin,destination,prop_matrix) {
   
-  for (a in unique(agegroup_ref$age_cluster)) {
+  age_cluster <- c('ad', 'ped', 'sr')
+  
+  for (a in age_cluster) {
     
     #Origin filter operation by age-group cluster for selected care-type
-      ct_origin <- proj_origin %>% 
+      ct_origin <- proj_cases %>% 
         filter(age_cluster == a,
                caretype == toupper(ct)) %>% 
         group_by(treso_id) %>% 
@@ -1437,25 +1289,26 @@ proj_matrix <- function(ct) {
         replace_na(list(o_trips = 0))
       
     #Apply origin values to TRESO matrix  
-      proj_origin_full <- travel_time_skim %>% 
-        distinct(orig) %>% 
+      proj_origin_full <- origin %>% 
         left_join(ct_origin, by = c('orig' = 'treso_id')) %>% 
         replace_na(list(o_trips = 0)) %>%
+        arrange(orig) %>% 
         column_to_rownames(var = "orig") %>%
         data.matrix()
       
     #Destination filter operation from projected HBAM of selected projection year  
-      proj_destination_trips <- HBAMprojected_master_tz %>% 
+      proj_destination_trips <- HBAM_cases %>% 
         filter(age_cluster == a,
              caretype == toupper(ct),
              year == proj_year) %>% 
         group_by(treso_zone) %>% 
         summarise(d_trips = (sum(totalcases)/365)) #Calculate daily trips
     
-      proj_destination_full <- travel_time_skim %>% 
-        distinct(dest) %>% 
+    #Apply destination values to TRESO matrix  
+      proj_destination_full <- destination %>% 
         left_join(proj_destination_trips, by = c('dest' = 'treso_zone')) %>% 
         replace_na(list(d_trips = 0)) %>%
+        arrange(dest) %>% 
         column_to_rownames(var = "dest") %>%
         data.matrix()
     
@@ -1477,9 +1330,9 @@ proj_matrix <- function(ct) {
 }
 
 #Summarizing function to convert balanced matrix into long-form for ease of analysis and calculation. Summary function includes the O-D calculation and balancing function but returns the long-form table instead of the full matrix
-proj_summary <- function(ct) {
+proj_summary <- function(matrix) {
   
-  proj_summary_table <- proj_matrix(ct) %>%
+  proj_summary_table <- matrix %>%
     melt() %>%
     rename('origin' = 'Var1',
           'destination' = 'Var2',
@@ -1488,8 +1341,10 @@ proj_summary <- function(ct) {
   return(proj_summary_table)
 }
 
-t1 <- proj_matrix(ct = 'am')
-t2 <- proj_summary(ct = 'am')
+prop_matrix <- readRDS('cache/hospitals/prop_matrix.rds')
+
+p1 <- proj_matrix(ct = 'am', proj_origin,HBAMprojected_master_tz, origin_full, dest_full,prop_matrix)
+p2 <- proj_summary(p1)
 
 ```
 
