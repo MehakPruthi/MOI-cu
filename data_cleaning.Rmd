@@ -775,7 +775,9 @@ dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>
          erstretchers = ERSTRETCHERSUSED,
          uncovnentionalbeds = UNCONVENTIONALBEDSUSED,
          overflowpatients = OVERFLOWPATIENTS,
-         totalpatients = TOTALPATIENTS)
+         totalpatients = TOTALPATIENTS) %>% 
+  mutate(type = replace(type, type == 'SR', 'GR'))
+
 
 hospitaldischarges <- read_csv('input/health/cap.MOH_Discharges.csv') %>%
   replace_na(list(Discharges = 0)) %>% 
@@ -985,9 +987,15 @@ ALCmostappropriate <- ALCmostappropriate %>%
             totalALCdays = sum(totalALCdays))
 
 #CIHI Data
-# CIHIhospitalbeds <- read.csv('input.health/dbo.CIHI_Hospital_Beds.csv')
+CIHIhospitalbeds <- read_csv('input/health/cap.CIHI_Hospital_Beds.csv') %>% 
+  select(year = Year,
+         prov = Province,
+         name = 'Hospital Name',
+         hosp_type = 'Type of Hospital',
+         cihi_total = Total) %>%  
+  mutate(name = toupper(name))
 
-
+saveRDS(CIHIhospitalbeds, file = 'cache/hospitals/CIHI_hospitalbeds.rds')
 
 #CCO Linkage Table
 ALC_idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>% 
@@ -1105,6 +1113,15 @@ dailyentrycount <- dailybedcensus %>%
   group_by(siteid, year) %>% 
   count(siteid) %>% 
   rename('entrycount' = 'n')
+
+#Total Bed Counts by Site ID
+num_beds <- dailybedcensus %>% 
+  mutate(siteid = as.numeric(siteid)) %>% 
+  group_by(siteid, type, year) %>% 
+  summarise(maxstaffedbeds = max(staffedbeds, na.rm = TRUE)) %>% 
+  mutate(maxstaffedbeds = replace(maxstaffedbeds, maxstaffedbeds == -Inf, 0)) #-Inf occuring as a result of NA entries calculated within max() function, as it will result in either Inf/-Inf
+
+saveRDS(num_beds, file = 'cache/hospitals/num_beds.rds')
 
 #Annual Bed-Days Observed
 beddaysobserved <- dailybedcensus %>% 
