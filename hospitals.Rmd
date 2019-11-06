@@ -41,6 +41,12 @@ agegroup_ref <- data.frame(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
                           agegroup = as.factor(c(2,3,4,1,5,6))) %>% 
   arrange(agegroup)
 
+#CIHI Bed Data
+CIHIhospitalbeds <- read_csv('input/health/cap.CIHI_Hospital_Beds.csv')
+
+#Daily Bed Census bed counts
+num_beds <- readRDS('cache/hospitals/num_beds.rds')
+
 #CD Caserates
 cd_caserates <- readRDS('cache/hospitals/cd_caserates.rds') %>% 
   select(year,
@@ -200,38 +206,38 @@ for (a in age_cluster) {
 
 rm(HBAMhistorical_master_age)
 
-#Filter out Adult age groups
-HBAMhistorical_master_ad <- HBAMhistorical_master_tz %>% 
-  select(siteid,
-         name,
-         caretype,
-         agegroup,
-         totalcases,
-         csd,
-         treso_zone) %>% 
-  filter(agegroup %in% (2:4))
-
-#Filter Pediatric Age Groups  
-HBAMhistorical_master_ped <- HBAMhistorical_master_tz %>%
-  select(siteid,
-         name,
-         caretype,
-         agegroup,
-         totalcases,
-         csd,
-         treso_zone) %>%
-  filter(agegroup == 1)
-
-#Filter Senior Age Groups
-HBAMhistorical_master_sr <- HBAMhistorical_master_tz %>% 
-  select(siteid,
-         name,
-         caretype,
-         agegroup,
-         totalcases,
-         csd,
-         treso_zone) %>% 
-  filter(agegroup %in% (5:6))  
+# #Filter out Adult age groups
+# HBAMhistorical_master_ad <- HBAMhistorical_master_tz %>% 
+#   select(siteid,
+#          name,
+#          caretype,
+#          agegroup,
+#          totalcases,
+#          csd,
+#          treso_zone) %>% 
+#   filter(agegroup %in% (2:4))
+# 
+# #Filter Pediatric Age Groups  
+# HBAMhistorical_master_ped <- HBAMhistorical_master_tz %>%
+#   select(siteid,
+#          name,
+#          caretype,
+#          agegroup,
+#          totalcases,
+#          csd,
+#          treso_zone) %>%
+#   filter(agegroup == 1)
+# 
+# #Filter Senior Age Groups
+# HBAMhistorical_master_sr <- HBAMhistorical_master_tz %>% 
+#   select(siteid,
+#          name,
+#          caretype,
+#          agegroup,
+#          totalcases,
+#          csd,
+#          treso_zone) %>% 
+#   filter(agegroup %in% (5:6))  
 ```
 
 ```{r}
@@ -1348,7 +1354,97 @@ p2 <- proj_summary(p1)
 
 ```
 
+## Consolidated Hospital Lookup
+  - Reorganize HBAM historical to show unique hospital locations w/ metadata needed for visualization tool
+  - Create in wide format w/ sub-naming for care-type and age-cluster 
+  hosp | postcode/index | year | ct_age1 | ct_age2 | ...
+  ..................................................
+                                    Total Cases
+```{r}
+#Use combine HBAM-TRESO object as basis
+hospital_lookup <- HBAMhistorical_master_tz %>% 
+  group_by(year, name, pcode, age_cluster, caretype) %>% 
+  summarise(totalcases = sum(totalcases)) %>% 
+  mutate(cases_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', totalcases, 0),
+         cases_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', totalcases, 0),
+         cases_at_sr = ifelse(caretype %in% 'AT' & age_cluster %in% 'sr', totalcases, 0),
+         cases_cr_ad = ifelse(caretype %in% 'CR' & age_cluster %in% 'ad', totalcases, 0),
+         cases_cr_ped = ifelse(caretype %in% 'CR' & age_cluster %in% 'ped', totalcases, 0),
+         cases_cr_sr = ifelse(caretype %in% 'CR' & age_cluster %in% 'sr', totalcases, 0),
+         cases_gr_ad = ifelse(caretype %in% 'GR' & age_cluster %in% 'ad', totalcases, 0),
+         cases_gr_ped = ifelse(caretype %in% 'GR' & age_cluster %in% 'ped', totalcases, 0),
+         cases_gr_sr = ifelse(caretype %in% 'GR' & age_cluster %in% 'sr', totalcases, 0),
+         cases_mh_ad = ifelse(caretype %in% 'MH' & age_cluster %in% 'ad', totalcases, 0),
+         cases_mh_ped = ifelse(caretype %in% 'MH' & age_cluster %in% 'ped', totalcases, 0),
+         cases_mh_sr = ifelse(caretype %in% 'MH' & age_cluster %in% 'sr', totalcases, 0),
+         cases_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', totalcases, 0),
+         cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', totalcases, 0),
+         cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', totalcases, 0)) %>% 
+  group_by(year, name, pcode) %>% 
+  summarise_at(vars(cases_at_ad:cases_am_sr), sum)
 
+#Added check to make sure summarise is correct
+hospital_check <- HBAMhistorical_master_tz %>%
+  group_by(year, name, pcode, age_cluster, caretype) %>% 
+  summarise(totalcases = sum(totalcases))
+
+#Import bed summaries from Daily Bed Census (DBC); this can be imported above
+num_beds_spread <- num_beds %>%
+  spread(year, maxstaffedbeds) %>% 
+  rename('dbc_beds_2017' = '2017',
+         'dbc_beds_2018' = '2018',
+         'caretype' = 'type') %>% 
+  left_join(select(hospitallocations, siteid, caretype, name, pcode), by = c('siteid', 'caretype'))
+
+#Spread DBC 2017 and 2018 data
+dbc_beds_2017 <- num_beds_spread %>% 
+  select(-dbc_beds_2018) %>% 
+  spread(caretype, dbc_beds_2017) %>% 
+  rename(at_beds_2017 = AT,
+         cr_beds_2017 = CR,
+         gr_beds_2017 = GR,
+         mh_beds_2017 = MH) %>% 
+  mutate(dbc_total_beds_2017 = sum(c(at_beds_2017, cr_beds_2017, gr_beds_2017, mh_beds_2017), na.rm = TRUE))
+
+dbc_beds_2018 <- num_beds_spread %>% 
+  select(-dbc_beds_2017) %>% 
+  spread(caretype, dbc_beds_2018) %>% 
+  rename(at_beds_2018 = AT,
+         cr_beds_2018 = CR,
+         gr_beds_2018 = GR,
+         mh_beds_2018 = MH) %>% 
+  mutate(dbc_total_beds_2018 = sum(c(at_beds_2018, cr_beds_2018, gr_beds_2018, mh_beds_2018), na.rm = TRUE))
+
+#Combine DBC bed data into wide table format by Postal Code
+dbc_beds <- full_join(dbc_beds_2017, dbc_beds_2018, by = c('name', 'pcode', 'siteid')) %>%
+  group_by(pcode) %>% 
+  summarise_at(vars(at_beds_2017:dbc_total_beds_2018), sum, na.rm = TRUE) %>% 
+  right_join(select(hospital_lookup, pcode, name), by = 'pcode')
+
+#Import CIHI Bed data and structure to wide table format by Postal Code
+CIHIhospitalbeds_spread <- CIHIhospitalbeds %>% 
+  select(year = Year,
+         name = 'Hospital Name',
+         hosp_type = 'Type of Hospital',
+         cihi_total = Total) %>%  
+  mutate(name = toupper(name)) %>% 
+  right_join(select(hospital_lookup, year, name, pcode), by = c('name', 'year')) %>% 
+  spread(year, cihi_total) %>% 
+  rename('cihi_beds_2012' = '2012',
+         'cihi_beds_2013' = '2013',
+         'cihi_beds_2014' = '2014',
+         'cihi_beds_2015' = '2015',
+         'cihi_beds_2016' = '2016',)
+
+#Compiled Bed Data between CIHI and DBC
+hosp_beds_comp <- left_join(dbc_beds, CIHIhospitalbeds_spread, by = 'pcode') %>% 
+  select(pcode, hosp_type, cihi_beds_2012:cihi_beds_2016, at_beds_2017:dbc_total_beds_2018)
+
+#Final Master List only including DBC because of incomplete CIHI Data
+hospital_lookup_master <- left_join(hospital_lookup, dbc_beds, by = 'pcode')
+
+saveRDS(hospital_lookup_master, file = 'output/hospital_lookup_master.rds')
+```
 
 
 
