@@ -42,13 +42,13 @@ agegroup_ref <- data.frame(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
   arrange(agegroup)
 
 #CIHI Bed Data
-CIHIhospitalbeds <- read_csv('input/health/cap.CIHI_Hospital_Beds.csv')
+CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
 
 #Daily Bed Census bed counts
-num_beds <- readRDS('cache/hospitals/num_beds.rds')
+num_beds <- readRDS('cache/moh/num_beds.rds')
 
 #CD Caserates
-cd_caserates <- readRDS('cache/hospitals/cd_caserates.rds') %>% 
+cd_caserates <- readRDS('cache/moh/cd_caserates.rds') %>% 
   select(year,
          cd,
          caretype,
@@ -56,24 +56,24 @@ cd_caserates <- readRDS('cache/hospitals/cd_caserates.rds') %>%
          cd_caserate = caserate) %>% 
   mutate(cd = as.numeric(cd))
 
-csd_caserates <- readRDS('cache/hospitals/csd_caserates.rds') %>% 
+csd_caserates <- readRDS('cache/moh/csd_caserates.rds') %>% 
   filter(csd_caserates != Inf) #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level (see below)
 
-caserates_comp <- readRDS('cache/hospitals/caserates_comp.rds')
+caserates_comp <- readRDS('cache/moh/caserates_comp.rds')
 
 # Historical HBAM Master (w/ Asset data)
-HBAMhistorical_master <- readRDS('cache/hospitals/HBAMhistorical_master.rds')
+HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
 
 # Projected HBAM Master (w/ Asset data)
-HBAMprojected_master <- readRDS('cache/hospitals/HBAMprojected_master.rds')
+HBAMprojected_master <- readRDS('cache/moh/HBAMprojected_master.rds')
 
 #Hospital Asset Data
-hospitallocations <- readRDS('cache/hospitals/hospitallocations.rds')
+hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
 
 #TRESO Population data and Spatial Data
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 
-treso_health_slim_tb <- readRDS('cache/hospitals/treso_health_tb.rds') %>% 
+treso_health_slim_tb <- readRDS('cache/moh/treso_health_tb.rds') %>% 
   select(treso_zone,
          cdname, 
          cd = cduid,
@@ -107,7 +107,7 @@ prop_matrix <- treso_travel_time %>%
   column_to_rownames(var = "orig") %>%
   data.matrix()
 
-saveRDS(prop_matrix, file = 'cache/hospitals/prop_matrix.rds')
+saveRDS(prop_matrix, file = 'cache/moh/prop_matrix.rds')
 
 origin_full <- readRDS('output/por_full.rds')
 dest_full <- readRDS('output/pos_full.rds')
@@ -162,7 +162,7 @@ hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
       mutate(caretype = as.character(caretype)) %>% 
       left_join(treso_zone_system, by = c('treso_zone' = 'treso_id'))
 
-saveRDS(hospital_overlay, file = 'cache/hospitals/hospital_overlay.rds')
+saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
 
 # Match Original Historical HBAM Site IDs with Orignal Asset Inventory to quantify mismatched IDs
 # hospital_id_join <- left_join(HBAMhistorical_destination, hospitallocations, by = c('siteid', 'caretype')) %>% 
@@ -201,7 +201,7 @@ for (a in age_cluster) {
            csd,
            treso_zone)
   
-  saveRDS(HBAMhistorical_master_age, file = paste0("cache/hospitals/HBAMhistorical_master_", a, ".rds"))
+  saveRDS(HBAMhistorical_master_age, file = paste0("cache/moh/HBAMhistorical_master_", a, ".rds"))
 }
 
 rm(HBAMhistorical_master_age)
@@ -284,7 +284,7 @@ for (ct in caretypes) {
       summarise(trips = sum(totalcases)) %>% 
       mutate(trips = trips/365)
     
-    saveRDS(hbam_matrix, file = paste0('cache/hospitals/', ct, "_hbam_matrix_", a,".rds"))
+    saveRDS(hbam_matrix, file = paste0('cache/moh/', ct, "_hbam_matrix_", a,".rds"))
     
   }
   
@@ -382,13 +382,13 @@ for (ct in caretypes) {
       ungroup() %>% 
       select(-caretype, -csd)
     
-    saveRDS(origin_csd_ad, file = paste0("cache/hospitals/", ct, "_origin_csd_ad.rds"))
+    saveRDS(origin_csd_ad, file = paste0("cache/moh/", ct, "_origin_csd_ad.rds"))
     
     destination_csd_ad <- destination_trips_csd_ad %>% 
       filter(caretype == toupper(ct)) %>% 
       select(-caretype)
     
-    saveRDS(destination_csd_ad, file = paste0("cache/hospitals/", ct, "_destination_csd_ad.rds"))
+    saveRDS(destination_csd_ad, file = paste0("cache/moh/", ct, "_destination_csd_ad.rds"))
     
     origin_csd_full_ad <- travel_time_skim %>% 
       distinct(orig) %>% 
@@ -397,7 +397,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "orig") %>%
       data.matrix()
     
-    saveRDS(origin_csd_full_ad, file = paste0("cache/hospitals/", ct, "_origin_csd_full_ad.rds"))
+    saveRDS(origin_csd_full_ad, file = paste0("cache/moh/", ct, "_origin_csd_full_ad.rds"))
     
     destination_csd_full_ad <- travel_time_skim %>% 
       distinct(dest) %>% 
@@ -406,7 +406,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "dest") %>%
       data.matrix()
     
-     saveRDS(destination_csd_full_ad, file = paste0("cache/hospitals/", ct, "_destination_csd_full_ad.rds"))
+     saveRDS(destination_csd_full_ad, file = paste0("cache/moh/", ct, "_destination_csd_full_ad.rds"))
 }
 
 #Pediatric
@@ -416,13 +416,13 @@ for (ct in caretypes) {
       ungroup() %>% 
       select(-caretype, -csd)
     
-    saveRDS(origin_csd_ped, file = paste0("cache/hospitals/", ct, "_origin_csd_ped.rds"))
+    saveRDS(origin_csd_ped, file = paste0("cache/moh/", ct, "_origin_csd_ped.rds"))
     
     destination_csd_ped <- destination_trips_csd_ped %>% 
       filter(caretype == toupper(ct)) %>% 
       select(-caretype)
     
-    saveRDS(destination_csd_ped, file = paste0("cache/hospitals/", ct, "_destination_csd_ped.rds"))
+    saveRDS(destination_csd_ped, file = paste0("cache/moh/", ct, "_destination_csd_ped.rds"))
     
     origin_csd_full_ped <- travel_time_skim %>% 
       distinct(orig) %>% 
@@ -431,7 +431,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "orig") %>%
       data.matrix()
     
-    saveRDS(origin_csd_full_ped, file = paste0("cache/hospitals/", ct, "_origin_csd_full_ped.rds"))
+    saveRDS(origin_csd_full_ped, file = paste0("cache/moh/", ct, "_origin_csd_full_ped.rds"))
     
     destination_csd_full_ped <- travel_time_skim %>% 
       distinct(dest) %>% 
@@ -440,7 +440,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "dest") %>%
       data.matrix()
     
-     saveRDS(destination_csd_full_ped, file = paste0("cache/hospitals/", ct, "_destination_csd_full_ped.rds"))
+     saveRDS(destination_csd_full_ped, file = paste0("cache/moh/", ct, "_destination_csd_full_ped.rds"))
 }
 
 #Senior
@@ -450,13 +450,13 @@ for (ct in caretypes) {
       ungroup() %>% 
       select(-caretype, -csd)
     
-    saveRDS(origin_csd_sr, file = paste0("cache/hospitals/", ct, "_origin_csd_sr.rds"))
+    saveRDS(origin_csd_sr, file = paste0("cache/moh/", ct, "_origin_csd_sr.rds"))
     
     destination_csd_sr <- destination_trips_csd_sr %>% 
       filter(caretype == toupper(ct)) %>% 
       select(-caretype)
     
-    saveRDS(destination_csd_sr, file = paste0("cache/hospitals/", ct, "_destination_csd_sr.rds"))
+    saveRDS(destination_csd_sr, file = paste0("cache/moh/", ct, "_destination_csd_sr.rds"))
     
     origin_csd_full_sr <- travel_time_skim %>% 
       distinct(orig) %>% 
@@ -465,7 +465,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "orig") %>%
       data.matrix()
     
-    saveRDS(origin_csd_full_sr, file = paste0("cache/hospitals/", ct, "_origin_csd_full_sr.rds"))
+    saveRDS(origin_csd_full_sr, file = paste0("cache/moh/", ct, "_origin_csd_full_sr.rds"))
     
     destination_csd_full_sr <- travel_time_skim %>% 
       distinct(dest) %>% 
@@ -474,7 +474,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "dest") %>%
       data.matrix()
     
-     saveRDS(destination_csd_full_sr, file = paste0("cache/hospitals/", ct, "_destination_csd_full_sr.rds"))
+     saveRDS(destination_csd_full_sr, file = paste0("cache/moh/", ct, "_destination_csd_full_sr.rds"))
 }
 
 rm(origin_csd_ad, origin_csd_ped, origin_csd_sr, origin_csd_full_ad, origin_csd_full_ped, origin_csd_full_sr)
@@ -499,7 +499,7 @@ for (ct in caretypes) {
       group_by(treso_zone) %>% 
       summarise(d_trips = (sum(d_trips)/365)) 
     
-    saveRDS(destination_csd, file = paste0('cache/hospitals/', ct, '_destination_csd_', a, '.rds'))
+    saveRDS(destination_csd, file = paste0('cache/moh/', ct, '_destination_csd_', a, '.rds'))
     
     #Create full destination matrix
     destination_csd_full <- travel_time_skim %>% 
@@ -509,7 +509,7 @@ for (ct in caretypes) {
       column_to_rownames(var = "dest") %>%
       data.matrix()
     
-    saveRDS(destination_csd_full, file = paste0('cache/hospitals/', ct, '_destination_csd_full_', a, '.rds'))
+    saveRDS(destination_csd_full, file = paste0('cache/moh/', ct, '_destination_csd_full_', a, '.rds'))
     
     #Create Origin Vector
     origin_csd <- csd_origins %>% 
@@ -519,7 +519,7 @@ for (ct in caretypes) {
       group_by(treso_zone) %>% 
       summarise(o_trips = (sum(o_trips)/365))
     
-    saveRDS(origin_csd, file = paste0('cache/hospitals/', ct, '_origin_csd_', a, '.rds'))
+    saveRDS(origin_csd, file = paste0('cache/moh/', ct, '_origin_csd_', a, '.rds'))
     
     #Create full origin matrix
     origin_csd_full <- travel_time_skim %>% 
@@ -529,11 +529,11 @@ for (ct in caretypes) {
       column_to_rownames(var = "orig") %>%
       data.matrix()
     
-    saveRDS(origin_csd_full, file = paste0('cache/hospitals/', ct, '_origin_csd_full_', a, '.rds'))
+    saveRDS(origin_csd_full, file = paste0('cache/moh/', ct, '_origin_csd_full_', a, '.rds'))
     
     #Create propensity matrix for care-type and age-cluster segment
     prop_matrix_csd <- matrix_balancing_2d(prop_matrix, origin_csd_full, destination_csd_full, 'column', 1000, 0.001)
-    saveRDS(prop_matrix_csd, file = paste0('cache/hospitals/', ct, '_prop_matrix_csd_', a, '.rds'))
+    saveRDS(prop_matrix_csd, file = paste0('cache/moh/', ct, '_prop_matrix_csd_', a, '.rds'))
     
     #Convert propensity matrix to long-format for ease of analysis
     long_prop_matrix_csd <- prop_matrix_csd %>% 
@@ -541,7 +541,7 @@ for (ct in caretypes) {
       rename('origin' = 'Var1',
          'destination' = 'Var2',
          'trips' = 'value')
-    saveRDS(long_prop_matrix_csd, file = paste0('cache/hospitals/', ct, '_long_prop_matrix_csd_', a, '.rds'))
+    saveRDS(long_prop_matrix_csd, file = paste0('cache/moh/', ct, '_long_prop_matrix_csd_', a, '.rds'))
     
     #Reaggregate TRESO trip values to CSD and compare to original HBAM dataset
     sim_csd <- left_join(long_prop_matrix_csd, treso_zone_system, by = c('origin' = 'treso_id')) %>% 
@@ -552,14 +552,14 @@ for (ct in caretypes) {
       summarise(trips = sum(trips, na.rm = TRUE))
     
     #Create comparison table for simulated vs observed HBAM cases (requires reading in observed HBAM matrix)
-    HBAM_matrix <- readRDS(paste0('cache/hospitals/', ct, "_hbam_matrix_", a,".rds"))
+    HBAM_matrix <- readRDS(paste0('cache/moh/', ct, "_hbam_matrix_", a,".rds"))
     
     comp_sim_csd <- full_join(sim_csd, HBAM_matrix, by = c('destination'='treso_zone', 'csduid'='csd'), suffix = c('.csd', '.hbam')) %>% 
       replace_na(list(trips.hbam = 0, trips.csd = 0)) %>% 
       mutate(diff = abs(trips.csd - trips.hbam),
              perc.diff = ((trips.csd - trips.hbam)/trips.hbam)*100)
     
-    saveRDS(comp_sim_csd, file = paste0('cache/hospitals/', ct, '_comp_sim_csd_', a, '.rds'))
+    saveRDS(comp_sim_csd, file = paste0('cache/moh/', ct, '_comp_sim_csd_', a, '.rds'))
     
     rm(destination_csd, origin_csd, destination_csd_full, origin_csd_full, prop_matrix_csd, long_prop_matrix_csd, sim_csd, HBAM_matrix, comp_sim_csd)
   }
@@ -1209,7 +1209,7 @@ target_year <- 2022 #user selected projection year
 
 ```{r}
 #Update Master HBAM liste to Include TRESO Zones
-hospital_overlay <- readRDS('cache/hospitals/hospital_overlay.rds')
+hospital_overlay <- readRDS('cache/moh/hospital_overlay.rds')
 
 HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = c('agegroup'))
@@ -1230,7 +1230,7 @@ for (a in unique(agegroup_ref$age_cluster)) {
          beddays,
          treso_zone)
   
-  saveRDS(HBAMprojected_age, file = paste0("cache/hospitals/HBAMprojected_", a, ".rds"))
+  saveRDS(HBAMprojected_age, file = paste0("cache/moh/HBAMprojected_", a, ".rds"))
 }
 
 rm(HBAMprojected_age)
@@ -1262,10 +1262,10 @@ proj_origin_na <- proj_origin %>%
 
 #Recall function (NEEDS TO BE FIXED, ONLY RETURNS LAST OBJECT); could be a loop?
 proj_odv_rcall <- function(ct, a) {
-  proj_origin <- readRDS(paste0('cache/hospitals/', ct, '_proj_origin_', a,'.rds'))
-  proj_origin_full <- readRDS(paste0('cache/hospitals/', ct, '_proj_origin_full_', a, '.rds'))
-  proj_destination <- readRDS(paste0('cache/hospitals/', ct, '_proj_destination_', a,'.rds'))
-  proj_destination_full <- assign(paste0(ct, '_proj_destination_full_', a), readRDS(paste0('cache/hospitals/', ct,'_proj_destination_full_', a, '.rds')))
+  proj_origin <- readRDS(paste0('cache/moh/', ct, '_proj_origin_', a,'.rds'))
+  proj_origin_full <- readRDS(paste0('cache/moh/', ct, '_proj_origin_full_', a, '.rds'))
+  proj_destination <- readRDS(paste0('cache/moh/', ct, '_proj_destination_', a,'.rds'))
+  proj_destination_full <- assign(paste0(ct, '_proj_destination_full_', a), readRDS(paste0('cache/moh/', ct,'_proj_destination_full_', a, '.rds')))
   
   return(proj_origin)
   return(proj_origin_full)
@@ -1321,14 +1321,14 @@ proj_matrix <- function(ct,proj_cases,HBAM_cases,origin,destination,prop_matrix)
     #1D matrix balancing operation balancing origins against destinations
      proj_prop_matrix <- matrix_balancing_1d(prop_matrix, proj_destination_full, proj_origin_full, axis = 2, constrained = TRUE)
      
-     saveRDS(proj_prop_matrix, file = paste0("cache/hospitals/", ct, "_proj_prop_matrix_", a, ".rds"))
+     saveRDS(proj_prop_matrix, file = paste0("cache/moh/", ct, "_proj_prop_matrix_", a, ".rds"))
 
   }
   
   #Read in caculated matrices for each age-group cluster and sum
-  pm_ad <- readRDS(paste0('cache/hospitals/', ct, '_proj_prop_matrix_ad', '.rds'))
-  pm_ped <- readRDS(paste0('cache/hospitals/', ct, '_proj_prop_matrix_ped', '.rds'))
-  pm_sr <- readRDS(paste0('cache/hospitals/', ct, '_proj_prop_matrix_sr', '.rds'))
+  pm_ad <- readRDS(paste0('cache/moh/', ct, '_proj_prop_matrix_ad', '.rds'))
+  pm_ped <- readRDS(paste0('cache/moh/', ct, '_proj_prop_matrix_ped', '.rds'))
+  pm_sr <- readRDS(paste0('cache/moh/', ct, '_proj_prop_matrix_sr', '.rds'))
   pm_sum <- pm_ad + pm_ped + pm_sr
   
   return(pm_sum)
@@ -1347,7 +1347,7 @@ proj_summary <- function(matrix) {
   return(proj_summary_table)
 }
 
-prop_matrix <- readRDS('cache/hospitals/prop_matrix.rds')
+prop_matrix <- readRDS('cache/moh/prop_matrix.rds')
 
 p1 <- proj_matrix(ct = 'am', proj_origin,HBAMprojected_master_tz, origin_full, dest_full,prop_matrix)
 p2 <- proj_summary(p1)

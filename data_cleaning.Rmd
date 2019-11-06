@@ -723,7 +723,7 @@ ALCcases <- sqlFetch(healthRodbc, "cap.ALCCases")
 ALCdesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
 ALCdischargedest <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
 ALCinpatientbedtype <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
-ALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/health/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
+ALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/moh/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
 
 #CIHI Data
 CIHIhospitalbeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
@@ -755,7 +755,7 @@ caretypes <- healthHBAMprojected %>%
   
 ```{r, include=FALSE, eval=TRUE}
 # Bed Census Data
-dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>% 
+dailybedcensus <- read_csv('input/moh/cap.MOH_DailyBedCensus_Summary.csv') %>% 
   drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
   select(facilityid = FACILITY_NO,
          siteid = INST,
@@ -779,7 +779,7 @@ dailybedcensus <- read_csv('input/health/cap.MOH_DailyBedCensus_Summary.csv') %>
   mutate(type = replace(type, type == 'SR', 'GR'))
 
 
-hospitaldischarges <- read_csv('input/health/cap.MOH_Discharges.csv') %>%
+hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
   replace_na(list(Discharges = 0)) %>% 
   replace_na(list(Total_Days = 0)) %>% 
   mutate(ATSEPARATIONS = ifelse(ATSEPARATIONS == 'NULL', '0', ATSEPARATIONS),
@@ -806,7 +806,7 @@ hospitaldischarges <- read_csv('input/health/cap.MOH_Discharges.csv') %>%
   filter(agegroup != 7)
 
 # HBAM Historical
-HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>% 
+HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv') %>% 
   select(year = Year, 
          siteid = Hospital_Site_ID,
          hospitalname = Hospital_Site_Name,
@@ -831,10 +831,10 @@ HBAMhistorical <- read_csv('input/health/cap.MOH_HBAM_HIS.csv') %>%
          caretype = replace(caretype, caretype == 'CCC', 'CR'),
          caretype = replace(caretype, caretype == 'Rehab', 'GR'))
 
-saveRDS(HBAMhistorical, file = 'cache/hospitals/HBAMhistorical.rds')
+saveRDS(HBAMhistorical, file = 'cache/moh/HBAMhistorical.rds')
 
 # HBAM Projected
-HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>% 
+HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv') %>% 
   select(year = Year, 
          siteid = Hospital_Site_ID, 
          hospitalname = Hospital_Site_Name,
@@ -857,7 +857,7 @@ HBAMprojected <- read_csv('input/health/cap.MOH_HBAM_Proj.csv') %>%
          caretype = replace(caretype, caretype == 'ER', 'AM'),
          caretype = replace(caretype, caretype == 'DS', 'AM'))
 
-saveRDS(HBAMprojected, file = 'cache/hospitals/hbamprojected.rds')
+saveRDS(HBAMprojected, file = 'cache/moh/hbamprojected.rds')
 
 ## Identifying Duplicated Site IDs
 duplicated_siteid <- HBAMhistorical %>% 
@@ -870,7 +870,7 @@ duplicated_siteid <- HBAMhistorical %>%
   distinct(siteid)
 
 # Health Asset Inventory
-hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>% 
+hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>% 
   select(lhin = LHIN,
          lhinlocation = Location,
          name = Name,
@@ -887,7 +887,7 @@ hospitallocations <- read_csv('input/health/dbo.MOH_Hospital_Locations.csv') %>%
   left_join(select(HBAMprojected, siteid, caretype), by = c('siteid', 'caretype')) %>% 
   distinct()
 
-saveRDS(hospitallocations, file = 'cache/hospitals/hospitallocations.rds')
+saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
 
 # Historical HBAM Master Dataset
 HBAMhistorical_master <- HBAMhistorical %>% 
@@ -898,7 +898,7 @@ HBAMhistorical_master <- HBAMhistorical %>%
   left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
   filter(!is.na(pcode))
 
-saveRDS(HBAMhistorical_master, file = 'cache/hospitals/hbamhistorical_master.rds')
+saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
 
 # Projected HBAM Master Dataset
 HBAMprojected_master <- HBAMprojected %>% 
@@ -909,7 +909,7 @@ HBAMprojected_master <- HBAMprojected %>%
   left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
   filter(!is.na(pcode))
 
-saveRDS(HBAMprojected_master, file = 'cache/hospitals/hbamprojected_master.rds')
+saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
 
 ## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.)
 unmatched_hosp <- HBAMprojected %>% 
@@ -921,18 +921,18 @@ unmatched_hosp <- HBAMprojected %>%
   filter(is.na(pcode))
 
 #LHIN Data
-populationLHIN <- read_csv('input/health/dbo.Population_LHIN.csv')
+populationLHIN <- read_csv('input/moh/dbo.Population_LHIN.csv')
 
 #ALC Data
 ##Reference Files
-ALCage <- read_csv('input/health/cap.ALCAge.csv')
-ALCcases <- read_csv('input/health/cap.ALCCases.csv')
-ALCdesignations <- read_csv('input/health/cap.ALCDesignations.csv')
-ALCdischargedest <- read_csv('input/health/cap.ALCDischargeDestination.csv')
-ALCinpatientbedtype <- read_csv('input/health/cap.ALCInpatientBedType.csv')
+ALCage <- read_csv('input/moh/cap.ALCAge.csv')
+ALCcases <- read_csv('input/moh/cap.ALCCases.csv')
+ALCdesignations <- read_csv('input/moh/cap.ALCDesignations.csv')
+ALCdischargedest <- read_csv('input/moh/cap.ALCDischargeDestination.csv')
+ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
 
 #ALC Datasets
-ALCannualvolume <- read_csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
+ALCannualvolume <- read_csv('input/moh/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
   select(year = Year,
          siteid = SiteNumber,
          casetype = CaseType,
@@ -950,7 +950,7 @@ ALCannualvolume <- read_csv('input/health/cap.ALCAnnualVolumeAndTOtalDays.csv') 
          bedtype == 'AP',
          dd != "ALL")
 
-ALCmostappropriate <- read_csv('input/health/ALCMostAppropriateDischage.csv') %>% 
+ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv') %>% 
   separate(period, c("year", "month"), sep = "_") %>%
   select(year,
          month,
@@ -987,7 +987,7 @@ ALCmostappropriate <- ALCmostappropriate %>%
             totalALCdays = sum(totalALCdays))
 
 #CIHI Data
-CIHIhospitalbeds <- read_csv('input/health/cap.CIHI_Hospital_Beds.csv') %>% 
+CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>% 
   select(year = Year,
          prov = Province,
          name = 'Hospital Name',
@@ -995,10 +995,10 @@ CIHIhospitalbeds <- read_csv('input/health/cap.CIHI_Hospital_Beds.csv') %>%
          cihi_total = Total) %>%  
   mutate(name = toupper(name))
 
-saveRDS(CIHIhospitalbeds, file = 'cache/hospitals/CIHI_hospitalbeds.rds')
+saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
 
 #CCO Linkage Table
-ALC_idcrosswalk <- read_csv('input/health/SiteID_Linkage_Table.csv') %>% 
+ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
   select(lhin = WTISLHINNum,
          name = MNSName,
          type = MNSType,
@@ -1081,7 +1081,7 @@ treso_health_tb <- socio_economic_tb %>%
   left_join(treso_csd_tb, by = 'treso_zone')
   # saveRDS("cache/treso_tb.rds")
 
-saveRDS(treso_health_tb, file = 'cache/hospitals/treso_health_tb.rds')
+saveRDS(treso_health_tb, file = 'cache/moh/treso_health_tb.rds')
 
 # Clean global variables
 rm(hhld_tb, hhld_df, pop_df, socio_economic_tb)
@@ -1091,7 +1091,7 @@ treso_zone_system <- read_csv('input/treso/treso_zone_system.csv') %>%
   select(-mof_region,
          -area)
 
-treso_population_moh <- readRDS('input/health/treso_population_moh.rds')
+treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
 ```
 
@@ -1121,7 +1121,7 @@ num_beds <- dailybedcensus %>%
   summarise(maxstaffedbeds = max(staffedbeds, na.rm = TRUE)) %>% 
   mutate(maxstaffedbeds = replace(maxstaffedbeds, maxstaffedbeds == -Inf, 0)) #-Inf occuring as a result of NA entries calculated within max() function, as it will result in either Inf/-Inf
 
-saveRDS(num_beds, file = 'cache/hospitals/num_beds.rds')
+saveRDS(num_beds, file = 'cache/moh/num_beds.rds')
 
 #Annual Bed-Days Observed
 beddaysobserved <- dailybedcensus %>% 
@@ -1247,7 +1247,7 @@ mismatched_csd <- csd_caserates %>%
   filter(is.na(population)) %>% 
   summarise(sum(totalcases)) #total of 57,951 mismatched cases from 89 CSDs
 
-saveRDS(csd_caserates, file = 'cache/hospitals/csd_caserates.rds')
+saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
 ```
 
 ###Census Division (CD) Caserate Calculations
@@ -1284,7 +1284,7 @@ mismatched_cd <- cd_caserates %>%
   filter(is.na(population)) %>% 
   summarise(sum(totalcases))
 
-saveRDS(cd_caserates, file = 'cache/hospitals/cd_caserates.rds')
+saveRDS(cd_caserates, file = 'cache/moh/cd_caserates.rds')
 
 ```
 
@@ -1293,7 +1293,7 @@ saveRDS(cd_caserates, file = 'cache/hospitals/cd_caserates.rds')
 #Compile caserates into one df (CD and CSD)
 caserates_comp <- full_join(csd_caserates, cd_caserates, by = c('year', 'agegroup', 'caretype', 'cd'))
 
-saveRDS(caserates_comp, file = 'cache/hospitals/caserates_comp.rds')
+saveRDS(caserates_comp, file = 'cache/moh/caserates_comp.rds')
 
 ####Plotting Caserates
 ct <- 'AM'
