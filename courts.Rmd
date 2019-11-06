@@ -52,7 +52,7 @@ starting_forecast_year <- max(crthrs$year) #update with paul's list
 
 ```{r data preparation}
 
-##input and manipulate treso zone level population data by age groups
+#input and manipulate treso zone level population data by age groups
 treso_population_x <- treso_population %>% 
   left_join(select(treso_zone_system, treso_id, cduid), by = c("treso_zone" = "treso_id")) %>% 
   select(-csduid) %>% 
@@ -245,3 +245,86 @@ courthouse_asset <- courthouse_asset %>%
 
 ```
 
+# Linear Regression
+
+- Explore whether there are any linear relationships between age groups and certain court hours
+
+```{r explore linear regression}
+library(perturb)
+
+treso_2016_population <- readRDS("input/mag/treso_2016_population_mag.rds") %>% 
+  left_join(treso_zone_system, by = c("treso_zone" = "treso_id")) %>% 
+  select(treso_zone, age.group, population, cduid, cdname) %>% 
+  mutate(cdname = as.character(cdname)) %>% 
+  group_by(cduid, cdname, age.group) %>% 
+  summarise(population = sum(population)) %>% 
+  ungroup() %>% 
+  spread(key = "age.group", value = "population") %>% 
+  mutate(adult = adult.20s + adult.30s + adult.40s + adult.50s + adult.60s) %>% 
+  mutate(senior = senior.70s + senior.80s) %>% 
+  mutate(majority = adult + senior) %>% 
+  mutate(minor = child + youth + young.adult) %>% 
+  mutate(total = majority + minor)
+
+court_hours_2016 <- crthrs %>%
+  select(-lat, -long, -csduid, -csdname, -area, -region, -courthouse.lat, -courthouse.long) %>% 
+  filter(year == 2016) %>% 
+  group_by(cduid, cdname, casetypes) %>%
+  summarise(value = sum(value)) %>% 
+  ungroup() %>% 
+  spread(key = "casetypes", value = "value") %>% 
+  left_join(treso_2016_population, by = c("cduid", "cdname")) %>% 
+  select(-cduid, -cdname) %>% 
+  mutate_if(is.numeric, list(ln = log1p, sqrt = sqrt, log = log10, sq = ~.^2, scale = scale)) 
+
+```
+
+```{r building models - OCJcrim}
+r1 <- resid(lm(young.adult_ln ~ adult.20s_ln, data = court_hours_2016))
+summary(mod)
+
+plot(mod)
+```
+
+```{r building models - SCJcrim}
+r1 <- resid(lm(adult.30s_sqrt ~ adult.20s_sqrt, data = court_hours_2016))
+mod <- lm(SCJcrim_sqrt ~ adult.20s_sqrt + r1, data = court_hours_2016)
+summary(mod)
+plot(mod)
+```
+
+```{r building models - OCJfam}
+mod <- lm(OCJfam ~ adult.30s_sqrt + adult.50s_sqrt + child, data = court_hours_2016)
+summary(mod)
+plot(mod)
+
+# Comment - it was found that to have a high R^2 and proper signs with the `child` term, the only transformation is the non-transformed version.
+```
+
+```{r building models - SCJfam}
+mod <- lm(SCJfam ~ youth_sqrt + senior.70s, data = court_hours_2016)
+summary(mod)
+plot(mod)
+```
+
+```{r building models - civil}
+
+mod <- lm(civil_sqrt ~ young.adult_sqrt + adult.20s_sqrt + senior.80s_sqrt, data = court_hours_2016)
+summary(mod)
+print(colldiag(mod))
+plot(mod)
+```
+
+```{r building models - smac}
+rMod <- residuals(lm(adult.30s ~ adult.20s, data = court_hours_2016))
+mod <- lm(smac ~ adult.20s_sqrt + rMod, data = court_hours_2016)
+cd <- colldiag(mod)
+cd
+
+mod <- lm(smac ~ adult.20s_sqrt + adult.30s_sqrt, data = court_hours_2016)
+cd <- colldiag(mod)
+cd
+
+#plot(mod)
+
+```
