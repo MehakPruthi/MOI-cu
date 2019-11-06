@@ -1362,6 +1362,14 @@ p2 <- proj_summary(p1)
                                     Total Cases
 ```{r}
 #Use combine HBAM-TRESO object as basis
+hospital_lookup_latlong <- HBAMhistorical_master_tz %>% 
+  group_by(name, pcode) %>% 
+  summarise(csduid = first(hosp_csduid),
+            csdname = first(csdname),
+            lat = first(lat),
+            long = first(long),
+            treso_zone = first(treso_zone)) 
+
 hospital_lookup <- HBAMhistorical_master_tz %>% 
   group_by(year, name, pcode, age_cluster, caretype) %>% 
   summarise(totalcases = sum(totalcases)) %>% 
@@ -1381,7 +1389,8 @@ hospital_lookup <- HBAMhistorical_master_tz %>%
          cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', totalcases, 0),
          cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', totalcases, 0)) %>% 
   group_by(year, name, pcode) %>% 
-  summarise_at(vars(cases_at_ad:cases_am_sr), sum)
+  summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>% 
+  left_join(hospital_lookup_latlong, by = c('name', 'pcode'))
 
 #Added check to make sure summarise is correct
 hospital_check <- HBAMhistorical_master_tz %>%
@@ -1418,8 +1427,7 @@ dbc_beds_2018 <- num_beds_spread %>%
 #Combine DBC bed data into wide table format by Postal Code
 dbc_beds <- full_join(dbc_beds_2017, dbc_beds_2018, by = c('name', 'pcode', 'siteid')) %>%
   group_by(pcode) %>% 
-  summarise_at(vars(at_beds_2017:dbc_total_beds_2018), sum, na.rm = TRUE) %>% 
-  right_join(select(hospital_lookup, pcode, name), by = 'pcode')
+  summarise_at(vars(at_beds_2017:dbc_total_beds_2018), sum, na.rm = TRUE)
 
 #Import CIHI Bed data and structure to wide table format by Postal Code
 CIHIhospitalbeds_spread <- CIHIhospitalbeds %>% 
@@ -1443,7 +1451,7 @@ hosp_beds_comp <- left_join(dbc_beds, CIHIhospitalbeds_spread, by = 'pcode') %>%
 #Final Master List only including DBC because of incomplete CIHI Data
 hospital_lookup_master <- left_join(hospital_lookup, dbc_beds, by = 'pcode')
 
-saveRDS(hospital_lookup_master, file = 'output/hospital_lookup_master.rds')
+saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
 ```
 
 
