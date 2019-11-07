@@ -183,6 +183,8 @@ saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
   - Join HBAM historical data to hospital spatial database
   - Filter master dataset for major age groups
 ```{r}
+hospital_overlay <- readRDS(file = "cache/moh/hospital_overlay.rds")
+
 #Update Master HBAM liste to Include TRESO Zones
 HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = 'agegroup')
