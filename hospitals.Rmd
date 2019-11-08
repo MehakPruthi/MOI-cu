@@ -48,17 +48,10 @@ CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
 num_beds <- readRDS('cache/moh/num_beds.rds')
 
 #CD Caserates
-cd_caserates <- readRDS('cache/moh/cd_caserates.rds') %>% 
-  select(year,
-         cd,
-         caretype,
-         agegroup,
-         cd_caserate = caserate) %>% 
-  mutate(cd = as.numeric(cd))
+cd_caserates <- readRDS('cache/moh/cd_caserates.rds')
 
-csd_caserates <- readRDS('cache/moh/csd_caserates.rds') %>% 
-  filter(csd_caserates != Inf) #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level (see below)
-
+csd_caserates <- readRDS('cache/moh/csd_caserates.rds') #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level; Inf replaced by 0 in cleaning code
+  
 caserates_comp <- readRDS('cache/moh/caserates_comp.rds')
 
 # Historical HBAM Master (w/ Asset data)
@@ -72,6 +65,13 @@ hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
 
 #TRESO Population data and Spatial Data
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+
+treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
+
+treso_population_long <- gather(treso_population_moh, 'year', 'population', population.2011:population.2041, -age_group) %>% 
+  separate(year, into = c('pop', 'year'), sep = "n.") %>% 
+  mutate(year = as.numeric(year)) %>% 
+  select(-pop)
 
 treso_health_slim_tb <- readRDS('cache/moh/treso_health_tb.rds') %>% 
   select(treso_zone,
@@ -186,6 +186,12 @@ saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
 #Update Master HBAM liste to Include TRESO Zones
 HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = 'agegroup')
+
+HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>% 
+  group_by(year, siteid, age_cluster, caretype) %>% 
+  mutate(totalcases = sum(cases),
+         csd.mrkt = cases/totalcases) %>% 
+  select(year, siteid, hospitalname, caretype, age_cluster, orig_csd, cases, totalcases, csd.mrkt)
 
 #For loop to separate HBAM observations by each age-group cluster
 for (a in age_cluster) {
@@ -1241,8 +1247,19 @@ rm(HBAMprojected_age)
 
 ```{r}
 #Disaggregate CSD case-rates to TRESO zones
-treso_caserates <- left_join(treso_zone_system, csd_caserates, by = c('csduid' = 'csd')) %>% 
-  filter(!is.na(caserate))
+treso_caserates <- left_join(caserates_comp, treso_zone_system, by = c('csd' = 'csduid', 'cd' = 'cduid')) %>% 
+  select(year,
+         treso_zone = treso_id,
+         csduid = csd,
+         csdname,
+         cduid = cd,
+         cdname,
+         agegroup,
+         caretype,
+         csd_caserates,
+         cd_caserate)
+
+saveRDS(treso_caserates, file = 'cache/moh/treso_caserates.rds')
 
 #Join TRESO case-rates to projection year population allocation for origin cases / trips
 proj_origin <- right_join(treso_caserates, proj_year_summary, by = c('treso_id' = 'treso_zone', 'csduid' = 'csduid', 'agegroup' = 'age_group')) %>% 
@@ -1372,22 +1389,22 @@ hospital_lookup_latlong <- HBAMhistorical_master_tz %>%
 
 hospital_lookup <- HBAMhistorical_master_tz %>% 
   group_by(year, name, pcode, age_cluster, caretype) %>% 
-  summarise(totalcases = sum(totalcases)) %>% 
-  mutate(cases_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', totalcases, 0),
-         cases_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', totalcases, 0),
-         cases_at_sr = ifelse(caretype %in% 'AT' & age_cluster %in% 'sr', totalcases, 0),
-         cases_cr_ad = ifelse(caretype %in% 'CR' & age_cluster %in% 'ad', totalcases, 0),
-         cases_cr_ped = ifelse(caretype %in% 'CR' & age_cluster %in% 'ped', totalcases, 0),
-         cases_cr_sr = ifelse(caretype %in% 'CR' & age_cluster %in% 'sr', totalcases, 0),
-         cases_gr_ad = ifelse(caretype %in% 'GR' & age_cluster %in% 'ad', totalcases, 0),
-         cases_gr_ped = ifelse(caretype %in% 'GR' & age_cluster %in% 'ped', totalcases, 0),
-         cases_gr_sr = ifelse(caretype %in% 'GR' & age_cluster %in% 'sr', totalcases, 0),
-         cases_mh_ad = ifelse(caretype %in% 'MH' & age_cluster %in% 'ad', totalcases, 0),
-         cases_mh_ped = ifelse(caretype %in% 'MH' & age_cluster %in% 'ped', totalcases, 0),
-         cases_mh_sr = ifelse(caretype %in% 'MH' & age_cluster %in% 'sr', totalcases, 0),
-         cases_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', totalcases, 0),
-         cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', totalcases, 0),
-         cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', totalcases, 0)) %>% 
+  summarise(cases = sum(cases)) %>% 
+  mutate(cases_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', cases, 0),
+         cases_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', cases, 0),
+         cases_at_sr = ifelse(caretype %in% 'AT' & age_cluster %in% 'sr', cases, 0),
+         cases_cr_ad = ifelse(caretype %in% 'CR' & age_cluster %in% 'ad', cases, 0),
+         cases_cr_ped = ifelse(caretype %in% 'CR' & age_cluster %in% 'ped', cases, 0),
+         cases_cr_sr = ifelse(caretype %in% 'CR' & age_cluster %in% 'sr', cases, 0),
+         cases_gr_ad = ifelse(caretype %in% 'GR' & age_cluster %in% 'ad', cases, 0),
+         cases_gr_ped = ifelse(caretype %in% 'GR' & age_cluster %in% 'ped', cases, 0),
+         cases_gr_sr = ifelse(caretype %in% 'GR' & age_cluster %in% 'sr', cases, 0),
+         cases_mh_ad = ifelse(caretype %in% 'MH' & age_cluster %in% 'ad', cases, 0),
+         cases_mh_ped = ifelse(caretype %in% 'MH' & age_cluster %in% 'ped', cases, 0),
+         cases_mh_sr = ifelse(caretype %in% 'MH' & age_cluster %in% 'sr', cases, 0),
+         cases_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', cases, 0),
+         cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', cases, 0),
+         cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', cases, 0)) %>% 
   group_by(year, name, pcode) %>% 
   summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>% 
   left_join(hospital_lookup_latlong, by = c('name', 'pcode'))
@@ -1395,7 +1412,7 @@ hospital_lookup <- HBAMhistorical_master_tz %>%
 #Added check to make sure summarise is correct
 hospital_check <- HBAMhistorical_master_tz %>%
   group_by(year, name, pcode, age_cluster, caretype) %>% 
-  summarise(totalcases = sum(totalcases))
+  summarise(totalcases = sum(cases))
 
 #Import bed summaries from Daily Bed Census (DBC); this can be imported above
 num_beds_spread <- num_beds %>%
@@ -1454,7 +1471,121 @@ hospital_lookup_master <- left_join(hospital_lookup, dbc_beds, by = 'pcode')
 saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
 ```
 
+##Base Scenario Calculation
+  - Calculate the market share of cases for each hospital w.r.t population from HBAM for the given year/caretype/age cluster (named segment from now on)
+  - Summarize the number of cases by TRESO zones for each segment (HBAM Demand) [origin vector]
+  - Apply the case rates to the population at TRESO zones (Caserate Demand) [origin vector]
+  - Calculate the difference between HBAM Demand and Caserate Demand, summarize the difference at the CSD level (Latent Demand) [KPI]
 
+```{r}
+#Create Origin TRESO caseload by disaggregating CSD case-rates down to the TRESO level
+
+##Disaggregate CSD case-rates to TRESO zones
+treso_caserates <- left_join(caserates_comp, treso_zone_system, by = c('orig_csd' = 'csduid', 'orig_cd' = 'cduid')) %>% 
+  select(year,
+         treso_zone = treso_id,
+         orig_csd,
+         csdname,
+         orig_cd,
+         cdname,
+         agegroup,
+         caretype,
+         csd_caserate,
+         cd_caserate)
+
+saveRDS(treso_caserates, file = 'cache/moh/treso_caserates.rds')
+
+##Calculate origin caseload by TRESO zone
+treso_origin_cases <- left_join(treso_caserates, treso_population_long, by = c('year', 'treso_zone', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
+  rename('orig.treso.zone' = 'treso_zone') %>% 
+  mutate(orig.cases = csd_caserate*population)
+
+#Create Hospital-TRESO OD table by joining Origin caseload calculations to historical HBAM
+
+hosp2treso_origin_cases <- HBAMhistorical_master_tz %>% 
+  filter(year == 2016) %>% 
+  select(year,
+         siteid,
+         name,
+         hosp.treso.zone = treso_zone,
+         orig_csd,
+         agegroup,
+         age_cluster,
+         caretype) %>% 
+  left_join(select(HBAMhistorical_cases, year, siteid, orig_csd, agegroup, caretype, cases, totalcases, csd.mrkt), by = c('year', 'siteid','orig_csd', 'agegroup', 'caretype')) %>% 
+  left_join(select(treso_origin_cases, year, agegroup, caretype, orig.treso.zone, orig_csd, population), by = c('year', 'orig_csd', 'agegroup', 'caretype')) 
+
+hosp2treso_caserates <- hosp2treso_origin_cases %>% 
+  # filter(siteid == 1030) %>% 
+  mutate(population = replace_na(population, 0)) %>% 
+  group_by(year, siteid, orig_csd, agegroup, caretype) %>% 
+  mutate(treso.pop.perc = population/sum(population)) %>% 
+  group_by(year, siteid, agegroup, caretype) %>%
+  mutate(treso.mrktshare = treso.pop.perc*csd.mrkt,
+         treso.hosp.cases = treso.mrktshare*totalcases,
+         treso.hosp.caserate = treso.hosp.cases/population,
+         hosp.seg.cases = sum(treso.hosp.cases))
+
+
+#TODO: CLEAN CODE AND REMOVE USELESS OPERATIONS
+#TODO: TRANSITION TO AGE CLUSTERS FROM AGE GROUP: EITHER UPSTREAM AT HBAM OR DOWNSTREAM VIA PROPER SUM FUNCTION
+
+
+hosp2treso_caserates <- hosp2treso_origin_cases %>% 
+  filter(siteid == 1030) %>% 
+  mutate(population = replace_na(population, 0)) %>% 
+  group_by(year, siteid, orig_csd, age_cluster, caretype) %>% 
+  mutate(treso.pop.perc = population/sum(population)) %>% 
+  group_by(year, siteid, orig_csd, age_cluster, caretype) %>% #Transition grouping variable from agegroup to age_cluster
+  select(-agegroup) %>%
+  distinct() %>%
+  mutate(treso.pop.perc = sum(treso.pop.perc),
+         totalcases = sum(totalcases)) %>%
+  group_by(year, siteid, age_cluster, caretype) %>%
+  mutate(treso.mrktshare = treso.pop.perc*csd.mrkt,
+         treso.hosp.cases = treso.mrktshare*totalcases,
+         treso.hosp.caserate = treso.hosp.cases/population,
+         hosp.seg.cases = sum(treso.hosp.cases))
+  
+
+```
+
+###TODAY'S ATTEMPT
+```{r}
+#Update Master HBAM liste to Include TRESO Zones (COPIED FROM CHUNKS ABOVE, REMOVE ONCE CODE IS WORKING/CLEANED)
+HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
+  left_join(agegroup_ref, by = 'agegroup')
+
+HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>% 
+  group_by(year, siteid, agegroup, caretype) %>% 
+  mutate(totalcases = sum(cases),
+         csd.mrkt = cases/totalcases) %>% 
+  select(year, siteid, hospitalname, caretype,agegroup, age_cluster, orig_csd, cases, totalcases, csd.mrkt)
+
+treso_caserates <- left_join(caserates_comp, treso_zone_system, by = c('orig_csd' = 'csduid', 'orig_cd' = 'cduid')) %>%
+  left_join(agegroup_ref, by = 'agegroup') %>% 
+  select(year,
+         treso_zone = treso_id,
+         orig_csd,
+         csdname,
+         orig_cd,
+         cdname,
+         agegroup,
+         caretype,
+         csd_caserate,
+         cd_caserate)
+
+treso_origin_cases <- left_join(treso_caserates, treso_population_long, by = c('year', 'treso_zone', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
+  rename('orig.treso.zone' = 'treso_zone',
+         'treso.pop' = 'population') %>%
+  group_by(year, agegroup, orig_csd,caretype) %>%
+  mutate(csd.pop = sum(treso.pop),
+         treso.pop.perc = treso.pop/csd.pop,
+         treso.caserate = treso.pop.perc*csd_caserate)
+
+
+
+```
 
 
 
