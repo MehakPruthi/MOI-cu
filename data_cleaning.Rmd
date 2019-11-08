@@ -32,14 +32,14 @@ studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFacto
 eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
 # Postal code to lat/long conversion file
-pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
-```
-
-# TRESO Data cleaning 
 
 - Combine the population, household information
 - Summarize by TRESO zones
 
+pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
+```
+
+# TRESO Data cleaning 
 ```{r treso data cleaning, echo=FALSE}
 # Clean hhld_df
 hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
@@ -812,12 +812,12 @@ HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv') %>%
          hospitalname = Hospital_Site_Name,
          caretype = Care_Type,
          agegroup = Age_Group, 
-         totalcases = Number_of_Cases,
-         csd = CSD) %>% 
+         cases = Number_of_Cases,
+         orig_csd = CSD) %>% 
   # filter(year == 2016) %>% 
   # select(-year) %>% 
-  filter(csd < 4600000,
-         csd > 3501000) %>% 
+  filter(orig_csd < 4600000,
+         orig_csd > 3501000) %>% 
   mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
          agegroup = replace(agegroup, agegroup == '18-44', 2),
          agegroup = replace(agegroup, agegroup == '45-64', 3),
@@ -840,7 +840,7 @@ HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv') %>%
          hospitalname = Hospital_Site_Name,
          caretype = Care_Type,
          agegroup = Age_Group, 
-         totalcases = Number_of_Cases,
+         cases = Number_of_Cases,
          lengthofstay = Length_of_Stay) %>% 
   mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
          agegroup = replace(agegroup, agegroup == '18-44', 2),
@@ -893,19 +893,16 @@ saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
 HBAMhistorical_master <- HBAMhistorical %>% 
   mutate(caretype = replace(caretype, caretype == "ER", "AM"),
          caretype = replace(caretype, caretype == "DS", "AM")) %>% 
-  group_by(year, siteid, caretype, agegroup, csd) %>% 
-  summarise(totalcases = sum(totalcases)) %>% 
-  left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
-  filter(!is.na(pcode))
+  left_join(hospitallocations, by = c('siteid', 'caretype'))
 
 saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
 
 # Projected HBAM Master Dataset
 HBAMprojected_master <- HBAMprojected %>% 
   group_by(year, siteid, caretype, agegroup) %>% 
-  summarise(totalcases = sum(totalcases),
+  summarise(cases = sum(cases),
             los = sum(lengthofstay)) %>% 
-  mutate(beddays = (totalcases*los)) %>% 
+  mutate(beddays = (cases*los)) %>% 
   left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
   filter(!is.na(pcode))
 
@@ -914,9 +911,9 @@ saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
 ## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.)
 unmatched_hosp <- HBAMprojected %>% 
   group_by(year, siteid, caretype, agegroup) %>% 
-  summarise(totalcases = sum(totalcases),
+  summarise(cases = sum(cases),
             los = sum(lengthofstay)) %>% 
-  mutate(beddays = (totalcases*los)) %>% 
+  mutate(beddays = (cases*los)) %>% 
   left_join(hospitallocations, by = c('siteid', 'caretype')) %>% 
   filter(is.na(pcode))
 
@@ -1007,23 +1004,23 @@ ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>%
          facilityid = MNSFacNum)
 
 #Test SiteID/Fac ID Linkages
-ALC_idlinkage <- left_join(hospitallocations, idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
 
 #Identify Mismatched Site IDs
-ALC_mismatchedids <- idlinkage %>% 
-  filter(is.na(type.cco))
+ALC_mismatchedids <- ALC_idlinkage %>% 
+  filter(is.na(type))
 
 ALC_mismatchedids %>% 
-  group_by(type.moh) %>%
+  group_by(type) %>%
   count()
 
 ALC_idlinkage %>% 
   count(type.cco %in% type.moh)
 
 #Filter out Mismatched IDs
-hospital_ALC_master <- idlinkage %>% 
-  filter(!is.na(type.cco)) %>% 
-  group_by(siteid, facilityid, type.moh, name.moh) %>% 
+hospital_ALC_master <- ALC_idlinkage %>% 
+  filter(!is.na(type)) %>% 
+  group_by(siteid, facilityid, type, name) %>% 
   distinct()
 ```
 
@@ -1205,11 +1202,11 @@ HBAMhistorical_csd <- HBAMhistorical_master %>%
          siteid,
          caretype,
          agegroup,
-         totalcases,
-         csd) %>% 
+         cases,
+         orig_csd) %>% 
   ungroup() %>% 
-  group_by(year, csd, caretype, agegroup) %>% 
-  summarise(totalcases = sum(totalcases))
+  group_by(year, orig_csd, caretype, agegroup) %>% 
+  summarise(cases = sum(cases))
 
 csd_pop <- treso_population_moh %>% 
   group_by(csduid, age_group) %>%
@@ -1235,17 +1232,17 @@ csd_pop_long <- gather(csd_pop, year, population, population.2011:population.204
   select(-pop)
 
 #Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
-csd_caserates <- left_join(HBAMhistorical_csd, csd_pop_long, by = c('year', 'csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
-  mutate(caserate = totalcases/population) %>% 
-  select(-totalcases, 
-         -population,
-         csd_caserates = caserate) %>% 
-  mutate(cd = as.numeric(substring(csd, 0,4)))
+csd_caserates <- left_join(HBAMhistorical_csd, csd_pop_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
+  mutate(csd_caserate = cases/population) %>% 
+  select(-cases, 
+         -population) %>% 
+  mutate(orig_cd = as.numeric(substring(orig_csd, 0,4)),
+         csd_caserate = replace(csd_caserate, csd_caserate == Inf, 0)) #CSD populations w/ 0 (as summed TRESO zones w/ 0 population) result in Inf case-rates; replace with 0
 
 #Calculte Mismatched CSDs
 mismatched_csd <- csd_caserates %>% 
   filter(is.na(population)) %>% 
-  summarise(sum(totalcases)) #total of 57,951 mismatched cases from 89 CSDs
+  summarise(sum(cases)) #total of 57,951 mismatched cases from 89 CSDs
 
 saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
 ```
@@ -1256,33 +1253,34 @@ saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
   - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
   - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
       - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
-  - 
+
 ```{r}
 HBAMhistorical_cd <- HBAMhistorical_master %>% 
-  mutate(cd = substring(csd, 0,4)) %>% 
+  mutate(orig_cd = substring(orig_csd, 0,4)) %>% 
   select(year, 
          siteid,
          caretype,
          agegroup,
-         totalcases,
-         cd) %>% 
-  ungroup() %>% 
-  group_by(year, cd, caretype, agegroup) %>% 
-  summarise(totalcases = sum(totalcases))
+         cases,
+         orig_cd) %>% 
+  group_by(year, orig_cd, caretype, agegroup) %>% 
+  summarise(cases = sum(cases))
 
 cd_pop_long <- csd_pop_long %>% 
   mutate(cd = substring(csduid, 0,4)) %>% 
   group_by(year, cd, age_group) %>% 
   summarise(population = sum(population))
 
-cd_caserates <- left_join(HBAMhistorical_cd, cd_pop_long, by = c('year', 'cd', 'agegroup'='age_group')) %>% 
+cd_caserates <- left_join(HBAMhistorical_cd, cd_pop_long, by = c('year', 'orig_cd'= 'cd', 'agegroup'='age_group')) %>% 
   ungroup() %>% 
-  mutate(caserate = totalcases/population,
-         cd = as.numeric(cd))
+  mutate(cd_caserate = cases/population,
+         orig_cd = as.numeric(orig_cd)) %>% 
+  select(-cases,
+         -population)
 
 mismatched_cd <- cd_caserates %>% 
   filter(is.na(population)) %>% 
-  summarise(sum(totalcases))
+  summarise(sum(cases))
 
 saveRDS(cd_caserates, file = 'cache/moh/cd_caserates.rds')
 
@@ -1291,7 +1289,8 @@ saveRDS(cd_caserates, file = 'cache/moh/cd_caserates.rds')
 ###Combined Case-rates
 ```{r}
 #Compile caserates into one df (CD and CSD)
-caserates_comp <- full_join(csd_caserates, cd_caserates, by = c('year', 'agegroup', 'caretype', 'cd'))
+caserates_comp <- full_join(csd_caserates, cd_caserates, by = c('year', 'agegroup', 'caretype', 'orig_cd')) %>% 
+  select(year, caretype, agegroup,orig_csd, csd_caserate, orig_cd, cd_caserate)
 
 saveRDS(caserates_comp, file = 'cache/moh/caserates_comp.rds')
 
