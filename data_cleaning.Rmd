@@ -11,8 +11,6 @@ library(RODBC)
 library(sp)
 library(rgdal)
 library(rgeos)
-# library(modeest)
-# library(genefilter)
 source("helpers.R")
 ```
 
@@ -887,6 +885,31 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
   left_join(select(HBAMprojected, siteid, caretype), by = c('siteid', 'caretype')) %>% 
   distinct()
 
+# Join postal code centroids to student's postal code data
+pccfSlim <- pccf %>%
+  filter(SLI == 1) %>%
+  select(postal.code = PostalCode,
+         lat = LAT,
+         long = LONG,
+         retirement.date = Ret_Date) %>%
+  group_by(postal.code) %>%
+  filter(retirement.date == max(retirement.date))
+
+# Create a list of postal codes with SLI == 1 but different lat/long
+pccfSlim[duplicated(pccfSlim$postal.code) | duplicated(pccfSlim$postal.code, fromLast = TRUE), ] %>%
+  arrange(postal.code) %>%
+  group_by(postal.code, lat, long, retirement.date) %>%
+  summarise(n = n()) %>%
+  filter(n == 1)
+
+# Fill in unknown lat/long
+hospitallocations <- hospitallocations %>% 
+  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
+  left_join(select(pccfSlim, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
+  mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
+         long = ifelse(is.na(long), hospital.long, long)) %>% 
+  select(-pcode.clean, -hospital.lat, -hospital.long)
+
 saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
 
 # Historical HBAM Master Dataset
@@ -1015,7 +1038,7 @@ ALC_mismatchedids %>%
   count()
 
 ALC_idlinkage %>% 
-  count(type.cco %in% type.moh)
+  count(type %in% lhin.moh)
 
 #Filter out Mismatched IDs
 hospital_ALC_master <- ALC_idlinkage %>% 
