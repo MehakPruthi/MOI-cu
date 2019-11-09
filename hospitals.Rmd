@@ -114,6 +114,8 @@ dest_full <- readRDS('output/pos_full.rds')
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
+rm(prop_matrix, treso_shp, treso_health_slim_tb, treso_travel_time)
+
 ```
 
 ## Link Hospital Site IDs to TRESO Zones:
@@ -1482,110 +1484,59 @@ saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
 ```{r}
 #Create Origin TRESO caseload by disaggregating CSD case-rates down to the TRESO level
 
-##Disaggregate CSD case-rates to TRESO zones
-treso_caserates <- left_join(caserates_comp, treso_zone_system, by = c('orig_csd' = 'csduid', 'orig_cd' = 'cduid')) %>% 
-  select(year,
-         treso_zone = treso_id,
-         orig_csd,
-         csdname,
-         orig_cd,
-         cdname,
-         agegroup,
-         caretype,
-         csd_caserate,
-         cd_caserate)
 
-saveRDS(treso_caserates, file = 'cache/moh/treso_caserates.rds')
-
-##Calculate origin caseload by TRESO zone
-treso_origin_cases <- left_join(treso_caserates, treso_population_long, by = c('year', 'treso_zone', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
-  rename('orig.treso.zone' = 'treso_zone') %>% 
-  mutate(orig.cases = csd_caserate*population)
-
-#Create Hospital-TRESO OD table by joining Origin caseload calculations to historical HBAM
-
-hosp2treso_origin_cases <- HBAMhistorical_master_tz %>% 
-  filter(year == 2016) %>% 
-  select(year,
-         siteid,
-         name,
-         hosp.treso.zone = treso_zone,
-         orig_csd,
-         agegroup,
-         age_cluster,
-         caretype) %>% 
-  left_join(select(HBAMhistorical_cases, year, siteid, orig_csd, agegroup, caretype, cases, totalcases, csd.mrkt), by = c('year', 'siteid','orig_csd', 'agegroup', 'caretype')) %>% 
-  left_join(select(treso_origin_cases, year, agegroup, caretype, orig.treso.zone, orig_csd, population), by = c('year', 'orig_csd', 'agegroup', 'caretype')) 
-
-hosp2treso_caserates <- hosp2treso_origin_cases %>% 
-  # filter(siteid == 1030) %>% 
-  mutate(population = replace_na(population, 0)) %>% 
-  group_by(year, siteid, orig_csd, agegroup, caretype) %>% 
-  mutate(treso.pop.perc = population/sum(population)) %>% 
-  group_by(year, siteid, agegroup, caretype) %>%
-  mutate(treso.mrktshare = treso.pop.perc*csd.mrkt,
-         treso.hosp.cases = treso.mrktshare*totalcases,
-         treso.hosp.caserate = treso.hosp.cases/population,
-         hosp.seg.cases = sum(treso.hosp.cases))
-
-
-#TODO: CLEAN CODE AND REMOVE USELESS OPERATIONS
-#TODO: TRANSITION TO AGE CLUSTERS FROM AGE GROUP: EITHER UPSTREAM AT HBAM OR DOWNSTREAM VIA PROPER SUM FUNCTION
-
-
-hosp2treso_caserates <- hosp2treso_origin_cases %>% 
-  filter(siteid == 1030) %>% 
-  mutate(population = replace_na(population, 0)) %>% 
-  group_by(year, siteid, orig_csd, age_cluster, caretype) %>% 
-  mutate(treso.pop.perc = population/sum(population)) %>% 
-  group_by(year, siteid, orig_csd, age_cluster, caretype) %>% #Transition grouping variable from agegroup to age_cluster
-  select(-agegroup) %>%
-  distinct() %>%
-  mutate(treso.pop.perc = sum(treso.pop.perc),
-         totalcases = sum(totalcases)) %>%
-  group_by(year, siteid, age_cluster, caretype) %>%
-  mutate(treso.mrktshare = treso.pop.perc*csd.mrkt,
-         treso.hosp.cases = treso.mrktshare*totalcases,
-         treso.hosp.caserate = treso.hosp.cases/population,
-         hosp.seg.cases = sum(treso.hosp.cases))
-  
-
-```
-
-###TODAY'S ATTEMPT
-```{r}
-#Update Master HBAM liste to Include TRESO Zones (COPIED FROM CHUNKS ABOVE, REMOVE ONCE CODE IS WORKING/CLEANED)
+#Update Master HBAM liste to Include TRESO Zones (COPIED FROM CHUNKS ABOVE, REMOVE ONCE CODE IS WORKING/CLEANED, BUT INCLUDE ABOVE THE DEDUPLICATION CODE BELOW THE NEXT COMMENT)
 HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
-  left_join(agegroup_ref, by = 'agegroup')
+  left_join(agegroup_ref, by = 'agegroup') %>% 
+  # Duplicate rows appearing in HBAM - take max by group to limit to deduplicate
+  group_by(year, siteid, caretype, agegroup, orig_csd) %>% 
+  mutate(maxCases = max(cases)) %>% 
+  select(-cases) %>% 
+  distinct() %>% 
+  rename(cases = maxCases)
 
+# Calculate total cases by hospital, and the percentage of cases belonging to each CSD for each hospital siteid
 HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>% 
   group_by(year, siteid, agegroup, caretype) %>% 
   mutate(totalcases = sum(cases),
          csd.mrkt = cases/totalcases) %>% 
-  select(year, siteid, hospitalname, caretype,agegroup, age_cluster, orig_csd, cases, totalcases, csd.mrkt)
+  select(year, 
+         siteid, 
+         hospitalname,
+         hosp.treso.zone = treso_zone,
+         caretype, 
+         agegroup, 
+         age_cluster, 
+         orig_csd, 
+         csd.hosp.cases = cases, 
+         hosp.cases = totalcases, 
+         csd.mrkt)
 
-treso_caserates <- left_join(caserates_comp, treso_zone_system, by = c('orig_csd' = 'csduid', 'orig_cd' = 'cduid')) %>%
-  left_join(agegroup_ref, by = 'agegroup') %>% 
-  select(year,
-         treso_zone = treso_id,
-         orig_csd,
-         csdname,
-         orig_cd,
-         cdname,
-         agegroup,
-         caretype,
-         csd_caserate,
-         cd_caserate)
-
-treso_origin_cases <- left_join(treso_caserates, treso_population_long, by = c('year', 'treso_zone', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
+# Join historical HBAM cases by CSD/hospital pair to TRESO information to get TRESO populations
+# Then claculate case rates for TRESO zones at the CSD-Hospital pair, segmented by caretype, year, and HBAM agegroup; also segmented seprately by caretype, year, and age_cluster (which lumps some age groups together into 'ped', 'adult', 'senior')
+treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
   rename('orig.treso.zone' = 'treso_zone',
-         'treso.pop' = 'population') %>%
-  group_by(year, agegroup, orig_csd,caretype) %>%
-  mutate(csd.pop = sum(treso.pop),
-         treso.pop.perc = treso.pop/csd.pop,
-         treso.caserate = treso.pop.perc*csd_caserate)
+         'orig.treso.pop' = 'population') %>%
+  group_by(year, orig.treso.zone, age_cluster, orig_csd, caretype, siteid) %>% 
+  mutate(orig.treso.pop.agecluster = sum(orig.treso.pop),
+         hosp.cases.agecluster = sum(hosp.cases),
+         csd.hosp.cases.agecluster = sum(csd.hosp.cases),
+         csd.mrkt.agecluster = csd.hosp.cases.agecluster / hosp.cases.agecluster) %>%
+  group_by(year, agegroup, orig_csd, caretype, siteid) %>%
+  mutate(csd.pop = sum(orig.treso.pop),
+         treso.pop.perc = orig.treso.pop/csd.pop,
+         treso.hosp.cases = csd.mrkt * treso.pop.perc * hosp.cases, 
+         treso.caserate = treso.hosp.cases / orig.treso.pop) %>% 
+  group_by(year, age_cluster, orig_csd, caretype, siteid) %>%
+  mutate(csd.pop.agecluster = sum(orig.treso.pop.agecluster),
+         treso.pop.perc.agecluster = orig.treso.pop.agecluster/csd.pop.agecluster,
+         treso.hosp.cases.agecluster = csd.mrkt.agecluster * treso.pop.perc.agecluster * hosp.cases.agecluster, 
+         treso.caserate.agecluster = treso.hosp.cases.agecluster / orig.treso.pop.agecluster)
+  
 
+```
 
+```{r}
 
 ```
 
