@@ -21,15 +21,6 @@ library(FNN)
 source('helpers.r')
 ```
 
-## To-Do List
-[x] Calculate Origin trips by TRESO zone for each caretype by CD case-rates
-[x] Aggregate HBAM Historical caseload to TRESO zone level for Destination trips
-[x] Balance O-D pairing
-[x] Separate Pediatric (0-17), Adult (18-74) and Senior (75+) age groups
-[x] Calculate Origin trips by TRESO zone for each caretype by CSD case-rates
-[x] Calculate projections for Origins based on historical CSD caserates
-[x] Scale origins to match projected HBAM destinations
-
 ## Import Relevant Files
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
   
@@ -114,7 +105,7 @@ dest_full <- readRDS('output/pos_full.rds')
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
-rm(prop_matrix, treso_shp, treso_health_slim_tb, treso_travel_time)
+rm(prop_matrix, treso_health_slim_tb, treso_travel_time)
 
 ```
 
@@ -124,7 +115,7 @@ rm(prop_matrix, treso_shp, treso_health_slim_tb, treso_travel_time)
   - Match hospital to corresponding TRESO zone
   - Identify and quantify unmatched TRESO zones/Site IDs, if any
   
-```{r}
+```{r, include=FALSE}
 # Convert the hospital dataframe into SpatialPointsDataframe (SPDF)
 hospital_spdf <- HBAMhistorical_master %>%
   ungroup() %>%
@@ -196,25 +187,6 @@ HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
   mutate(totalcases = sum(cases),
          csd.mrkt = cases/totalcases) %>% 
   select(year, siteid, hospitalname, caretype, age_cluster, orig_csd, cases, totalcases, csd.mrkt)
-
-#For loop to separate HBAM observations by each age-group cluster
-for (a in age_cluster) {
-  HBAMhistorical_master_age <- HBAMhistorical_master_tz %>% 
-    filter(age_cluster == a) %>% 
-    select(year,
-           siteid,
-           name,
-           hosp_csduid,
-           caretype,
-           agegroup,
-           totalcases,
-           csd,
-           treso_zone)
-  
-  saveRDS(HBAMhistorical_master_age, file = paste0("cache/moh/HBAMhistorical_master_", a, ".rds"))
-}
-
-rm(HBAMhistorical_master_age)
 
 # #Filter out Adult age groups
 # HBAMhistorical_master_ad <- HBAMhistorical_master_tz %>% 
@@ -1533,11 +1505,7 @@ treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_l
          treso.hosp.cases.agecluster = csd.mrkt.agecluster * treso.pop.perc.agecluster * hosp.cases.agecluster, 
          treso.caserate.agecluster = treso.hosp.cases.agecluster / orig.treso.pop.agecluster)
   
-
-```
-
-```{r}
-
+saveRDS(treso_origin_cases, file = "output/moh/treso_origin_cases.rds")
 ```
 
 ##ALC

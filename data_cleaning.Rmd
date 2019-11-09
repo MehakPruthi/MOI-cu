@@ -29,11 +29,6 @@ schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", strin
 studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
 eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
-# Postal code to lat/long conversion file
-
-- Combine the population, household information
-- Summarize by TRESO zones
-
 pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 ```
 
