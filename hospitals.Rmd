@@ -21,15 +21,6 @@ library(FNN)
 source('helpers.r')
 ```
 
-## To-Do List
-[x] Calculate Origin trips by TRESO zone for each caretype by CD case-rates
-[x] Aggregate HBAM Historical caseload to TRESO zone level for Destination trips
-[x] Balance O-D pairing
-[x] Separate Pediatric (0-17), Adult (18-74) and Senior (75+) age groups
-[x] Calculate Origin trips by TRESO zone for each caretype by CSD case-rates
-[x] Calculate projections for Origins based on historical CSD caserates
-[x] Scale origins to match projected HBAM destinations
-
 ## Import Relevant Files
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
   
@@ -85,7 +76,7 @@ rm(prop_matrix, treso_health_slim_tb, treso_travel_time)
   - Match hospital to corresponding TRESO zone
   - Identify and quantify unmatched TRESO zones/Site IDs, if any
   
-```{r}
+```{r, include=FALSE}
 # Convert the hospital dataframe into SpatialPointsDataframe (SPDF)
 hospital_spdf <- HBAMhistorical_master %>%
   ungroup() %>%
@@ -126,7 +117,6 @@ hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
       left_join(treso_zone_system, by = c('treso_zone' = 'treso_id'))
 
 saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
-
 ```
 
 ## Consolidated Hospital Lookup
