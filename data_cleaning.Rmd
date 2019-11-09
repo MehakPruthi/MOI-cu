@@ -893,9 +893,10 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
          pcode = 'Postal Code',
          lat = latitude,
          long = longitude) %>% 
+  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>% 
   left_join(select(HBAMhistorical, siteid, caretype), by = c('siteid', 'caretype')) %>%
   left_join(select(HBAMprojected, siteid, caretype), by = c('siteid', 'caretype')) %>% 
-  left_join(select(ALC_idcrosswalk, siteid, ALCsite_id, type), by = c('siteid', 'caretype' = 'type')) %>% 
+  # left_join(select(ALC_idcrosswalk, siteid, ALCsite_id, type), by = c('siteid', 'caretype' = 'type')) %>% 
   distinct()
 
 # Join postal code centroids to student's postal code data
