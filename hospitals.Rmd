@@ -1589,9 +1589,100 @@ treso_origin_cases <- left_join(treso_caserates, treso_population_long, by = c('
 
 ```
 
+##ALC
+```{r}
+#ALC raw data includes agegroup == 9 which is the totalling flag
+#ALC data for 2017 only includes LHINs 1-3 and 10-14
+ALC_madd_raw <- readRDS('cache/moh/ALC_madd_raw.rds') %>% 
+  filter(madd == 'LTC')
 
+ALC_madd_prov_total <- ALC_madd_raw %>% 
+  filter(number == 15, agegroup == 9) %>% 
+  rename('prov.days.tot' = 'alcdays',
+         'prov.los.avg' = 'avg.los')
 
+ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
 
+#ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
+ALC_idcrosswalk_slim <- ALC_idcrosswalk
+  group_by(ALCsite_id) %>% 
+  distinct(lhin, ALCsite_id)
+
+ALC_lhin_vol <- readRDS('cache/moh/ALC_lhin.rds') %>% 
+  filter(madd == 'LTC', agegroup == 9) %>% 
+  rename('lhin.num' = 'number',
+         'lhin.days' = 'alcdays',
+         'lhin.los.avg' = 'avg.los') %>% 
+  left_join(select(ALC_madd_prov_total, year, prov.days.tot, prov.los.avg), by = 'year') %>% 
+  group_by(year) %>% 
+  mutate(lhin.days.tot = sum(as.numeric(lhin.days), na.rm = TRUE),
+         lhin.missing.days = as.numeric(prov.days.tot) - lhin.days.tot,
+         lhin.residual.avg = lhin.missing.days/sum(patients)) %>% 
+  group_by(year, lhin.num) %>% 
+  mutate(remaining.days = lhin.residual.avg * patients,
+         adj.lhin.days.tot = ifelse(lhin.days == 'LV', remaining.days, as.numeric(lhin.days))) %>% 
+  select(year, lhin.num, agegroup, patients, adj.lhin.days.tot)
+
+#ALC estimations at higher age-group aggregation
+#estimations at agegroup == 9; accurate only for years 2011-2016 because 2017 is missing LHIN data (see note above)
+ALC_hosp_vol <- readRDS('cache/moh/ALC_hosp_vol.rds') %>% 
+  filter(madd == 'LTC', number > 999, agegroup == 9) %>% 
+  rename(hosp.alc.days = alcdays,
+         hosp.avg.los = avg.los) %>% 
+  left_join(select(ALC_idcrosswalk_slim, lhin, ALCsite_id), by = c('siteid' = 'ALCsite_id')) %>% 
+  left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot, agegroup), by = c('year', 'lhin' = 'lhin.num', 'agegroup')) %>% 
+  select(year, siteid, lhin, lhin.days.tot = adj.lhin.days.tot, madd, agegroup, patients, hosp.avg.los, hosp.alc.days) %>% 
+  group_by(year, lhin) %>% 
+  mutate(hosp.days.tot = sum(as.numeric(hosp.alc.days), na.rm = TRUE),
+         hosp.missing.days = lhin.days.tot - hosp.days.tot,
+         hosp.residual.avg = hosp.missing.days/sum(patients)) %>% 
+  group_by(year, siteid) %>% 
+  mutate(remaining.days = hosp.residual.avg * patients,
+         adj.hosp.days.tot = ifelse(hosp.alc.days == 'LV', remaining.days, as.numeric(hosp.alc.days))) %>% 
+  select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot)
+
+#ALC estimations w/ disaggregated age-groups
+ALC_hosp_vol_disag <- readRDS('cache/moh/ALC_hosp_vol.rds') %>% 
+  filter(madd == 'LTC', number > 999, agegroup != 9) %>% 
+  rename(hosp.alc.days = alcdays,
+         hosp.avg.los = avg.los) %>% 
+  left_join(select(ALC_hosp_vol, year, lhin, siteid, hosp.days.tot.agg = adj.hosp.days.tot), by = c('year', 'siteid')) %>% 
+  group_by(year, siteid) %>% 
+  mutate(hosp.days.tot = sum(as.numeric(hosp.alc.days), na.rm = TRUE),
+         hosp.missing.days = hosp.days.tot.agg - hosp.days.tot,
+         hosp.residual.avg = hosp.missing.days/sum(patients)) %>% 
+  group_by(year, siteid, agegroup) %>% 
+  mutate(remaining.days = hosp.residual.avg * patients,
+         adj.hosp.days.tot = ifelse(hosp.alc.days == 'LV', remaining.days, as.numeric(hosp.alc.days))) %>%
+  filter(year != 2017) %>% 
+  select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot)
+
+saveRDS(ALC_hosp_vol_disag, file = 'cache/moh/ALC_hospitals_disaggregated.rds')
+  
+#ALC estimation methodology comparison at the provincial-level
+ALC_summary <- ALC_hosp_vol_disag %>% 
+  group_by(year) %>% 
+  summarise(hosp.days.tot.dis = sum(adj.hosp.days.tot, na.rm = TRUE)) %>% 
+  left_join(select(ALC_hosp_vol, year, siteid, adj.hosp.days.tot), by = 'year') %>%
+  group_by(year) %>% 
+  mutate(hosp.days.tot.agg = sum(adj.hosp.days.tot, na.rm = TRUE)) %>%
+  distinct(year, hosp.days.tot.dis, hosp.days.tot.agg) %>% 
+  left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot), by = 'year') %>% 
+  group_by(year) %>% 
+  mutate(lhin.days.tot = sum(adj.lhin.days.tot, na.rm = TRUE)) %>% 
+  distinct(year, hosp.days.tot.dis, hosp.days.tot.agg, lhin.days.tot) %>%
+  left_join(select(ALC_madd_prov_total, year, prov.days.tot), by = 'year')
+#totals for 2017 are far lower than the provincial because of the missing LHIN data
+```
+
+TODO NEXT:
+1. SUMMARIZE ALC HOSPITAL DATA TO AGE CLUSTERS
+2. 
+
+```{r}
+ALC_hosp_agecluster <- ALC_hosp_vol_disag %>% 
+ 
+```
 
 
 

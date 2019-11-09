@@ -867,6 +867,18 @@ duplicated_siteid <- HBAMhistorical %>%
   filter(n > 1) %>% 
   distinct(siteid)
 
+#CCO Linkage Table
+ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
+  select(lhin = WTISLHINNum,
+         name = MNSName,
+         alcname = WTISSiteName,
+         type = MNSType,
+         siteid = MNSMaster,
+         ALCsite_id = WTISSiteNum,
+         facilityid = MNSFacNum)
+
+saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
+
 # Health Asset Inventory
 hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>% 
   select(lhin = LHIN,
@@ -883,6 +895,7 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
          long = longitude) %>% 
   left_join(select(HBAMhistorical, siteid, caretype), by = c('siteid', 'caretype')) %>%
   left_join(select(HBAMprojected, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+  left_join(select(ALC_idcrosswalk, siteid, ALCsite_id, type), by = c('siteid', 'caretype' = 'type')) %>% 
   distinct()
 
 # Join postal code centroids to student's postal code data
@@ -996,6 +1009,39 @@ ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv') %>%
          casetype == 9,
          bedtype == 'AP') 
 
+#Most recent updated ALC Data from CCO w/ MADD and DD typeflags
+ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('VOL' = col_character())) %>%
+  filter(INPATIENTBEDTYPE == 'AP',
+         casetype == 9,
+         TYPEFLAG == 'MADD')%>% 
+  select(year = period,
+         number,
+         siteid = sitenumber,
+         madd,
+         agegroup = Agerange,
+         patients = '_FREQ_',
+         avg.los = MEAN,
+         alcdays = SUM) %>% 
+  mutate(year = replace(year, year == '1112', 2011),
+         year = replace(year, year == '1213', 2012),
+         year = replace(year, year == '1314', 2013),
+         year = replace(year, year == '1415', 2014),
+         year = replace(year, year == '1516', 2015),
+         year = replace(year, year == '1617', 2016),
+         year = replace(year, year == '1718', 2017))
+
+saveRDS(ALC_madd_raw, file = 'cache/moh/ALC_madd_raw.rds')
+
+ALC_lhin <- ALC_madd_raw %>% 
+  filter(number < 15)
+
+saveRDS(ALC_lhin, file = 'cache/moh/ALC_lhin.rds')
+
+ALC_hosp_vol <- ALC_madd_raw %>% 
+  filter(number > 15)
+
+saveRDS(ALC_hosp_vol, file = 'cache/moh/ALC_hosp_vol.rds')
+
 ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
   group_by(year) %>% 
   distinct(month) %>% 
@@ -1021,10 +1067,13 @@ saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
 ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
   select(lhin = WTISLHINNum,
          name = MNSName,
+         alcname = WTISSiteName,
          type = MNSType,
          siteid = MNSMaster,
          ALCsite_id = WTISSiteNum,
          facilityid = MNSFacNum)
+
+saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
 
 #Test SiteID/Fac ID Linkages
 ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
