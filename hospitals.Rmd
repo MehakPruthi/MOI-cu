@@ -18,7 +18,7 @@ library(tictoc)
 library(gridExtra)
 library(future.apply)
 library(FNN)
-source('helpers.r')
+# source('helpers.r')
 ```
 
 ## Import Relevant Files
@@ -28,7 +28,7 @@ source('helpers.r')
 #Defining hospital parameters for care-types and age bands
 caretypes = c("at", "cr", "gr", "mh", "am")
 age_cluster = c('ad', 'ped', 'sr')
-agegroup_ref <- data.frame(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
+agegroup_ref <- tibble(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
                           agegroup = as.factor(c(2,3,4,1,5,6))) %>% 
   arrange(agegroup)
 
@@ -37,13 +37,6 @@ CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
 
 #Daily Bed Census bed counts
 num_beds <- readRDS('cache/moh/num_beds.rds')
-
-#CD Caserates
-cd_caserates <- readRDS('cache/moh/cd_caserates.rds')
-
-csd_caserates <- readRDS('cache/moh/csd_caserates.rds') #TRESO zones with 0 population resulted in Inf caserates, causing a mismatch of total cases between Origin and Destination vectors when calcluated at the CSD-level; Inf replaced by 0 in cleaning code
-  
-caserates_comp <- readRDS('cache/moh/caserates_comp.rds')
 
 # Historical HBAM Master (w/ Asset data)
 HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
@@ -62,12 +55,12 @@ treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 treso_population_long <- gather(treso_population_moh, 'year', 'population', population.2011:population.2041, -age_group) %>% 
   separate(year, into = c('pop', 'year'), sep = "n.") %>% 
   mutate(year = as.numeric(year)) %>% 
-  select(-pop)
+  select(-pop) %>% 
+  left_join(agegroup_ref, by = c('age_group' = 'agegroup')) %>% 
+  group_by(year, treso_zone, age_cluster) %>% 
+  mutate(treso.population.agecluster = sum(population))
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
-
-rm(prop_matrix, treso_health_slim_tb, treso_travel_time)
-
 ```
 
 ## Link Hospital Site IDs to TRESO Zones:
@@ -117,14 +110,30 @@ hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
       left_join(treso_zone_system, by = c('treso_zone' = 'treso_id'))
 
 saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
+
+rm(treso_shp, hospital_xy, hospital_spdf)
+
+#Update Master HBAM list to Include TRESO Zones
+HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
+  left_join(agegroup_ref, by = 'agegroup') %>% 
+  # Duplicate rows appearing in HBAM - take max by group to limit to deduplicate
+  group_by(year, siteid, caretype, agegroup, orig_csd) %>% 
+  mutate(maxCases = max(cases)) %>% 
+  select(-cases) %>% 
+  distinct() %>% 
+  rename(cases = maxCases)
+
+HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+  left_join(agegroup_ref, by = c('agegroup'))
+
+rm(HBAMhistorical_master, HBAMprojected_master)
+
 ```
 
 ## Consolidated Hospital Lookup
   - Reorganize HBAM historical to show unique hospital locations w/ metadata needed for visualization tool
   - Create in wide format w/ sub-naming for care-type and age-cluster 
-  hosp | postcode/index | year | ct_age1 | ct_age2 | ...
-  ..................................................
-                                    Total Cases
+
 ```{r}
 #Use combine HBAM-TRESO object as basis
 hospital_lookup_latlong <- HBAMhistorical_master_tz %>% 
@@ -221,24 +230,44 @@ hospital_lookup_master <- left_join(hospital_lookup, dbc_beds, by = 'pcode') %>%
   select(id, year, name, pcode, csduid:treso_zone, cases_at_ad:dbc_total_beds_2018)
 
 saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
+
+rm(hospital_lookup_latlong, hospital_lookup, num_beds_spread, num_beds, dbc_beds, dbc_beds_2017, dbc_beds_2018, CIHIhospitalbeds_spread, CIHIhospitalbeds, hosp_beds_comp)
 ```
 
-##Base Scenario Calculation: CREM Rates
+##ALOS Calculation
+
+```{r}
+#JOin TRESO origin calculations to HBAM projected by calculating the ALOS for each CT-Age-cluster segment and apply to CRM projected number of cases to convert from cases to beddays
+
+#Average LOS for patient admittance on provincial level (HQO)
+hqo_edlos <- data.frame('year' = c(2018, 2018, 2018, 2018, 2019,2019,2019,2019,2019,2019,2019,2019,2019), 
+                        'month' = c(09:12, 01:09), 
+                        'edlos' = c(16.3,16.8,17, 16.3, 18.3, 16.7, 16.8, 16.2, 16.1, 16.3, 15.6, 15.5, 17.1))
+avg_edlos_2018 <- mean(hqo_edlos$edlos)
+#EDLOS to admittance according to provincial average from CIHI
+avg_edlos_2015 <- 9.8 
+avg_edlos_2016 <- 10.5
+avg_edlos_2017 <- 11.0
+#Averaged out 3 data points to get rough average of ED-LOS (to admittance since that is when they are transferred to other CT); however, rate needs to reflect % of ED patients that do not get admitted, which might be the majority and that would decrease overall ALOS
+avg_edlos <- mean(c(avg_edlos_2015, avg_edlos_2016, avg_edlos_2017))
+
+HBAMprojected_alos <- HBAMprojected_master_tz %>% 
+  select(year, siteid, lhin, age_cluster, caretype, cases, los) %>% 
+  group_by(year, caretype, age_cluster) %>% 
+  summarise(totalcases = sum(cases),
+            total.los = sum(los, na.rm = TRUE)) %>% 
+  mutate(alos = ifelse(caretype == 'AM', (avg_edlos/24), total.los/totalcases)) %>% 
+  select(year, caretype, age_cluster, alos)
+
+saveRDS(HBAMprojected_alos, file = 'cache/moh/HBAMprojected_alos.rds')
+```
+
+##Base Scenario Calculation: CRM Rates
   - Calculate the market share of cases for each hospital w.r.t population at TRESO-level from HBAM for the given year/caretype/age cluster (named segment from now on)
   - Apply the case rates to the population at TRESO zones (Caserate Demand) [origin vector]
   - Create linkage to HBAM Projected and calculate scale factor (HBAM/CRM); scale cases based on factor to get Hosp-TZ cases
 
 ```{r}
-#Update Master HBAM list to Include TRESO Zones (COPIED FROM CHUNKS ABOVE, REMOVE ONCE CODE IS WORKING/CLEANED, BUT INCLUDE ABOVE THE DEDUPLICATION CODE BELOW THE NEXT COMMENT)
-HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
-  left_join(agegroup_ref, by = 'agegroup') %>% 
-  # Duplicate rows appearing in HBAM - take max by group to limit to deduplicate
-  group_by(year, siteid, caretype, agegroup, orig_csd) %>% 
-  mutate(maxCases = max(cases)) %>% 
-  select(-cases) %>% 
-  distinct() %>% 
-  rename(cases = maxCases)
-
 # Calculate total cases by hospital, and the percentage of cases belonging to each CSD for each hospital siteid
 HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>% 
   group_by(year, siteid, agegroup, caretype) %>% 
@@ -258,7 +287,7 @@ HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
 
 # Join historical HBAM cases by CSD/hospital pair to TRESO information to get TRESO populations
 # Then claculate case rates for TRESO zones at the CSD-Hospital pair, segmented by caretype, year, and HBAM agegroup; also segmented seprately by caretype, year, and age_cluster (which lumps some age groups together into 'ped', 'adult', 'senior')
-treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
+treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group', 'age_cluster')) %>% 
   rename('orig.treso.zone' = 'treso_zone',
          'orig.treso.pop' = 'population') %>%
   group_by(year, orig.treso.zone, age_cluster, orig_csd, caretype, siteid) %>% 
@@ -276,52 +305,52 @@ treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_l
          treso.pop.perc.agecluster = orig.treso.pop.agecluster/csd.pop.agecluster,
          treso.hosp.cases.agecluster = csd.mrkt.agecluster * treso.pop.perc.agecluster * hosp.cases.agecluster, 
          treso.caserate.agecluster = treso.hosp.cases.agecluster / orig.treso.pop.agecluster) %>% 
-  ungroup()
-
-treso_origin_rate_table <- treso_origin_cases %>% 
+  ungroup() %>% 
   filter(year == 2016) %>% 
-  select(year,
-         siteid,
+  select(siteid,
          hospitalname,
          hosp.treso.zone,
          caretype,
-         agegroup,
          age_cluster,
          orig_csd,
          orig.treso.zone,
-         hosp.cases.agecluster,
-         treso.caserate.agecluster) %>% 
-  left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
-  left_join(select(hospital_lookup_master, id, pcode), by = 'pcode')
+         treso.caserate.agecluster)
+
+saveRDS(treso_origin_cases, file = 'cache/moh/treso_origin_cases.rds')
+
+rm(treso_origin_cases)
 ```
 
-##ALOS Calculation
+##Forecast Scenario Calculation: CRM Demand Volumes
+  - Calculate total expected cases, bed-days (using ALOS) and beds-needed (bed-days/cases) for a selected forecast year
+  
 ```{r}
-#JOin TRESO origin calculations to HBAM projected by calculating the ALOS for each CT-Age-cluster segment and apply to CRM projected number of cases to convert from cases to beddays
-HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
-  left_join(agegroup_ref, by = c('agegroup'))
+##Projection Parameters
+proj.year <- 2025
+op.days <- 365 #number of operating days to determine beds needed
 
-#Average LOS for patient admittance on provincial level (HQO)
-hqo_edlos <- data.frame('year' = c(2018, 2018, 2018, 2018, 2019,2019,2019,2019,2019,2019,2019,2019,2019), 
-                        'month' = c(09:12, 01:09), 
-                        'edlos' = c(16.3,16.8,17, 16.3, 18.3, 16.7, 16.8, 16.2, 16.1, 16.3, 15.6, 15.5, 17.1))
-avg_edlos_2018 <- mean(hqo_edlos$edlos)
-#EDLOS to admittance according to provincial average from CIHI
-avg_edlos_2015 <- 9.8 
-avg_edlos_2016 <- 10.5
-avg_edlos_2017 <- 11.0
-#Averaged out 3 data points to get rough average of ED-LOS (to admittance since that is when they are transferred to other CT); however, rate needs to reflect % of ED patients that do not get admitted, which might be the majority and that would decrease overall ALOS
-avg_edlos <- mean(c(avg_edlos_2015, avg_edlos_2016, avg_edlos_2017))
+hospital_lookup_master <- readRDS('output/moh/hospital_lookup_master.rds')
 
-HBAMprojected_alos <- HBAMprojected_master_tz %>% 
-  select(year, siteid, lhin, age_cluster, caretype, cases, los) %>% 
-  group_by(year, caretype, age_cluster) %>% 
-  summarise(totalcases = sum(cases),
-            total.los = sum(los, na.rm = TRUE)) %>% 
-  mutate(alos = ifelse(caretype == 'AM', (avg_edlos/24)/totalcases, total.los/totalcases)) %>% 
-  select(year, caretype, age_cluster, alos)
+#Projection population parameter table to simplify CRM calculation as multiple year-rows causing crash
+proj_param <- treso_population_long %>% 
+  left_join(HBAMprojected_alos, by = c('age_cluster', 'year')) %>% 
+  filter(year == proj.year) %>% 
+  select(year, treso_zone, age_cluster, treso.population.agecluster, caretype, alos)
 
-saveRDS(HBAMprojected_alos, file = 'cache/moh/HBAMprojected_alos.rds')
+#CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
+crm_rate_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
+  left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
+  left_join(select(hospital_lookup_master, id, pcode), by = 'pcode') %>%
+  select(-siteid) %>% 
+  distinct() %>% 
+  left_join(proj_param, by = c('age_cluster', 'orig.treso.zone' = 'treso_zone', 'caretype')) %>% 
+  group_by(id, orig.treso.zone, caretype, age_cluster) %>% 
+  mutate(hosp.treso.cases = treso.caserate.agecluster * treso.population.agecluster,
+         hosp.treso.beddays = hosp.treso.cases * alos,
+         hosp.treso.bedsneeded = hosp.treso.beddays / op.days) %>% 
+  group_by(year, id, hospitalname, pcode, caretype, age_cluster) %>% 
+  summarise_at(vars(hosp.treso.cases:hosp.treso.bedsneeded), sum, na.rm=TRUE)
+
 ```
 
 DONE - LOW HANGING FRUIT FOR PAUL: 
