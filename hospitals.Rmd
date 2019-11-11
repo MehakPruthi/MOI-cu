@@ -451,8 +451,11 @@ ALC_hosp_vol_disag <- readRDS('cache/moh/ALC_hosp_vol.rds') %>%
   group_by(year, siteid, agegroup) %>% 
   mutate(remaining.days = hosp.residual.avg * patients,
          adj.hosp.days.tot = ifelse(hosp.alc.days == 'LV', remaining.days, as.numeric(hosp.alc.days))) %>%
-  filter(year != 2017) %>% 
-  select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot)
+  filter(year != 2017, year != 2011) %>% 
+  select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot) %>% 
+  mutate(agecluster = ifelse(agegroup == 1, 'ped', 
+                             ifelse(agegroup %in% 2:4, 'ad',
+                                    ifelse(agegroup %in% 5:6, 'sr'))))
 
 saveRDS(ALC_hosp_vol_disag, file = 'cache/moh/ALC_hospitals_disaggregated.rds')
   
@@ -470,6 +473,13 @@ ALC_summary <- ALC_hosp_vol_disag %>%
   distinct(year, hosp.days.tot.dis, hosp.days.tot.agg, lhin.days.tot) %>%
   left_join(select(ALC_madd_prov_total, year, prov.days.tot), by = 'year')
 #totals for 2017 are far lower than the provincial because of the missing LHIN data
+
+#Importing LTC data
+ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
+  select(sector = Sector,
+         city = 'Homes City',
+         pcode = 'Homes Postal Code',
+         beds = 'Total Beds')
 ```
 
 
