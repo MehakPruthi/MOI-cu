@@ -310,7 +310,7 @@ treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_l
          treso.hosp.cases.agecluster = csd.mrkt.agecluster * treso.pop.perc.agecluster * hosp.cases.agecluster, 
          treso.caserate.agecluster = treso.hosp.cases.agecluster / orig.treso.pop.agecluster) %>% 
   ungroup() %>% 
-  filter(year == 2016) %>% 
+  filter(year == 2016) %>% #select most recent historical year
   select(siteid,
          hospitalname,
          hosp.treso.zone,
@@ -344,9 +344,10 @@ proj_param <- left_join(select(treso_population_long, treso_zone, year, age_clus
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
   left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
-  left_join(select(hospital_lookup_master, id, pcode), by = 'pcode') %>%
+  left_join(select(hospital_lookup_master, id, pcode), by = 'pcode') %>% #joins used to link siteid w/ id from look-up table
+  distinct() %>% #remove duplicates from hospital_lookup: year variable
   select(-siteid) %>% 
-  left_join(proj_param, by = c('age_cluster', 'orig.treso.zone' = 'treso_zone', 'caretype')) %>% 
+  left_join(proj_param, by = c('age_cluster', 'orig.treso.zone' = 'treso_zone', 'caretype')) %>% #projection parameters include ALOS and population used to calculate cases and bed-days
   group_by(id, orig.treso.zone, caretype, age_cluster) %>% 
   mutate(hosp.treso.cases = treso.caserate.agecluster * treso.population.agecluster,
          hosp.treso.beddays = hosp.treso.cases * alos,
@@ -358,6 +359,10 @@ crm_hosp_tbl <- crm_treso_tbl %>%
   group_by(year, id, hospitalname, pcode, caretype, age_cluster) %>% 
   summarise_at(vars(hosp.treso.cases:hosp.treso.bedsneeded), sum, na.rm=TRUE) %>% 
   ungroup()
+
+#SUM OF HOSP.TRESO.CASES TOO LOW (~4M); HBAM(2025) = 8.8M; 
+
+#########################################################################
 
 #Attach HBAM projected cases to look-up master list by converting to wide format and joining
 HBAMprojected_spread <- HBAMprojected_master_tz %>% 
@@ -398,30 +403,49 @@ HBAMprojected_spread <- HBAMprojected_master_tz %>%
   left_join(hospital_lookup_latlong_id, by = c('pcode', 'name'))
 
 #Calculate scale factor between HBAM and CRM by converting lookup 
-HBAM_proj_scale <- hospital_lookup_master %>% 
+HBAM_lookup <- hospital_lookup_master %>% 
   filter(year != 2016) %>% 
   bind_rows(HBAMprojected_spread) %>% 
   group_by(id) %>% 
   fill(at_beds_2017, cr_beds_2017, gr_beds_2017, mh_beds_2017, dbc_total_beds_2017,
        at_beds_2018, cr_beds_2018, gr_beds_2018, mh_beds_2018, dbc_total_beds_2018) %>% 
   ungroup() %>% 
-  filter(year == proj.year) %>% 
-  gather('caretype', 'hbam.cases', cases_at_ad:cases_am_sr) %>% 
-  separate(caretype, into = c('caretype', 'age_cluster'), sep = "cases_") %>% 
-  select(-caretype) %>% 
-  separate(age_cluster, into = c('caretype', 'age_cluster'), sep = '_') %>% 
-  mutate(caretype = toupper(caretype)) %>% 
-  left_join(select(crm_hosp_tbl, id, year, caretype, age_cluster, crm.cases = hosp.treso.cases), by = c('year', 'id', 'caretype', 'age_cluster')) %>% 
-  mutate(scale.factor = hbam.cases/crm.cases) %>% 
-  # distinct() %>% 
-  # select(year, id, name, pcode, hosp.treso.zone = treso_zone, caretype, age_cluster, scale.factor) %>% 
-  ungroup()
+  filter(year == proj.year) 
 
-crm2hbam <- left_join(crm_treso_tbl, HBAM_proj_scale, by = c('id', 'hospitalname' = 'name', 'pcode', 'hosp.treso.zone', 'caretype', 'age_cluster', 'year')) %>% 
-  mutate(cases.scaled = hosp.treso.cases * scale.factor)
+# #PART OF HBAM-CRM SCALE FACTOR CALCULATIONS; LEAVE COMMENTED-OUT FOR TIME BEING%>% 
+#   gather('caretype', 'hbam.cases', cases_at_ad:cases_am_sr) %>% 
+#   separate(caretype, into = c('caretype', 'age_cluster'), sep = "cases_") %>% 
+#   select(-caretype) %>% 
+#   separate(age_cluster, into = c('caretype', 'age_cluster'), sep = '_') %>% 
+#   mutate(caretype = toupper(caretype)) %>% 
+#   left_join(select(crm_hosp_tbl, id, year, caretype, age_cluster, crm.cases = hosp.treso.cases), by = c('year', 'id', 'caretype', 'age_cluster')) %>% 
+#   mutate(scale.factor = hbam.cases/crm.cases) %>% 
+#   # distinct() %>% 
+#   # select(year, id, name, pcode, hosp.treso.zone = treso_zone, caretype, age_cluster, scale.factor) %>% 
+#   ungroup()
+# 
+# crm2hbam <- left_join(crm_treso_tbl, HBAM_proj_scale, by = c('id', 'hospitalname' = 'name', 'pcode', 'hosp.treso.zone' = 'treso_zone', 'caretype', 'age_cluster', 'year')) %>% 
+#   mutate(cases.scaled = hosp.treso.cases * scale.factor)
 
-#TABLE IS CREATING DUPLICATES IN 3'S OF ORIGIN TRESO ZONES LEADING TO INFLATED FIGURES FOR HBAM AND CRM CASES; DUPLICATION CAN BE TRACED BACK TO CRM_TRESO_TBL BUT STILL HAVE NOT FIGURED OUT WHY
 
+#TESTS FOR CALCULATION ERRORS RE HBAM-CRM SCALE FACTORS
+# hbampjtest <- HBAMprojected_master_tz %>% 
+#   group_by(year, name, pcode, caretype, age_cluster) %>% 
+#   summarise(hbam.cases = sum(cases),
+#             hbam.los = sum(los),
+#             hbam.beddays = sum(beddays)) %>% 
+#   mutate(hbam.los = replace_na(hbam.los, 0),
+#          hbam.beddays = replace_na(hbam.beddays, 0)) %>% 
+#   filter(year == proj.year) %>% 
+#   left_join(crm_hosp_tbl, by = c('name' = 'hospitalname', 'year', 'pcode', 'caretype', 'age_cluster'))
+# 
+# sum(filter(hbampjtest, year == 2025)$hbam.cases) #TOTAL CASES SHOULD = 8,850,732
+# 
+# #Check sum of HBAM cases matches data source (above)
+# hbampjtest %>% 
+#   ungroup() %>% 
+#   summarise(sum(hbam.cases),
+#             sum(hosp.treso.cases, na.rm = TRUE))
 ```
 
 NOT-SO-LOW HANGING FRUIT FOR PAUL:
@@ -446,7 +470,7 @@ ALC_madd_prov_total <- ALC_madd_raw %>%
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
 
 #ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
-ALC_idcrosswalk_slim <- ALC_idcrosswalk
+ALC_idcrosswalk_slim <- ALC_idcrosswalk %>% 
   group_by(ALCsite_id) %>% 
   distinct(lhin, ALCsite_id)
 
