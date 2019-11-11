@@ -336,8 +336,8 @@ op.days <- 365 #number of operating days to determine beds needed
 hospital_lookup_master <- readRDS('output/moh/hospital_lookup_master.rds')
 
 #Projection population parameter table to simplify CRM calculation as multiple year-rows causing crash
-proj_param <- treso_population_long %>% 
-  left_join(HBAMprojected_alos, by = c('age_cluster', 'year')) %>% 
+proj_param <- left_join(select(treso_population_long, treso_zone, year, age_cluster, treso.population.agecluster), HBAMprojected_alos, by = c('age_cluster', 'year')) %>% 
+  distinct() %>% 
   filter(year == proj.year) %>% 
   select(year, treso_zone, age_cluster, treso.population.agecluster, caretype, alos)
 
@@ -346,7 +346,6 @@ crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>%
   left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
   left_join(select(hospital_lookup_master, id, pcode), by = 'pcode') %>%
   select(-siteid) %>% 
-  distinct() %>% 
   left_join(proj_param, by = c('age_cluster', 'orig.treso.zone' = 'treso_zone', 'caretype')) %>% 
   group_by(id, orig.treso.zone, caretype, age_cluster) %>% 
   mutate(hosp.treso.cases = treso.caserate.agecluster * treso.population.agecluster,
@@ -415,10 +414,10 @@ HBAM_proj_scale <- hospital_lookup_master %>%
   left_join(select(crm_hosp_tbl, id, year, caretype, age_cluster, crm.cases = hosp.treso.cases), by = c('year', 'id', 'caretype', 'age_cluster')) %>% 
   mutate(scale.factor = hbam.cases/crm.cases) %>% 
   # distinct() %>% 
-  select(year, id, name, pcode, hosp.treso.zone = treso_zone, caretype, age_cluster, scale.factor) %>% 
+  # select(year, id, name, pcode, hosp.treso.zone = treso_zone, caretype, age_cluster, scale.factor) %>% 
   ungroup()
 
-crm2hbam <- left_join(crm_treso_tbl, HBAM_proj_scale, by = c('id', 'hospitalname' = 'name', 'pcode', 'hosp.treso.zone', 'caretype', 'age_cluster')) %>% 
+crm2hbam <- left_join(crm_treso_tbl, HBAM_proj_scale, by = c('id', 'hospitalname' = 'name', 'pcode', 'hosp.treso.zone', 'caretype', 'age_cluster', 'year')) %>% 
   mutate(cases.scaled = hosp.treso.cases * scale.factor)
 
 #TABLE IS CREATING DUPLICATES IN 3'S OF ORIGIN TRESO ZONES LEADING TO INFLATED FIGURES FOR HBAM AND CRM CASES; DUPLICATION CAN BE TRACED BACK TO CRM_TRESO_TBL BUT STILL HAVE NOT FIGURED OUT WHY
