@@ -309,7 +309,7 @@ treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_l
          treso.hosp.cases.agecluster = csd.mrkt.agecluster * treso.pop.perc.agecluster * hosp.cases.agecluster, 
          treso.caserate.agecluster = treso.hosp.cases.agecluster / orig.treso.pop.agecluster) %>% 
   ungroup() %>% 
-  filter(year == 2016) %>% 
+  filter(year == 2016) %>% #select most recent historical year
   select(siteid,
          hospitalname,
          hosp.treso.zone,
@@ -370,10 +370,10 @@ crm_hosp_tbl_join <- left_join(crm_hosp_tbl, HBAMprojected_filtered, by = c("id"
 
 # Depending on the user selected option
 if (USER_SELECT == "HBAM") {
-  crm_treso_tbl <- left_join(crm_treso_tbl, crm_hosp_tbl_join, by = c("id", "caretype", "age_cluster")) %>% 
+  crm_treso_tbl_calc <- left_join(crm_treso_tbl, crm_hosp_tbl_join, by = c("id", "caretype", "age_cluster")) %>% 
     mutate(cases = hosp.treso.cases * scale.factor)
 } else if (USER_SELECT == "CRM") {
-  crm_treso_tbl <- crm_treso_tbl %>% 
+  crm_treso_tbl_calc <- crm_treso_tbl %>% 
     mutate(cases = hosp.treso.cases)
 }
 
@@ -401,7 +401,7 @@ ALC_madd_prov_total <- ALC_madd_raw %>%
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
 
 #ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
-ALC_idcrosswalk_slim <- ALC_idcrosswalk
+ALC_idcrosswalk_slim <- ALC_idcrosswalk %>% 
   group_by(ALCsite_id) %>% 
   distinct(lhin, ALCsite_id)
 
