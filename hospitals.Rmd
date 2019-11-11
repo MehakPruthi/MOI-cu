@@ -52,11 +52,10 @@ treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatinea
 
 treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
-treso_population_long <- gather(treso_population_moh, 'year', 'population', population.2011:population.2041, -age_group) %>% 
+treso_population_long <- gather(treso_population_moh, 'year', 'population', population.2011:population.2041, -age_group, -age_cluster) %>% 
   separate(year, into = c('pop', 'year'), sep = "n.") %>% 
   mutate(year = as.numeric(year)) %>% 
   select(-pop) %>% 
-  left_join(agegroup_ref, by = c('age_group' = 'agegroup')) %>% 
   group_by(year, treso_zone, age_cluster) %>% 
   mutate(treso.population.agecluster = sum(population))
 
@@ -123,7 +122,7 @@ HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_ove
   distinct() %>% 
   rename(cases = maxCases)
 
-HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>% 
+HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>%
   left_join(agegroup_ref, by = c('agegroup'))
 
 rm(HBAMhistorical_master, HBAMprojected_master)
@@ -165,7 +164,7 @@ hospital_lookup <- HBAMhistorical_master_tz %>%
   group_by(year, name, pcode) %>% 
   summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>%
   left_join(hospital_lookup_latlong, by = c('name', 'pcode')) %>% 
-  group_by(name) %>% 
+  group_by(pcode) %>% 
   mutate(id = group_indices()) %>% 
   ungroup()
 
@@ -257,11 +256,11 @@ avg_edlos <- mean(c(avg_edlos_2015, avg_edlos_2016, avg_edlos_2017))
 
 HBAMprojected_alos <- HBAMprojected_master_tz %>% 
   select(year, siteid, lhin, age_cluster, caretype, cases, los) %>% 
-  group_by(year, caretype, age_cluster) %>% 
+  group_by(caretype, age_cluster) %>% 
   summarise(totalcases = sum(cases),
             total.los = sum(los, na.rm = TRUE)) %>% 
   mutate(alos = total.los/totalcases) %>% 
-  select(year, caretype, age_cluster, alos)
+  select(caretype, age_cluster, alos)
 
 saveRDS(HBAMprojected_alos, file = 'cache/moh/HBAMprojected_alos.rds')
 ```
@@ -330,98 +329,53 @@ rm(treso_origin_cases)
   
 ```{r}
 ##Projection Parameters
-proj.year <- 2025
-op.days <- 365 #number of operating days to determine beds needed
+PROJ_YEAR <- 2025
+OP_DAYS <- 365
+USER_SELECT <- "HBAM"
 
-hospital_lookup_master <- readRDS('output/moh/hospital_lookup_master.rds')
-
-#Projection population parameter table to simplify CRM calculation as multiple year-rows causing crash
-proj_param <- treso_population_long %>% 
-  left_join(HBAMprojected_alos, by = c('age_cluster', 'year')) %>% 
-  filter(year == proj.year) %>% 
-  select(year, treso_zone, age_cluster, treso.population.agecluster, caretype, alos)
+hospital_master_id <- readRDS('output/moh/hospital_lookup_master.rds') %>% 
+  select(id, pcode) %>% 
+  distinct()
 
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
-  left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
-  left_join(select(hospital_lookup_master, id, pcode), by = 'pcode') %>%
+  filter(!is.na(orig.treso.zone), !is.na(treso.caserate.agecluster)) %>% # Can remove after fixes
+  left_join(select(hospitallocations, siteid, pcode), by = 'siteid') %>% 
+  left_join(select(hospital_master_id, id, pcode), by = 'pcode') %>%
   select(-siteid) %>% 
   distinct() %>% 
-  left_join(proj_param, by = c('age_cluster', 'orig.treso.zone' = 'treso_zone', 'caretype')) %>% 
-  group_by(id, orig.treso.zone, caretype, age_cluster) %>% 
-  mutate(hosp.treso.cases = treso.caserate.agecluster * treso.population.agecluster,
+  left_join(treso_population_moh, by = c("orig.treso.zone" = "treso_zone", "age_cluster")) %>% 
+  left_join(HBAMprojected_alos, by = c("age_cluster", "caretype")) %>% 
+  # Calculate the number of cases, beddays, bedsneeded depending on the input year
+  mutate(hosp.treso.cases = treso.caserate.agecluster * get(paste0("population.", PROJ_YEAR)),
          hosp.treso.beddays = hosp.treso.cases * alos,
-         hosp.treso.bedsneeded = hosp.treso.beddays / op.days) %>%
-  ungroup() 
+         hosp.treso.bedsneeded = hosp.treso.beddays / OP_DAYS)
 
-#Summarise hospital-treso zone cases to each hospital
 crm_hosp_tbl <- crm_treso_tbl %>% 
-  group_by(year, id, hospitalname, pcode, caretype, age_cluster) %>% 
-  summarise_at(vars(hosp.treso.cases:hosp.treso.bedsneeded), sum, na.rm=TRUE) %>% 
+  group_by(id, caretype, age_cluster) %>% 
+  summarise_at(vars(hosp.treso.cases:hosp.treso.bedsneeded), sum) %>% 
   ungroup()
 
 #Attach HBAM projected cases to look-up master list by converting to wide format and joining
-HBAMprojected_spread <- HBAMprojected_master_tz %>% 
-  group_by(year, name, pcode, age_cluster, caretype) %>% 
-  summarise_at(vars(cases:beddays), sum, na.rm=TRUE) %>% 
-  mutate(cases_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', cases, 0),
-         cases_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', cases, 0),
-         cases_at_sr = ifelse(caretype %in% 'AT' & age_cluster %in% 'sr', cases, 0),
-         cases_cr_ad = ifelse(caretype %in% 'CR' & age_cluster %in% 'ad', cases, 0),
-         cases_cr_ped = ifelse(caretype %in% 'CR' & age_cluster %in% 'ped', cases, 0),
-         cases_cr_sr = ifelse(caretype %in% 'CR' & age_cluster %in% 'sr', cases, 0),
-         cases_gr_ad = ifelse(caretype %in% 'GR' & age_cluster %in% 'ad', cases, 0),
-         cases_gr_ped = ifelse(caretype %in% 'GR' & age_cluster %in% 'ped', cases, 0),
-         cases_gr_sr = ifelse(caretype %in% 'GR' & age_cluster %in% 'sr', cases, 0),
-         cases_mh_ad = ifelse(caretype %in% 'MH' & age_cluster %in% 'ad', cases, 0),
-         cases_mh_ped = ifelse(caretype %in% 'MH' & age_cluster %in% 'ped', cases, 0),
-         cases_mh_sr = ifelse(caretype %in% 'MH' & age_cluster %in% 'sr', cases, 0),
-         cases_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', cases, 0),
-         cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', cases, 0),
-         cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', cases, 0)) %>% 
-         # los_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', los, 0),
-         # los_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', los, 0),
-         # los_at_sr = ifelse(caretype %in% 'AT' & age_cluster %in% 'sr', los, 0),
-         # los_cr_ad = ifelse(caretype %in% 'CR' & age_cluster %in% 'ad', los, 0),
-         # los_cr_ped = ifelse(caretype %in% 'CR' & age_cluster %in% 'ped', los, 0),
-         # los_cr_sr = ifelse(caretype %in% 'CR' & age_cluster %in% 'sr', los, 0),
-         # los_gr_ad = ifelse(caretype %in% 'GR' & age_cluster %in% 'ad', los, 0),
-         # los_gr_ped = ifelse(caretype %in% 'GR' & age_cluster %in% 'ped', los, 0),
-         # los_gr_sr = ifelse(caretype %in% 'GR' & age_cluster %in% 'sr', los, 0),
-         # los_mh_ad = ifelse(caretype %in% 'MH' & age_cluster %in% 'ad', los, 0),
-         # los_mh_ped = ifelse(caretype %in% 'MH' & age_cluster %in% 'ped', los, 0),
-         # los_mh_sr = ifelse(caretype %in% 'MH' & age_cluster %in% 'sr', los, 0),
-         # los_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', los, 0),
-         # los_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', los, 0),
-         # los_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', los, 0)) %>% 
-  group_by(year, name, pcode) %>% 
-  summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>% 
-  left_join(hospital_lookup_latlong_id, by = c('pcode', 'name'))
+HBAMprojected_filtered <- HBAMprojected_master_tz %>% 
+  filter(year == PROJ_YEAR) %>% 
+  left_join(select(hospital_master_id, id, pcode), by = "pcode") %>% 
+  group_by(id, caretype, age_cluster) %>% 
+  summarise_at(vars(cases:beddays), sum, na.rm=TRUE)
 
-#Calculate scale factor between HBAM and CRM by converting lookup 
-HBAM_proj_scale <- hospital_lookup_master %>% 
-  filter(year != 2016) %>% 
-  bind_rows(HBAMprojected_spread) %>% 
-  group_by(id) %>% 
-  fill(at_beds_2017, cr_beds_2017, gr_beds_2017, mh_beds_2017, dbc_total_beds_2017,
-       at_beds_2018, cr_beds_2018, gr_beds_2018, mh_beds_2018, dbc_total_beds_2018) %>% 
-  ungroup() %>% 
-  filter(year == proj.year) %>% 
-  gather('caretype', 'hbam.cases', cases_at_ad:cases_am_sr) %>% 
-  separate(caretype, into = c('caretype', 'age_cluster'), sep = "cases_") %>% 
-  select(-caretype) %>% 
-  separate(age_cluster, into = c('caretype', 'age_cluster'), sep = '_') %>% 
-  mutate(caretype = toupper(caretype)) %>% 
-  left_join(select(crm_hosp_tbl, id, year, caretype, age_cluster, crm.cases = hosp.treso.cases), by = c('year', 'id', 'caretype', 'age_cluster')) %>% 
-  mutate(scale.factor = hbam.cases/crm.cases) %>% 
-  # distinct() %>% 
-  select(year, id, name, pcode, hosp.treso.zone = treso_zone, caretype, age_cluster, scale.factor) %>% 
-  ungroup()
+# Calculate scale factor between HBAM and CRM by converting lookup 
+crm_hosp_tbl_join <- left_join(crm_hosp_tbl, HBAMprojected_filtered, by = c("id", "caretype", "age_cluster")) %>% 
+  mutate(scale.factor = cases/hosp.treso.cases) %>% 
+  select(id, caretype, age_cluster, scale.factor)
 
-crm2hbam <- left_join(crm_treso_tbl, HBAM_proj_scale, by = c('id', 'hospitalname' = 'name', 'pcode', 'hosp.treso.zone', 'caretype', 'age_cluster')) %>% 
-  mutate(cases.scaled = hosp.treso.cases * scale.factor)
-
-#TABLE IS CREATING DUPLICATES IN 3'S OF ORIGIN TRESO ZONES LEADING TO INFLATED FIGURES FOR HBAM AND CRM CASES; DUPLICATION CAN BE TRACED BACK TO CRM_TRESO_TBL BUT STILL HAVE NOT FIGURED OUT WHY
+# Depending on the user selected option
+if (USER_SELECT == "HBAM") {
+  crm_treso_tbl <- left_join(crm_treso_tbl, crm_hosp_tbl_join, by = c("id", "caretype", "age_cluster")) %>% 
+    mutate(cases = hosp.treso.cases * scale.factor)
+} else if (USER_SELECT == "CRM") {
+  crm_treso_tbl <- crm_treso_tbl %>% 
+    mutate(cases = hosp.treso.cases)
+}
 
 ```
 

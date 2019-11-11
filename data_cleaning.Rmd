@@ -1088,73 +1088,13 @@ ALC_idlinkage %>%
 #Filter out Mismatched IDs
 hospital_ALC_master <- ALC_idlinkage %>% 
   filter(!is.na(type)) %>% 
-  group_by(siteid, facilityid, type, name) %>% 
+  group_by(siteid, facilityid, type, name.moh) %>% 
   distinct()
 ```
 
 ##TRESO Data Input
   - Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
 ```{r}
-#TRESO-CSD Crosswalk
-treso_csd_tb <- read_csv('input/treso/treso_zone_system.csv') %>% 
-  rename('treso_zone' = 'treso_id')
-
-treso_health_tb <- socio_economic_tb %>%
-  group_by(treso_zone) %>%
-  summarise(
-    n_pop = n(),
-    n_hhlds = length(unique(hhid)),
-    n_ft = length(treso_zone[work_status == "full_time"]),
-    n_pt = length(treso_zone[work_status == "part_time"]),
-    n_unemp = length(treso_zone[work_status == "unemployed"]),
-    n_ag1_pop = length(treso_zone[age <= 17 & age >= 0]),
-    n_ag2_pop = length(treso_zone[age <= 44 & age >= 18]),
-    n_ag3_pop = length(treso_zone[age <= 64 & age >= 45]),
-    n_ag4_pop = length(treso_zone[age <= 74 & age >= 65]),
-    n_ag5_pop = length(treso_zone[age <= 84 & age >= 75]),
-    n_ag6_pop = length(treso_zone[age >= 85]),
-    # n_ped1_pop = length(treso_zone[age <= 1]),
-    # n_ped2_pop = length(treso_zone[age <= 7 & age >= 1]),
-    # n_ped3_pop = length(treso_zone[age <= 17 & age >= 8]),
-    
-    mean_income = mean(income, na.rm = TRUE),
-    mean_age = mean(age, na.rm = TRUE),
-    
-    occu_management = length(treso_zone[nocs_11 == 1]),
-    occu_business = length(treso_zone[nocs_11 == 2]),
-    occu_science = length(treso_zone[nocs_11 == 3]),
-    occu_health = length(treso_zone[nocs_11 == 4]),
-    occu_public = length(treso_zone[nocs_11 == 5]),
-    occu_recreation = length(treso_zone[nocs_11 == 6]),
-    occu_sales = length(treso_zone[nocs_11 == 7]),
-    occu_trades = length(treso_zone[nocs_11 == 8]),
-    occu_production = length(treso_zone[nocs_11 == 9]),
-    occu_manufacturing = length(treso_zone[nocs_11 == 10]),
-    occu_notapplicable = length(treso_zone[nocs_11 == 99]),
-    attend_school = length(treso_zone[school_status == 2]),
-    deg_none = length(treso_zone[hdgree == 1]),
-    deg_hs = length(treso_zone[hdgree == 2]),
-    deg_trades = length(treso_zone[hdgree == 3]),
-    deg_ra = length(treso_zone[hdgree == 4]),
-    deg_col = length(treso_zone[hdgree == 5]),
-    deg_uni = length(treso_zone[hdgree == 6]),
-    deg_ugrad = length(treso_zone[hdgree == 7]),
-    deg_grad = length(treso_zone[hdgree == 8]),
-    deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
-  ) %>%
-  # left_join(hhld_structure, by = "treso_zone") %>%
-  left_join(treso_csd_tb, by = 'treso_zone')
-  # saveRDS("cache/treso_tb.rds")
-
-saveRDS(treso_health_tb, file = 'cache/moh/treso_health_tb.rds')
-
-# Clean global variables
-rm(hhld_tb, hhld_df, pop_df, socio_economic_tb)
-
-#Import complete TRESO Population Dataset
-treso_zone_system <- read_csv('input/treso/treso_zone_system.csv') %>% 
-  select(-mof_region,
-         -area)
 
 treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
@@ -1366,11 +1306,11 @@ saveRDS(caserates_comp, file = 'cache/moh/caserates_comp.rds')
 ct <- 'AM'
 csd_caserates_plot <- csd_caserates %>% 
   filter(caretype == ct,
-         !csd_caserates == 'Inf') %>%
+         !csd_caserate == 'Inf') %>%
   group_by(year, agegroup, caretype) %>% 
-  summarise(avg_cr = mean(csd_caserates))
+  summarise(avg_cr = mean(csd_caserate)) %>% 
+  ungroup()
 
-csd_caserates_plot <- ungroup(csd_caserates_plot)
 ggplot(csd_caserates_plot, aes(x=year, y=avg_cr, color=as.factor(agegroup))) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE)
