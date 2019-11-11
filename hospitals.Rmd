@@ -290,26 +290,33 @@ HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
          csd.mrkt)
 
 # Join historical HBAM cases by CSD/hospital pair to TRESO information to get TRESO populations
-# Then claculate case rates for TRESO zones at the CSD-Hospital pair, segmented by caretype, year, and HBAM agegroup; also segmented seprately by caretype, year, and age_cluster (which lumps some age groups together into 'ped', 'adult', 'senior')
+# Then calculate case rates for TRESO zones at the CSD-Hospital pair, segmented by caretype, year, and HBAM agegroup; also segmented seprately by caretype, year, and age_cluster (which lumps some age groups together into 'ped', 'adult', 'senior')
 treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group', 'age_cluster')) %>% 
   rename('orig.treso.zone' = 'treso_zone',
          'orig.treso.pop' = 'population') %>%
+  filter(caretype == 'AT') %>% 
+  # Group to enable analysis by age_cluster or by agegroup
   group_by(year, orig.treso.zone, age_cluster, orig_csd, caretype, siteid) %>% 
   mutate(orig.treso.pop.agecluster = sum(orig.treso.pop),
          hosp.cases.agecluster = sum(hosp.cases),
          csd.hosp.cases.agecluster = sum(csd.hosp.cases),
-         csd.mrkt.agecluster = csd.hosp.cases.agecluster / hosp.cases.agecluster) %>%
+         csd.mrkt.agecluster = ifelse(hosp.cases.agecluster > 0, csd.hosp.cases.agecluster / hosp.cases.agecluster, 0)) %>%
+  # Calculate metrics with segment grouped by agegroup, caretype
   group_by(year, agegroup, orig_csd, caretype, siteid) %>%
   mutate(csd.pop = sum(orig.treso.pop),
-         treso.pop.perc = orig.treso.pop/csd.pop,
+         treso.pop.perc = ifelse(csd.pop > 0, orig.treso.pop/csd.pop, 0.0),
+         csd.caserate = ifelse(csd.pop > 0, csd.mrkt * hosp.cases / csd.pop, 0.0),
          treso.hosp.cases = csd.mrkt * treso.pop.perc * hosp.cases, 
-         treso.caserate = treso.hosp.cases / orig.treso.pop) %>% 
+         treso.caserate = ifelse(orig.treso.pop > 0, treso.hosp.cases / orig.treso.pop, csd.caserate)) %>% 
+  # Calculate metrics with segment grouped by age_cluster, caretype
   group_by(year, age_cluster, orig_csd, caretype, siteid) %>%
-  mutate(csd.pop.agecluster = sum(orig.treso.pop.agecluster),
-         treso.pop.perc.agecluster = orig.treso.pop.agecluster/csd.pop.agecluster,
+  mutate(csd.pop.agecluster = sum(orig.treso.pop.agecluster, na.rm = TRUE),
+         treso.pop.perc.agecluster = ifelse(csd.pop.agecluster > 0, orig.treso.pop.agecluster/csd.pop.agecluster, 0.0),
+         csd.caserate.agecluster = ifelse(csd.pop.agecluster > 0, csd.mrkt.agecluster * hosp.cases.agecluster / csd.pop.agecluster, 0.0), 
          treso.hosp.cases.agecluster = csd.mrkt.agecluster * treso.pop.perc.agecluster * hosp.cases.agecluster, 
-         treso.caserate.agecluster = treso.hosp.cases.agecluster / orig.treso.pop.agecluster) %>% 
-  ungroup() %>% 
+         treso.caserate.agecluster = ifelse(orig.treso.pop.agecluster > 0, treso.hosp.cases.agecluster / orig.treso.pop.agecluster, csd.caserate.agecluster)) %>%
+  ungroup() %>%
+  drop_na(orig.treso.zone) %>% 
   filter(year == 2016) %>% #select most recent historical year
   select(siteid,
          hospitalname,
@@ -342,6 +349,11 @@ proj_param <- left_join(select(treso_population_long, treso_zone, year, age_clus
   select(year, treso_zone, age_cluster, treso.population.agecluster, caretype, alos)
 
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
+
+# Temp table for testing to be deleted
+# temp <- crm_treso_tbl %>% 
+#   filter(is.na(treso.caserate.agecluster) == TRUE)
+
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
   left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
   left_join(select(hospital_lookup_master, id, pcode), by = 'pcode') %>% #joins used to link siteid w/ id from look-up table
