@@ -352,18 +352,18 @@ hospital_master_id <- readRDS('output/moh/hospital_lookup_master.rds') %>%
 
 HBAMprojected_alos <- readRDS('cache/moh/HBAMprojected_alos.rds')
 
+treso_population_moh_agecluster <- treso_population_moh %>% 
+  select(-age_group) %>% 
+  group_by(treso_zone, age_cluster) %>% 
+  summarise_all(sum)
+
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
-
-# Temp table for testing to be deleted
-# temp <- crm_treso_tbl %>% 
-#   filter(is.na(treso.caserate.agecluster) == TRUE)
-
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
   left_join(select(hospitallocations, siteid, pcode), by = 'siteid') %>% 
   left_join(select(hospital_master_id, id, pcode), by = 'pcode') %>%
   select(-siteid) %>% 
   distinct() %>% 
-  left_join(treso_population_moh, by = c("orig.treso.zone" = "treso_zone", "age_cluster")) %>% 
+  left_join(treso_population_moh_agecluster, by = c("orig.treso.zone" = "treso_zone", "age_cluster")) %>% 
   left_join(HBAMprojected_alos, by = c("age_cluster", "caretype")) %>%
   saveRDS("output/moh/crm_treso_tbl.rds")
 
