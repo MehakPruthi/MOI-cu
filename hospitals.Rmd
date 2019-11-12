@@ -626,10 +626,10 @@ ALC_csd_vol <- ALC_hosp_vol %>%
   ungroup() %>% 
   mutate(csdname = toupper(csdname)) %>% 
   left_join(ltc_homes_csd, by = c('csduid', 'csdname')) %>% 
-  mutate(csd.ltc.beds = replace_na(csd.ltc.beds, 0),
+  mutate(csd.ltc.patients = replace_na(csd.ltc.beds, 0),
          ltc.bed.days = replace_na(ltc.bed.days, 0),
          csd.demand.days = ltc.bed.days + hosp.alc.days,
-         csd.demand.beds = csd.ltc.beds + hosp.alc.patients)
+         csd.demand.patients = csd.ltc.beds + hosp.alc.patients)
 
 #ADD TRESO-LEVEL DISAGGREGATIONS BY FIRST JOINING IN CORRESPONDING CSD-TRESO LIST AND THEN TAKING THE PROPORTION OF TRESO POPULATION TO TOTAL CSD POPULATION
 ALC_treso <- ALC_csd_vol %>% 
@@ -639,7 +639,7 @@ ALC_treso <- ALC_csd_vol %>%
   select(-hosp.alc.patients, -hosp.alc.days) %>% 
   mutate(csd.pop = sum(treso.population.agecluster),
          treso.csd.pop.perc = treso.population.agecluster / csd.pop,
-         treso.csd.dem.beds = csd.demand.beds * treso.csd.pop.perc,
+         treso.csd.dem.patients = csd.demand.patients * treso.csd.pop.perc,
          treso.csd.dem.days = csd.demand.days * treso.csd.pop.perc)  #SHOULD ADD WEIGHT TO SR POPULATION BASED ON A CALCULATED PARAMETER SUCH AS SR/AD POPULATION OR SR/AD CASES
   
 pop.65plus  <-  treso_population_long %>% 
@@ -652,9 +652,9 @@ ALC_rates <- ALC_treso %>%
   left_join(pop.65plus, by = c('year', 'treso_zone')) %>% 
   select(-age_cluster) %>% 
   group_by(year, treso_zone, agecluster) %>% 
-  mutate(treso.alc.rate = treso.csd.dem.beds / pop.65plus) %>% 
+  mutate(treso.alc.rate = treso.csd.dem.patients / pop.65plus) %>% 
   group_by(year, csduid, agecluster) %>% 
-  mutate(csd.alc.rate = csd.demand.beds / sum(pop.65plus)) %>% 
+  mutate(csd.alc.rate = csd.demand.patients / sum(pop.65plus)) %>% 
   ungroup() %>% 
   select(csduid, csdname, agecluster, treso_zone, treso.alc.rate, csd.alc.rate)
 ```
@@ -664,31 +664,45 @@ ALC_rates <- ALC_treso %>%
 #RECALL PROJ_YEAR AND OP_DAYS FROM ABOVE
 PROJ_YEAR_ALC <- PROJ_YEAR
 PROJ_ALC_RATE <- .103 #RATE CAN BE EXTRACTED FROM ALC_RATE ABOVE OR MANUALLY INPUT BY USER
-LTC_CAPACITY <- 1
+
+#LTC CAPACITY PARAMETERS
+CSDUID_ADDED_CAP = 3510101 #THIS INPUT IS FOR THE CSDUID
+ADDED_CAP = 0 #IN BEDS
+LTC_OCC_RATE = 1
+LTC_TURNOVER = .35
+
+#LTC CAPACITY INCLUDES ADDITIONAL CAPACITY FOR CSD AS DEFINED BY USER
+ltc_proj_homes <- ltc_homes_csd %>% 
+  group_by(csduid, csdname) %>% 
+  mutate(csd.added.beds = ifelse(csduid %in% CSDUID_ADDED_CAP, csd.ltc.patients + ADDED_CAP, 0),
+         total.ltc.patients = csd.ltc.beds + csd.added.beds,
+         ltc.bed.days = total.ltc.patients * LTC_OCC_RATE * OP_DAYS) %>% 
+  ungroup() %>% 
+  mutate(csdname = toupper(csdname))
 
 #ALC IS CALCULATED AS A RATE OF GROWTH RELATIVE TO THE 65+ POPULATION; FUTURE ADDITIONS COULD ALLOW WEIGHTED SCALING BY AGEGROUP OR INTEGRATE THE ALC-RATES CALCULATED ABOVE
 ALC_proj_csd <- treso_population_moh %>%
   filter(age_cluster == 'sr') %>% 
   group_by(treso_zone, csduid) %>% 
   summarise_at(vars(paste0("population.", PROJ_YEAR_ALC)), sum) %>% 
-  mutate(ltc.treso.demand = PROJ_ALC_RATE * get(paste0("population.", PROJ_YEAR_ALC))) %>% 
+  mutate(ltc.treso.demand.patients = PROJ_ALC_RATE * get(paste0("population.", PROJ_YEAR_ALC))) %>% 
   group_by(csduid) %>% 
-  mutate(ltc.csd.demand.beds = sum(ltc.treso.demand)) %>% #DIFFERENTIATION BY AGE-CLUSTER WAS HINDERING UNIFYING THE TOTAL NUMBER OF LTC BEDS
+  mutate(ltc.csd.demand.patients = sum(ltc.treso.demand.patients) * (1 - LTC_TURNOVER)) %>% #DIFFERENTIATION BY AGE-CLUSTER WAS HINDERING UNIFYING THE TOTAL NUMBER OF LTC BEDS
   left_join(select(ltc_homes_csd, csduid, csd.ltc.beds, ltc.bed.days), by = 'csduid') %>% 
   mutate(csd.ltc.beds = replace_na(csd.ltc.beds, 0), #REPLACE CSD'S W/ ZERO LTC CAPACITY
          ltc.bed.days = replace_na(ltc.bed.days, 0),
-         csd.residual.alc.beds = ifelse(ltc.csd.demand.beds - csd.ltc.beds > 0, ltc.csd.demand.beds - csd.ltc.beds, 0)) %>% 
-  select(csduid, ltc.csd.demand.beds:csd.residual.alc.beds) %>% 
+         csd.residual.alc.patients = ifelse(ltc.csd.demand.patients - csd.ltc.beds > 0, ltc.csd.demand.patients - csd.ltc.beds, 0)) %>% 
+  select(csduid, ltc.csd.demand.patients:csd.residual.alc.patients) %>% 
   distinct()
 
 #ALC PROJECTION TO HOPSITALS FROM CSD TOTALS USING MARKETSHARE
 ALC_proj_hosp <- ALC_hosp_vol %>%
   mutate(year = PROJ_YEAR_ALC) %>% 
   select(-agecluster, -hosp.alc.patients, -hosp.alc.days, avg.los) %>% 
-  left_join(select(ALC_proj_csd, csduid, csd.residual.alc.beds), by = c('csduid')) %>% 
+  left_join(select(ALC_proj_csd, csduid, csd.residual.alc.patients), by = c('csduid')) %>% 
   group_by(siteid) %>% 
-  mutate(proj.alc.beds = csd.residual.alc.beds * hosp.alc.mrkt,
-         proj.alc.beddays = proj.alc.beds * avg.los)
+  mutate(proj.alc.patients = csd.residual.alc.patients * hosp.alc.mrkt,
+         proj.alc.beddays = proj.alc.patients * avg.los)
   
 
 ```
