@@ -299,7 +299,6 @@ HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
 treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group', 'age_cluster')) %>% 
   rename('orig.treso.zone' = 'treso_zone',
          'orig.treso.pop' = 'population') %>%
-  filter(caretype == 'AT') %>% 
   # Group to enable analysis by age_cluster or by agegroup
   group_by(year, orig.treso.zone, age_cluster, orig_csd, caretype, siteid) %>% 
   mutate(orig.treso.pop.agecluster = sum(orig.treso.pop),
@@ -342,9 +341,9 @@ rm(treso_origin_cases)
   
 ```{r}
 ##Projection Parameters
-PROJ_YEAR <- 2016
+PROJ_YEAR <- 2026
 OP_DAYS <- 365
-USER_SELECT <- "HBAM"
+USER_SELECT <- "CRM"
 
 hospital_master_id <- readRDS('output/moh/hospital_lookup_master.rds') %>% 
   select(id, pcode) %>% 
@@ -355,7 +354,8 @@ HBAMprojected_alos <- readRDS('cache/moh/HBAMprojected_alos.rds')
 treso_population_moh_agecluster <- treso_population_moh %>% 
   select(-age_group) %>% 
   group_by(treso_zone, age_cluster) %>% 
-  summarise_all(sum)
+  summarise_all(sum) %>% 
+  ungroup()
 
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
@@ -427,7 +427,7 @@ hospital_master_id <- readRDS("output/moh/hospital_lookup_master.rds") %>%
   mutate(beds = dbc_total_beds_2018,
          cases = select(., contains("cases")) %>% rowSums(),
          utilization = 0.1) %>% 
-  filter(year == PROJ_YEAR) %>% 
+  filter(year == 2016) %>% 
   left_join(hospital_beds_summary, by="id") %>% 
   mutate(utilization = simulated.beds / beds)
 
