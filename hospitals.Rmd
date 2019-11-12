@@ -113,7 +113,9 @@ saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
 rm(treso_shp, hospital_xy, hospital_spdf)
 
 #Update Master HBAM list to Include TRESO Zones
-HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), by = c('siteid', 'caretype')) %>% 
+HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, 
+                                      select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), 
+                                      by = c('siteid', 'caretype')) %>% 
   left_join(agegroup_ref, by = 'agegroup') %>% 
   # Duplicate rows appearing in HBAM - take max by group to limit to deduplicate
   group_by(year, siteid, caretype, agegroup, orig_csd) %>% 
@@ -122,8 +124,12 @@ HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, select(hospital_ove
   distinct() %>% 
   rename(cases = maxCases)
 
-HBAMprojected_master_tz <- left_join(HBAMprojected_master, select(hospital_overlay, treso_zone, siteid, caretype), by = c('siteid', 'caretype')) %>%
+HBAMprojected_master_tz <- left_join(HBAMprojected_master, 
+                                     select(hospital_overlay, treso_zone, siteid, caretype), 
+                                     by = c('siteid', 'caretype')) %>%
   left_join(agegroup_ref, by = c('agegroup'))
+
+saveRDS(HBAMprojected_master_tz, "output/moh/HBAMprojected_master_tz.rds")
 
 rm(HBAMhistorical_master, HBAMprojected_master)
 
@@ -329,13 +335,15 @@ rm(treso_origin_cases)
   
 ```{r}
 ##Projection Parameters
-PROJ_YEAR <- 2025
+PROJ_YEAR <- 2016
 OP_DAYS <- 365
 USER_SELECT <- "HBAM"
 
 hospital_master_id <- readRDS('output/moh/hospital_lookup_master.rds') %>% 
   select(id, pcode) %>% 
   distinct()
+
+HBAMprojected_alos <- readRDS('cache/moh/HBAMprojected_alos.rds')
 
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
@@ -345,7 +353,10 @@ crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>%
   select(-siteid) %>% 
   distinct() %>% 
   left_join(treso_population_moh, by = c("orig.treso.zone" = "treso_zone", "age_cluster")) %>% 
-  left_join(HBAMprojected_alos, by = c("age_cluster", "caretype")) %>% 
+  left_join(HBAMprojected_alos, by = c("age_cluster", "caretype")) %>%
+  saveRDS("output/moh/crm_treso_tbl.rds")
+
+crm_treso_tbl <- readRDS("output/moh/crm_treso_tbl.rds") %>% 
   # Calculate the number of cases, beddays, bedsneeded depending on the input year
   mutate(hosp.treso.cases = treso.caserate.agecluster * get(paste0("population.", PROJ_YEAR)),
          hosp.treso.beddays = hosp.treso.cases * alos,
@@ -356,33 +367,70 @@ crm_hosp_tbl <- crm_treso_tbl %>%
   summarise_at(vars(hosp.treso.cases:hosp.treso.bedsneeded), sum) %>% 
   ungroup()
 
-#Attach HBAM projected cases to look-up master list by converting to wide format and joining
-HBAMprojected_filtered <- HBAMprojected_master_tz %>% 
-  filter(year == PROJ_YEAR) %>% 
-  left_join(select(hospital_master_id, id, pcode), by = "pcode") %>% 
-  group_by(id, caretype, age_cluster) %>% 
-  summarise_at(vars(cases:beddays), sum, na.rm=TRUE)
+if (PROJ_YEAR <= 2016) {
+  HBAM_control <- readRDS("output/moh/hospital_lookup_master.rds") %>% 
+    filter(year == PROJ_YEAR) %>% 
+    gather(key = "segment", value = "cases", cases_at_ad:cases_am_sr) %>% 
+    separate(segment, c(NA, "caretype", "age_cluster")) %>% 
+    mutate(caretype = toupper(caretype)) %>% 
+    group_by(id, caretype, age_cluster) %>% 
+    summarise(cases = sum(cases)) %>% 
+    ungroup()
+} else {
+  HBAM_control <- HBAMprojected_master_tz %>% 
+    filter(year == PROJ_YEAR) %>% 
+    left_join(select(hospital_master_id, id, pcode), by = "pcode") %>% 
+    group_by(id, caretype, age_cluster) %>% 
+    summarise_at(vars(cases:beddays), sum, na.rm=TRUE)
+}
 
-# Calculate scale factor between HBAM and CRM by converting lookup 
-crm_hosp_tbl_join <- left_join(crm_hosp_tbl, HBAMprojected_filtered, by = c("id", "caretype", "age_cluster")) %>% 
+# Calculate scale factor between HBAM and CRM 
+crm_hosp_tbl_join <- left_join(crm_hosp_tbl, HBAM_control, by = c("id", "caretype", "age_cluster")) %>% 
   mutate(scale.factor = cases/hosp.treso.cases) %>% 
   select(id, caretype, age_cluster, scale.factor)
 
 # Depending on the user selected option
 if (USER_SELECT == "HBAM") {
   crm_treso_tbl_calc <- left_join(crm_treso_tbl, crm_hosp_tbl_join, by = c("id", "caretype", "age_cluster")) %>% 
-    mutate(cases = hosp.treso.cases * scale.factor)
+    mutate(cases = hosp.treso.cases * scale.factor,
+                   beddays = cases * alos,
+                   bedsneeded = beddays / OP_DAYS)
 } else if (USER_SELECT == "CRM") {
   crm_treso_tbl_calc <- crm_treso_tbl %>% 
-    mutate(cases = hosp.treso.cases)
+    mutate(cases = hosp.treso.cases,
+           beddays = cases * alos,
+           bedsneeded = beddays / OP_DAYS)
 }
 
+hospital_beds_summary <- crm_treso_tbl_calc %>%
+  group_by(id, caretype, age_cluster) %>% 
+  summarise(bedsneeded = sum(bedsneeded)) %>% 
+  ungroup() %>% 
+  mutate(caretype = tolower(caretype)) %>% 
+  unite(segment, caretype:age_cluster) %>% 
+  spread(segment, bedsneeded) %>% 
+  mutate_at(vars(-id), ~replace_na(., 0)) %>% 
+  mutate(simulated.beds = select(., -id) %>% rowSums())
+
+hospital_master_id <- readRDS("output/moh/hospital_lookup_master.rds") %>% 
+  mutate(beds = dbc_total_beds_2018,
+         cases = select(., contains("cases")) %>% rowSums(),
+         utilization = 0.1) %>% 
+  filter(year == PROJ_YEAR) %>% 
+  left_join(hospital_beds_summary, by="id") %>% 
+  mutate(utilization = simulated.beds / beds)
+
+hospital_od <- crm_treso_tbl_calc %>% 
+  group_by(id, orig.treso.zone) %>% 
+  summarise(value = round(sum(cases), 0),
+            name = first(hospitalname)) %>% 
+  rename(orig = orig.treso.zone, dest = id)
+
+print(select(hospital_master_id, id, beds, simulated.beds, utilization))
 ```
 
 NOT-SO-LOW HANGING FRUIT FOR PAUL:
-1. COMIBINING CRM RATES AND ALOS W/ POPSYN FORECAST
-2. ADD HBAM PROJECTED TO LOOKUP TABLE
-3. CALCULATE SCALE FACTOR BETWEEN CRM BED-DAYS AND HBAM PROJ
+
 4. SUMMARIZE ALC HOSPITAL DATA TO AGE CLUSTERS
 5. FORECAST ALC(LTC) USING LTC CAPACITY DATA AND ALC VOLUME DATA: COMBINE LTC CAPACITY AND ALC BED DAYS, GET RATE TO CSD-75+ POPULATION AND FORECAST USING TRESO POPULATION, REDISTRIBUTE TO INDIVIDUAL HOSPITALS BY MARKET-SHARE OF ALC DAYS
 
