@@ -359,7 +359,6 @@ HBAMprojected_alos <- readRDS('cache/moh/HBAMprojected_alos.rds')
 #   filter(is.na(treso.caserate.agecluster) == TRUE)
 
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
-  filter(!is.na(orig.treso.zone), !is.na(treso.caserate.agecluster)) %>% # Can remove after fixes
   left_join(select(hospitallocations, siteid, pcode), by = 'siteid') %>% 
   left_join(select(hospital_master_id, id, pcode), by = 'pcode') %>%
   select(-siteid) %>% 
