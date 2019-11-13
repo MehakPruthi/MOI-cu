@@ -36,7 +36,7 @@ agegroup_ref <- tibble(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
 CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
 
 #Daily Bed Census bed counts
-num_beds <- readRDS('cache/moh/num_beds.rds')
+numbeds <- readRDS('cache/moh/num_beds.rds')
 
 # Historical HBAM Master (w/ Asset data)
 HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
@@ -59,6 +59,17 @@ treso_population_long <- gather(treso_population_moh, 'year', 'population', popu
   group_by(year, treso_zone, age_cluster) %>% 
   mutate(treso.population.agecluster = sum(population))
 
+num_beds <- numbeds %>% 
+  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y)
+
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 ```
 
@@ -70,19 +81,15 @@ treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
   
 ```{r, include=FALSE}
 # Convert the hospital dataframe into SpatialPointsDataframe (SPDF)
-hospital_spdf <- HBAMhistorical_master %>%
+hospital_spdf <- hospitallocations %>%
   ungroup() %>%
   select(name,
-         siteid,
+         id,
          facilityid,
-         caretype,
          pcode,
          lat,
          long) %>%
-  group_by(siteid) %>%
-  summarise_all(list(first)) %>%
-  mutate(id = row_number()) %>% 
-  drop_na(lat)
+  distinct()
 
 coordinates(hospital_spdf) <- c('long', 'lat')
   
@@ -96,16 +103,13 @@ hospital_xy <- spTransform(hospital_spdf, CRS(treso_projarg))
 hospital_overlay <- over(hospital_xy, treso_shp, returnList = FALSE) %>%
       cbind(pcode = hospital_xy@data$pcode,
             hosp_name = hospital_xy@data$name,
-            siteid = hospital_xy@data$siteid,
-            caretype = hospital_xy@data$caretype) %>%
+            id = hospital_xy@data$id) %>%
       as_tibble() %>%
       select(Treso_ID,
              pcode, 
-             caretype,
              hosp_name, 
-             siteid) %>% 
+             id) %>% 
       rename(treso_zone = Treso_ID) %>% 
-      mutate(caretype = as.character(caretype)) %>% 
       left_join(treso_zone_system, by = c('treso_zone' = 'treso_id'))
 
 saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
@@ -114,19 +118,19 @@ rm(treso_shp, hospital_xy, hospital_spdf)
 
 #Update Master HBAM list to Include TRESO Zones
 HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, 
-                                      select(hospital_overlay, treso_zone, siteid, caretype, hosp_csduid = csduid, csdname, cdname), 
-                                      by = c('siteid', 'caretype')) %>% 
+                                      select(hospital_overlay, treso_zone, id, hosp_csduid = csduid, csdname, cdname), 
+                                      by = c('id')) %>% 
   left_join(agegroup_ref, by = 'agegroup') %>% 
   # Duplicate rows appearing in HBAM - take max by group to limit to deduplicate
-  group_by(year, siteid, caretype, agegroup, orig_csd) %>% 
+  group_by(year, id, caretype, agegroup, orig_csd) %>% 
   mutate(maxCases = max(cases)) %>% 
   select(-cases) %>% 
   distinct() %>% 
   rename(cases = maxCases)
 
 HBAMprojected_master_tz <- left_join(HBAMprojected_master, 
-                                     select(hospital_overlay, treso_zone, siteid, caretype), 
-                                     by = c('siteid', 'caretype')) %>%
+                                     select(hospital_overlay, treso_zone, id), 
+                                     by = c('id')) %>%
   left_join(agegroup_ref, by = c('agegroup'))
 
 saveRDS(HBAMprojected_master_tz, "output/moh/HBAMprojected_master_tz.rds")
@@ -142,15 +146,15 @@ rm(HBAMhistorical_master, HBAMprojected_master)
 ```{r}
 #Use combine HBAM-TRESO object as basis
 hospital_lookup_latlong <- HBAMhistorical_master_tz %>% 
-  group_by(name, pcode) %>% 
+  group_by(id) %>% 
   summarise(csduid = first(hosp_csduid),
             csdname = first(csdname),
             lat = first(lat),
             long = first(long),
-            treso_zone = first(treso_zone)) 
+            treso_zone = first(treso_zone))
 
 hospital_lookup <- HBAMhistorical_master_tz %>% 
-  group_by(year, name, pcode, age_cluster, caretype) %>% 
+  group_by(year, id, name, pcode, age_cluster, caretype) %>% 
   summarise(cases = sum(cases)) %>% 
   mutate(cases_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', cases, 0),
          cases_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', cases, 0),
@@ -167,17 +171,12 @@ hospital_lookup <- HBAMhistorical_master_tz %>%
          cases_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', cases, 0),
          cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', cases, 0),
          cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', cases, 0)) %>% 
-  group_by(year, name, pcode) %>% 
+  group_by(year, id, name, pcode) %>% 
   summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>%
-  left_join(hospital_lookup_latlong, by = c('name', 'pcode')) %>% 
-  group_by(pcode) %>% 
-  mutate(id = group_indices()) %>% 
-  ungroup()
-
-#Added check to make sure summarise is correct
-hospital_check <- HBAMhistorical_master_tz %>%
-  group_by(year, name, pcode, age_cluster, caretype) %>% 
-  summarise(totalcases = sum(cases))
+  left_join(hospital_lookup_latlong, by = c('name', 'pcode'))
+  #group_by(pcode) %>% 
+  #mutate(id = group_indices()) %>% 
+  #ungroup()
 
 #Import bed summaries from Daily Bed Census (DBC); this can be imported above
 num_beds_spread <- num_beds %>%
@@ -185,7 +184,7 @@ num_beds_spread <- num_beds %>%
   rename('dbc_beds_2017' = '2017',
          'dbc_beds_2018' = '2018',
          'caretype' = 'type') %>% 
-  left_join(select(hospitallocations, siteid, caretype, name, pcode), by = c('siteid', 'caretype'))
+  left_join(select(hospitallocations, id, caretype, name, pcode), by = c('id', 'caretype'))
 
 #Spread DBC 2017 and 2018 data
 dbc_beds_2017 <- num_beds_spread %>% 
