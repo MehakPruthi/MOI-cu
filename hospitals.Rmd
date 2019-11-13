@@ -341,9 +341,11 @@ rm(treso_origin_cases)
   
 ```{r}
 ##Projection Parameters
-PROJ_YEAR <- 2026
+PROJ_YEAR <- 2016
 OP_DAYS <- 365
 USER_SELECT <- "CRM"
+CARETYPE_LIST = c("AT", "MH", "AM")
+AGE_CLUSTER_LIST = c("ad", "sr")
 
 hospital_master_id <- readRDS('output/moh/hospital_lookup_master.rds') %>% 
   select(id, pcode) %>% 
@@ -369,6 +371,7 @@ crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>%
   saveRDS("output/moh/crm_treso_tbl.rds")
 
 crm_treso_tbl <- readRDS("output/moh/crm_treso_tbl.rds") %>% 
+  filter(caretype %in% CARETYPE_LIST, age_cluster %in% AGE_CLUSTER_LIST) %>% 
   # Calculate the number of cases, beddays, bedsneeded depending on the input year
   mutate(hosp.treso.cases = treso.caserate.agecluster * get(paste0("population.", PROJ_YEAR)),
          hosp.treso.beddays = hosp.treso.cases * alos,
@@ -414,23 +417,57 @@ if (USER_SELECT == "HBAM") {
            bedsneeded = beddays / OP_DAYS)
 }
 
-hospital_beds_summary <- crm_treso_tbl_calc %>%
-  group_by(id, caretype, age_cluster) %>% 
-  summarise(bedsneeded = sum(bedsneeded)) %>% 
-  ungroup() %>% 
-  mutate(caretype = tolower(caretype)) %>% 
-  unite(segment, caretype:age_cluster) %>% 
-  spread(segment, bedsneeded) %>% 
-  mutate_at(vars(-id), ~replace_na(., 0)) %>% 
-  mutate(simulated.beds = select(., -id) %>% rowSums())
+# hospital_beds_summary <- crm_treso_tbl_calc %>%
+#   group_by(id, caretype, age_cluster) %>% 
+#   summarise(bedsneeded = sum(bedsneeded)) %>% 
+#   ungroup() %>% 
+#   mutate(caretype = tolower(caretype)) %>% 
+#   unite(segment, caretype:age_cluster) %>% 
+#   spread(segment, bedsneeded) %>% 
+#   mutate_at(vars(-id), ~replace_na(., 0)) %>% 
+#   mutate(simulated.beds = select(., -id) %>% rowSums())
 
 hospital_master_id <- readRDS("output/moh/hospital_lookup_master.rds") %>% 
   mutate(beds = dbc_total_beds_2018,
          cases = select(., contains("cases")) %>% rowSums(),
-         utilization = 0.1) %>% 
-  filter(year == 2016) %>% 
-  left_join(hospital_beds_summary, by="id") %>% 
-  mutate(utilization = simulated.beds / beds)
+         utilization = NA) %>% 
+  filter(year == 2016) # %>% 
+  # left_join(hospital_beds_summary, by="id")
+
+# Calculated the calculated CT segment's utilization
+hospital_capacity_summary <- hospital_master_id %>% 
+  select(id, at_beds_2018:mh_beds_2018) %>% 
+  gather(key = caretype, value = beds.ct.2018, -id) %>%
+  mutate(caretype = substring(caretype, 1, 2)) %>% 
+  filter(caretype %in% tolower(CARETYPE_LIST))
+
+# Calculate average for caretypes that matter
+hospital_utilization_summary <- crm_treso_tbl_calc %>% 
+  group_by(id, caretype) %>% 
+  summarise(bedsneeded = sum(bedsneeded)) %>% 
+  ungroup() %>% 
+  mutate(caretype = tolower(caretype)) %>% 
+  left_join(hospital_capacity_summary, by = c("id", "caretype")) %>% 
+  group_by(id) %>% 
+  summarise_if(is.numeric, sum, na.rm = TRUE) %>% 
+  mutate(utilization = bedsneeded / beds.ct.2018) %>% 
+  select(id, beds.ct.2018, bedsneeded, utilization)
+
+hospital_master_id <- hospital_master_id %>% 
+  select(-utilization) %>% 
+  left_join(hospital_utilization_summary, by = "id")
+
+# for (caretype in CARETYPE_LIST) {
+#   if (caretype != "AM") {
+#     caretype = tolower(caretype)
+#     hospital_master_id <- hospital_master_id %>% 
+#         # Sum the caretypes across age clusters
+#       mutate(!!(paste0("simulated.beds.", caretype)) := select(., get(paste0(caretype, "_ad")):get(paste0(caretype, "_sr"))) %>% rowSums()) %>% 
+#       # Calculate caretype specific utilization
+#       mutate(!!(paste0("utilization.", caretype)) := get(paste0("simulated.beds.", caretype)) / get(paste0(caretype, "_beds_2018"))) 
+#     }
+# }
+
 
 hospital_od <- crm_treso_tbl_calc %>% 
   group_by(id, orig.treso.zone) %>% 
@@ -438,7 +475,12 @@ hospital_od <- crm_treso_tbl_calc %>%
             name = first(hospitalname)) %>% 
   rename(orig = orig.treso.zone, dest = id)
 
-print(select(hospital_master_id, id, beds, simulated.beds, utilization))
+test <- crm_treso_tbl_calc %>% filter(id == 80, 
+                                      caretype != "AM") %>% select(hospitalname, id, caretype, age_cluster, 
+                                                           orig.treso.zone, treso.caserate.agecluster,
+                                                           population.2026, hosp.treso.cases, hosp.treso.beddays,
+                                                           hosp.treso.bedsneeded, scale.factor, cases, beddays,
+                                                           bedsneeded)
 ```
 
 NOT-SO-LOW HANGING FRUIT FOR PAUL:
