@@ -70,6 +70,21 @@ num_beds <- numbeds %>%
   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
   select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y)
 
+numbeds2 <- numbeds %>%
+  filter(year == 2018) %>% 
+  group_by(siteid, type) %>% 
+  mutate(count = n())
+  distinct(id, type)
+
+num_beds2 <- num_beds %>%
+  filter(year == 2018) %>% 
+  group_by(id, type) %>% 
+  mutate(maxstaffedbeds.truth = max(maxstaffedbeds)) %>% 
+  distinct(id, type, maxstaffedbeds.truth) %>%
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  mutate(sumbeds = sum(maxstaffedbeds.truth))
+
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds') %>% 
