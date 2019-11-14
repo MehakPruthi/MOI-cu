@@ -68,14 +68,13 @@ num_beds <- numbeds %>%
   left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
   ungroup() %>% 
   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y)
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  filter(year == 2018)
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
-ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds') %>% 
-  select(-name) %>% 
-  left_join(hospitallocations, by = c('siteid', 'facilityid', 'lhin', 'type' = 'caretype')) %>% 
-  drop_na(pcode) #Drop NA pcodes from Hospital Locations dataset, to be changed when dataset is updated
+ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
+  # drop_na(pcode) #Drop NA pcodes from Hospital Locations dataset, to be changed when dataset is updated
 
 #ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
 ALC_idcrosswalk_slim <- ALC_idcrosswalk %>% 
@@ -83,44 +82,8 @@ ALC_idcrosswalk_slim <- ALC_idcrosswalk %>%
   distinct(lhin, ALCsite_id)
 
 #Importing LTC data
-ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
-  select(sector = Sector,
-         city = 'Homes City',
-         postal.code = 'Homes Postal Code',
-         beds = 'Total Beds')
+ltc_homes <- readRDS('cache/moh/ltc_homes.rds')
 
-pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
-
-# Join postal code centroids to student's postal code data
-pccfSlim <- pccf %>%
-  filter(SLI == 1) %>%
-  select(postal.code = PostalCode,
-         csduid = CSDuid,
-         csdname = CSDname,
-         lat = LAT,
-         long = LONG,
-         retirement.date = Ret_Date) %>%
-  group_by(postal.code) %>%
-  filter(retirement.date == max(retirement.date))
-
-# Create a list of postal codes with SLI == 1 but different lat/long
-pccfSlim[duplicated(pccfSlim$postal.code) | duplicated(pccfSlim$postal.code, fromLast = TRUE), ] %>%
-  arrange(postal.code) %>%
-  group_by(postal.code, lat, long, retirement.date) %>%
-  summarise(n = n()) %>%
-  filter(n == 1)
-
-#ADD CSD AND PCODE DATA FOR LTC AND ALC SITES
-ltc_homes <- ltc_homes %>% 
-  mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
-  left_join(select(pccfSlim, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
-  select(-pcode.clean, -ltc.lat, -ltc.long) 
-
-ALC_idcrosswalk_csd <- ALC_idcrosswalk %>%
-  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlim, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
-  select(-pcode.clean, -alc.lat, -alc.long) %>% 
-  select(lhin, name, alcname, caretype = type, pcode, siteid, ALCsite_id, csduid, csdname)
 ```
 
 ## Link Hospital Site IDs to TRESO Zones:
@@ -223,73 +186,78 @@ hospital_lookup <- HBAMhistorical_master_tz %>%
          cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', cases, 0)) %>% 
   group_by(year, id, name, pcode) %>% 
   summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>%
-  left_join(hospital_lookup_latlong, by = c('name', 'pcode'))
+  left_join(hospital_lookup_latlong, by = c('id'))
   #group_by(pcode) %>% 
   #mutate(id = group_indices()) %>% 
   #ungroup()
 
 #Import bed summaries from Daily Bed Census (DBC); this can be imported above
-num_beds_spread <- num_beds %>%
+num_beds_spread <- numbeds %>%
   spread(year, maxstaffedbeds) %>% 
+  select(-2017) %>% 
   rename('dbc_beds_2017' = '2017',
          'dbc_beds_2018' = '2018',
          'caretype' = 'type') %>% 
-  left_join(select(hospitallocations, id, caretype, name, pcode), by = c('id', 'caretype'))
+  ungroup() %>% 
+  select(-dbc_beds_2017)
 
-#Spread DBC 2017 and 2018 data
-dbc_beds_2017 <- num_beds_spread %>% 
-  select(-dbc_beds_2018) %>% 
-  spread(caretype, dbc_beds_2017) %>% 
-  rename(at_beds_2017 = AT,
-         cr_beds_2017 = CR,
-         gr_beds_2017 = GR,
-         mh_beds_2017 = MH) %>% 
-  mutate(dbc_total_beds_2017 = sum(c(at_beds_2017, cr_beds_2017, gr_beds_2017, mh_beds_2017), na.rm = TRUE))
+# #Spread DBC 2017 and 2018 data
+# dbc_beds_2017 <- num_beds_spread %>% 
+#   select(-dbc_beds_2018) %>% 
+#   spread(caretype, dbc_beds_2017) %>% 
+#   rename(at_beds_2017 = AT,
+#          cr_beds_2017 = CR,
+#          gr_beds_2017 = GR,
+#          mh_beds_2017 = MH) %>% 
+#   mutate(dbc_total_beds_2017 = sum(c(at_beds_2017, cr_beds_2017, gr_beds_2017, mh_beds_2017), na.rm = TRUE))
 
 dbc_beds_2018 <- num_beds_spread %>% 
-  select(-dbc_beds_2017) %>% 
-  spread(caretype, dbc_beds_2018) %>% 
+  spread(key = caretype, value = dbc_beds_2018) %>% 
   rename(at_beds_2018 = AT,
          cr_beds_2018 = CR,
          gr_beds_2018 = GR,
          mh_beds_2018 = MH) %>% 
-  mutate(dbc_total_beds_2018 = sum(c(at_beds_2018, cr_beds_2018, gr_beds_2018, mh_beds_2018), na.rm = TRUE))
+  left_join(select(num_beds, siteid, id), by = c('siteid')) %>% 
+  group_by(id) %>% 
+  summarise_at(vars(at_beds_2018:mh_beds_2018), sum, na.rm = TRUE) %>% 
+  group_by(id) %>% 
+  mutate(dbc_total_beds_2018 = sum(c(at_beds_2018, cr_beds_2018, gr_beds_2018, mh_beds_2018)))
 
 #Combine DBC bed data into wide table format by Postal Code
-dbc_beds <- full_join(dbc_beds_2017, dbc_beds_2018, by = c('name', 'pcode', 'siteid')) %>%
-  group_by(pcode) %>% 
-  summarise_at(vars(at_beds_2017:dbc_total_beds_2018), sum, na.rm = TRUE)
+# dbc_beds <- full_join(dbc_beds_2017, dbc_beds_2018, by = c('name', 'pcode', 'siteid')) %>%
+#   group_by(pcode) %>% 
+#   summarise_at(vars(at_beds_2017:dbc_total_beds_2018), sum, na.rm = TRUE)
 
 #Import CIHI Bed data and structure to wide table format by Postal Code
-CIHIhospitalbeds_spread <- CIHIhospitalbeds %>% 
-  select(year = Year,
-         name = 'Hospital Name',
-         hosp_type = 'Type of Hospital',
-         cihi_total = Total) %>%  
-  mutate(name = toupper(name)) %>% 
-  right_join(select(hospital_lookup, year, name, pcode), by = c('name', 'year')) %>% 
-  spread(year, cihi_total) %>% 
-  rename('cihi_beds_2012' = '2012',
-         'cihi_beds_2013' = '2013',
-         'cihi_beds_2014' = '2014',
-         'cihi_beds_2015' = '2015',
-         'cihi_beds_2016' = '2016',)
+# CIHIhospitalbeds_spread <- CIHIhospitalbeds %>% 
+#   select(year = Year,
+#          name = 'Hospital Name',
+#          hosp_type = 'Type of Hospital',
+#          cihi_total = Total) %>%  
+#   mutate(name = toupper(name)) %>% 
+#   right_join(select(hospital_lookup, year, name, pcode), by = c('name', 'year')) %>% 
+#   spread(year, cihi_total) %>% 
+#   rename('cihi_beds_2012' = '2012',
+#          'cihi_beds_2013' = '2013',
+#          'cihi_beds_2014' = '2014',
+#          'cihi_beds_2015' = '2015',
+#          'cihi_beds_2016' = '2016',)
 
-#Compiled Bed Data between CIHI and DBC
-hosp_beds_comp <- left_join(dbc_beds, CIHIhospitalbeds_spread, by = 'pcode') %>% 
-  select(pcode, hosp_type, cihi_beds_2012:cihi_beds_2016, at_beds_2017:dbc_total_beds_2018)
+# #Compiled Bed Data between CIHI and DBC
+# hosp_beds_comp <- left_join(dbc_beds, CIHIhospitalbeds_spread, by = 'pcode') %>% 
+#   select(pcode, hosp_type, cihi_beds_2012:cihi_beds_2016, at_beds_2017:dbc_total_beds_2018)
 
 #Final Master List only including DBC because of incomplete CIHI Data
-hospital_lookup_master <- left_join(hospital_lookup, dbc_beds, by = 'pcode') %>% 
+hospital_lookup_master <- left_join(hospital_lookup, dbc_beds_2018, by = 'id') %>% 
   select(id, year, name, pcode, csduid:treso_zone, cases_at_ad:dbc_total_beds_2018)
-
-hospital_lookup_latlong_id <- hospital_lookup_latlong %>% 
-  left_join(select(hospital_lookup_master, pcode, id), by = 'pcode') %>% 
-  distinct()
 
 saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
 
-rm(hospital_lookup, num_beds_spread, num_beds, dbc_beds, dbc_beds_2017, dbc_beds_2018, CIHIhospitalbeds_spread, CIHIhospitalbeds, hosp_beds_comp)
+hospital_lookup_latlong_id <- hospital_lookup_latlong %>% 
+  left_join(select(hospital_lookup_master, pcode, id, year, name), by = 'id') %>% 
+  distinct()
+
+rm(hospital_lookup, num_beds_spread, num_beds,dbc_beds_2018, CIHIhospitalbeds_spread, CIHIhospitalbeds, hosp_beds_comp)
 ```
 
 ##ALOS Calculation
@@ -310,7 +278,7 @@ avg_edlos_2017 <- 11.0
 avg_edlos <- mean(c(avg_edlos_2015, avg_edlos_2016, avg_edlos_2017))
 
 HBAMprojected_alos <- HBAMprojected_master_tz %>% 
-  select(year, siteid, lhin, age_cluster, caretype, cases, los) %>% 
+  select(year, id, age_cluster, caretype, cases, los) %>% 
   group_by(caretype, age_cluster) %>% 
   summarise(totalcases = sum(cases),
             total.los = sum(los, na.rm = TRUE)) %>% 
@@ -328,11 +296,11 @@ saveRDS(HBAMprojected_alos, file = 'cache/moh/HBAMprojected_alos.rds')
 ```{r}
 # Calculate total cases by hospital, and the percentage of cases belonging to each CSD for each hospital siteid
 HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>% 
-  group_by(year, siteid, agegroup, caretype) %>% 
+  group_by(year, id, agegroup, caretype) %>% 
   mutate(totalcases = sum(cases),
          csd.mrkt = cases/totalcases) %>% 
   select(year, 
-         siteid, 
+         id, 
          hospitalname,
          hosp.treso.zone = treso_zone,
          caretype, 
@@ -349,20 +317,20 @@ treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_l
   rename('orig.treso.zone' = 'treso_zone',
          'orig.treso.pop' = 'population') %>%
   # Group to enable analysis by age_cluster or by agegroup
-  group_by(year, orig.treso.zone, age_cluster, orig_csd, caretype, siteid) %>% 
+  group_by(year, orig.treso.zone, age_cluster, orig_csd, caretype, id) %>% 
   mutate(orig.treso.pop.agecluster = sum(orig.treso.pop),
          hosp.cases.agecluster = sum(hosp.cases),
          csd.hosp.cases.agecluster = sum(csd.hosp.cases),
          csd.mrkt.agecluster = ifelse(hosp.cases.agecluster > 0, csd.hosp.cases.agecluster / hosp.cases.agecluster, 0)) %>%
   # Calculate metrics with segment grouped by agegroup, caretype
-  group_by(year, agegroup, orig_csd, caretype, siteid) %>%
+  group_by(year, agegroup, orig_csd, caretype, id) %>%
   mutate(csd.pop = sum(orig.treso.pop),
          treso.pop.perc = ifelse(csd.pop > 0, orig.treso.pop/csd.pop, 0.0),
          csd.caserate = ifelse(csd.pop > 0, csd.mrkt * hosp.cases / csd.pop, 0.0),
          treso.hosp.cases = csd.mrkt * treso.pop.perc * hosp.cases, 
          treso.caserate = ifelse(orig.treso.pop > 0, treso.hosp.cases / orig.treso.pop, csd.caserate)) %>% 
   # Calculate metrics with segment grouped by age_cluster, caretype
-  group_by(year, age_cluster, orig_csd, caretype, siteid) %>%
+  group_by(year, age_cluster, orig_csd, caretype, id) %>%
   mutate(csd.pop.agecluster = sum(orig.treso.pop.agecluster, na.rm = TRUE),
          treso.pop.perc.agecluster = ifelse(csd.pop.agecluster > 0, orig.treso.pop.agecluster/csd.pop.agecluster, 0.0),
          csd.caserate.agecluster = ifelse(csd.pop.agecluster > 0, csd.mrkt.agecluster * hosp.cases.agecluster / csd.pop.agecluster, 0.0), 
@@ -371,7 +339,7 @@ treso_origin_cases <- left_join(HBAMhistorical_origcsd_cases, treso_population_l
   ungroup() %>%
   drop_na(orig.treso.zone) %>% 
   filter(year == 2016) %>% #select most recent historical year
-  select(siteid,
+  select(id,
          hospitalname,
          hosp.treso.zone,
          caretype,
@@ -393,7 +361,7 @@ rm(treso_origin_cases)
 PROJ_YEAR <- 2016
 OP_DAYS <- 365
 USER_SELECT <- "CRM"
-CARETYPE_LIST = c("AT", "MH", "AM")
+CARETYPE_LIST = c("AT")
 AGE_CLUSTER_LIST = c("ad", "sr")
 
 hospital_master_id <- readRDS('output/moh/hospital_lookup_master.rds') %>% 
@@ -411,9 +379,7 @@ treso_population_moh_agecluster <- treso_population_moh %>%
 #CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 crm_treso_tbl <- readRDS('cache/moh/treso_origin_cases.rds') %>% 
   filter(!is.na(orig.treso.zone), !is.na(treso.caserate.agecluster)) %>% # Can remove after fixes
-  left_join(select(hospitallocations,siteid, pcode), by = 'siteid') %>% 
-  left_join(select(hospital_master_id, id, pcode), by = 'pcode') %>%
-  select(-siteid) %>% 
+  left_join(select(hospitallocations,id, pcode), by = 'id') %>% 
   distinct() %>% 
   left_join(treso_population_moh_agecluster, by = c("orig.treso.zone" = "treso_zone", "age_cluster")) %>% 
   left_join(HBAMprojected_alos, by = c("age_cluster", "caretype")) %>%
@@ -443,7 +409,6 @@ if (PROJ_YEAR <= 2016) {
 } else {
   HBAM_control <- HBAMprojected_master_tz %>% 
     filter(year == PROJ_YEAR) %>% 
-    left_join(select(hospital_master_id, id, pcode), by = "pcode") %>% 
     group_by(id, caretype, age_cluster) %>% 
     summarise_at(vars(cases:beddays), sum, na.rm=TRUE)
 }
@@ -477,6 +442,7 @@ if (USER_SELECT == "HBAM") {
 #   mutate(simulated.beds = select(., -id) %>% rowSums())
 
 hospital_master_id <- readRDS("output/moh/hospital_lookup_master.rds") %>% 
+  ungroup() %>% 
   mutate(beds = dbc_total_beds_2018,
          cases = select(., contains("cases")) %>% rowSums(),
          utilization = NA) %>% 
@@ -524,18 +490,15 @@ hospital_od <- crm_treso_tbl_calc %>%
             name = first(hospitalname)) %>% 
   rename(orig = orig.treso.zone, dest = id)
 
-test <- crm_treso_tbl_calc %>% filter(id == 80, 
-                                      caretype != "AM") %>% select(hospitalname, id, caretype, age_cluster, 
-                                                           orig.treso.zone, treso.caserate.agecluster,
-                                                           population.2026, hosp.treso.cases, hosp.treso.beddays,
-                                                           hosp.treso.bedsneeded, scale.factor, cases, beddays,
-                                                           bedsneeded)
+test <- crm_treso_tbl_calc %>% 
+  filter(id == 80, caretype != "AM") %>% 
+  select(hospitalname, id, caretype, age_cluster, 
+         orig.treso.zone, treso.caserate.agecluster,
+         population.2026, hosp.treso.cases, hosp.treso.beddays,
+         hosp.treso.bedsneeded, scale.factor, cases, beddays,
+         bedsneeded)
 ```
 
-NOT-SO-LOW HANGING FRUIT FOR PAUL:
-
-4. SUMMARIZE ALC HOSPITAL DATA TO AGE CLUSTERS
-5. FORECAST ALC(LTC) USING LTC CAPACITY DATA AND ALC VOLUME DATA: COMBINE LTC CAPACITY AND ALC BED DAYS, GET RATE TO CSD-75+ POPULATION AND FORECAST USING TRESO POPULATION, REDISTRIBUTE TO INDIVIDUAL HOSPITALS BY MARKET-SHARE OF ALC DAYS
 
 ##ALC
 
@@ -561,7 +524,6 @@ ALC_idcrosswalk_link <- ALC_idcrosswalk_csd %>%
   distinct()
 
 ```
-
 
 ###Estimating Suppression
 ```{r}
