@@ -808,18 +808,6 @@ hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
 #   filter(n > 1) %>% 
 #   distinct(siteid)
 
-#CCO Linkage Table
-ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
-  select(lhin = WTISLHINNum,
-         name = MNSName,
-         alcname = WTISSiteName,
-         type = MNSType,
-         siteid = MNSMaster,
-         ALCsite_id = WTISSiteNum,
-         facilityid = MNSFacNum)
-
-saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
-
 # Health Asset Inventory
 hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>% 
   spread(key = DatasetId, value = 'Master Number') %>% 
@@ -916,7 +904,8 @@ HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv') %>%
   left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
   ungroup() %>% 
   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y)
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  mutate(id = replace(id, id == 0, -9999))
 
 saveRDS(HBAMhistorical, file = 'cache/moh/HBAMhistorical.rds')
 
@@ -951,7 +940,8 @@ HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv') %>%
   left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
   ungroup() %>% 
   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y)
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  mutate(id = replace(id, id == 0, -9999))
 
 saveRDS(HBAMprojected, file = 'cache/moh/hbamprojected.rds')
 
@@ -995,6 +985,32 @@ ALCdischargedest <- read_csv('input/moh/cap.ALCDischargeDestination.csv')
 ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
 
 #ALC Datasets
+#CCO Linkage Table
+ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
+  select(lhin = WTISLHINNum,
+         name = MNSName,
+         alcname = WTISSiteName,
+         type = MNSType,
+         siteid = MNSMaster,
+         ALCsite_id = WTISSiteNum,
+         facilityid = MNSFacNum) %>% 
+  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  left_join(select(hospitallocations, id, pcode), by = 'id') %>% 
+  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
+  left_join(select(pccfSlim, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  select(-pcode.clean, -alc.lat, -alc.long) %>% 
+  select(lhin, name, alcname, caretype = type, pcode, id, ALCsite_id, csduid, csdname)
+
+saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
+
 ALCannualvolume <- read_csv('input/moh/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
   select(year = Year,
          siteid = SiteNumber,
@@ -1081,18 +1097,6 @@ CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>%
 
 saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
 
-#CCO Linkage Table
-ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
-  select(lhin = WTISLHINNum,
-         name = MNSName,
-         alcname = WTISSiteName,
-         type = MNSType,
-         siteid = MNSMaster,
-         ALCsite_id = WTISSiteNum,
-         facilityid = MNSFacNum)
-
-saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
-
 #Test SiteID/Fac ID Linkages
 ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
 
@@ -1112,6 +1116,18 @@ hospital_ALC_master <- ALC_idlinkage %>%
   filter(!is.na(type)) %>% 
   group_by(siteid, facilityid, type, name.moh) %>% 
   distinct()
+
+#LTC Facility Data
+ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
+  select(sector = Sector,
+         city = 'Homes City',
+         postal.code = 'Homes Postal Code',
+         beds = 'Total Beds') %>% 
+  mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
+  left_join(select(pccfSlim, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  select(-pcode.clean, -ltc.lat, -ltc.long) 
+
+saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
 ```
 
 ##TRESO Data Input
