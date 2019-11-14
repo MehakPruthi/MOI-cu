@@ -3290,3 +3290,32 @@ for (board_id in school_board_list) {
 
 ### Step 6 - Run 20xx Forecast Model with 2D constrained to the final ADE values to obtain OD pairs
 
+## New School Cost Function
+```{r}
+# Read in cost function based on square metres per student as a function of number of pupil places, and $/m2
+
+area_per_ade <- read.csv("input/edu/school_cost_benchmark_areas.csv", stringsAsFactors = FALSE)
+area_rates <- read.csv("input/edu/school_cost_benchmark_area_rates.csv", stringsAsFactors = FALSE)
+
+# Min school size: 200 pupil-places (i.e., ADE) for elementary, 300 pupil-places for secondary
+
+user_input_school_size <- 500 # Replace this hard-coded value with user-input value from visualization
+user_input_panel <- 'Elementary' # Replace this hard-coded value with user-input value from visualization
+gaf <- 1 # Geographic adjustment factor for specific municipalities on a postal code basis - to be looked up if possible 
+
+# Extract relevant area per ADE
+sqm_per_student <- area_per_ade %>% 
+  filter(OTG == user_input_school_size) %>%
+  mutate(sqm = ifelse(user_input_panel == 'Elementary', elementary_sqm_pp, secondary_sqm_pp)) %>% 
+  summarize(sqm = first(sqm)) %>% 
+  pull()
+
+cost_rate <- area_rates %>% 
+  filter(panel == user_input_panel) %>% 
+  summarize(rate = first(cost_per_sqm)) %>% 
+  pull()
+
+new_school_cost <- round(cost_rate * sqm_per_student * user_input_school_size * gaf, 0)
+
+```
+
