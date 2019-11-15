@@ -3293,15 +3293,46 @@ for (board_id in school_board_list) {
 ## New School Cost Function
 ```{r}
 # Read in cost function based on square metres per student as a function of number of pupil places, and $/m2
-
 area_per_ade <- read.csv("input/edu/school_cost_benchmark_areas.csv", stringsAsFactors = FALSE)
 area_rates <- read.csv("input/edu/school_cost_benchmark_area_rates.csv", stringsAsFactors = FALSE)
+
+# Read in Geographic Adjustment Factor based on postal code of proposed school location
+gaf_raw <- read.csv("input/edu/school_cost_benchmark_gaf.csv", stringsAsFactors = FALSE)
 
 # Min school size: 200 pupil-places (i.e., ADE) for elementary, 300 pupil-places for secondary
 
 user_input_school_size <- 500 # Replace this hard-coded value with user-input value from visualization
 user_input_panel <- 'Elementary' # Replace this hard-coded value with user-input value from visualization
-gaf <- 1 # Geographic adjustment factor for specific municipalities on a postal code basis - to be looked up if possible 
+user_input_pcode <- 'K0h2p0' # Replace this hard-coded value with user-input value from visualization
+
+# Geographic adjustment factor for specific municipalities on a postal code basis - to be looked up if possible 
+gaf_lookup <- gaf_raw %>% 
+  mutate(pcode_3_digit = ifelse(str_length(postal_code) == 3, toupper(postal_code), 0),
+         pcode_4_digit = ifelse(str_length(postal_code) == 4, toupper(postal_code), 0),
+         pcode_5_digit = ifelse(str_length(postal_code) == 5, toupper(postal_code), 0),
+         pcode_6_digit = ifelse(str_length(postal_code) == 6, toupper(postal_code), 0))
+
+# Determine number of digits for GAF lookup in postal_code lookup table
+for (pcode_length in 3:6) {
+  user_pcode <- substr(toupper(user_input_pcode), 1, pcode_length)
+  colname <- noquote(paste0('pcode_',pcode_length,'_digit'))
+  gafnum <- gaf_lookup %>%
+    filter(grepl(user_pcode, !!as.symbol(colname))) %>%
+    pull()
+  
+  if (length(gafnum) > 0) {
+    i <- pcode_length
+  }
+}
+
+# Finding appropriate GAF based on correct number of postal code digits
+user_pcode <- substr(toupper(user_input_pcode), 1, i)
+colname <- noquote(paste0('pcode_',i,'_digit'))
+
+gaf <- gaf_lookup %>%
+  filter(!!as.symbol(colname) == user_pcode) %>% 
+  select(gaf) %>%
+  pull()
 
 # Extract relevant area per ADE
 sqm_per_student <- area_per_ade %>% 
