@@ -36,7 +36,7 @@ agegroup_ref <- tibble(age_cluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
 CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
 
 #Daily Bed Census bed counts
-numbeds <- readRDS('cache/moh/num_beds.rds')
+num_beds_siteid <- readRDS('cache/moh/num_beds.rds')
 
 # Historical HBAM Master (w/ Asset data)
 HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
@@ -59,33 +59,6 @@ treso_population_long <- gather(treso_population_moh, 'year', 'population', popu
   group_by(year, treso_zone, age_cluster) %>% 
   mutate(treso.population.agecluster = sum(population))
 
-num_beds <- numbeds %>% 
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
-  filter(year == 2018)
-
-numbeds2 <- numbeds %>%
-  filter(year == 2018) %>% 
-  group_by(siteid, type) %>% 
-  mutate(count = n())
-  distinct(id, type)
-
-num_beds2 <- num_beds %>%
-  filter(year == 2018) %>% 
-  group_by(id, type) %>% 
-  mutate(maxstaffedbeds.truth = max(maxstaffedbeds)) %>% 
-  distinct(id, type, maxstaffedbeds.truth) %>%
-  mutate(count = n()) %>% 
-  ungroup() %>% 
-  mutate(sumbeds = sum(maxstaffedbeds.truth))
-
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
@@ -100,6 +73,14 @@ ALC_idcrosswalk_slim <- ALC_idcrosswalk %>%
 ltc_homes <- readRDS('cache/moh/ltc_homes.rds')
 
 ```
+
+```{r}
+numbeds %>%
+  filter(year == 2017) %>% 
+  ungroup() %>% 
+  mutate(totbeds = sum(maxstaffedbeds))
+```
+
 
 ## Link Hospital Site IDs to TRESO Zones:
   - Convert hospital asset data to SpatialPointDataFrame
@@ -161,6 +142,11 @@ HBAMprojected_master_tz <- left_join(HBAMprojected_master,
                                      by = c('id')) %>%
   left_join(agegroup_ref, by = c('agegroup'))
 
+# Cleaning hospital locations and adding CSD and TRESO zones
+hospitallocations_tz <- hospitallocations %>% 
+  left_join(select(hospital_overlay, treso_zone, csduid, csdname, mof_region, id), by = c('id')) %>% 
+  distinct(id, name, lhin, lhinlocation, treso_zone, csduid, csdname, mof_region, pcode, lat, long, address, city)
+
 saveRDS(HBAMprojected_master_tz, "output/moh/HBAMprojected_master_tz.rds")
 
 rm(HBAMhistorical_master, HBAMprojected_master)
@@ -173,16 +159,27 @@ rm(HBAMhistorical_master, HBAMprojected_master)
 
 ```{r}
 #Use combine HBAM-TRESO object as basis
-hospital_lookup_latlong <- HBAMhistorical_master_tz %>% 
-  group_by(id) %>% 
-  summarise(csduid = first(hosp_csduid),
-            csdname = first(csdname),
-            lat = first(lat),
-            long = first(long),
-            treso_zone = first(treso_zone))
+# hospital_lookup_latlong <- HBAMhistorical_master_tz %>% 
+#   group_by(id) %>% 
+#   summarise(csduid = first(hosp_csduid),
+#             csdname = first(csdname),
+#             lat = first(lat),
+#             long = first(long),
+#             treso_zone = first(treso_zone))
+
+# Checking for hospitals in HBAM which have no corresponding siteid in hospitallocations (i.e., id == 0)
+# HBAMhistorical_master_tz2 <- HBAMhistorical_master_tz %>%
+#   ungroup() %>% 
+#   filter(id == 0) %>% 
+#   distinct(siteid, hospitalname)
+# 
+# HBAMproj_master_tz2 <- HBAMprojected_master_tz %>%
+#   ungroup() %>% 
+#   filter(id == 0) %>% 
+#   distinct(siteid, hospitalname)
 
 hospital_lookup <- HBAMhistorical_master_tz %>% 
-  group_by(year, id, name, pcode, age_cluster, caretype) %>% 
+  group_by(year, id, age_cluster, caretype) %>% 
   summarise(cases = sum(cases)) %>% 
   mutate(cases_at_ad = ifelse(caretype %in% 'AT' & age_cluster %in% 'ad', cases, 0),
          cases_at_ped = ifelse(caretype %in% 'AT' & age_cluster %in% 'ped', cases, 0),
@@ -199,43 +196,42 @@ hospital_lookup <- HBAMhistorical_master_tz %>%
          cases_am_ad = ifelse(caretype %in% 'AM' & age_cluster %in% 'ad', cases, 0),
          cases_am_ped = ifelse(caretype %in% 'AM' & age_cluster %in% 'ped', cases, 0),
          cases_am_sr = ifelse(caretype %in% 'AM' & age_cluster %in% 'sr', cases, 0)) %>% 
-  group_by(year, id, name, pcode) %>% 
+  group_by(year, id) %>% 
   summarise_at(vars(cases_at_ad:cases_am_sr), sum) %>%
-  left_join(hospital_lookup_latlong, by = c('id'))
-  #group_by(pcode) %>% 
-  #mutate(id = group_indices()) %>% 
-  #ungroup()
+  left_join(hospitallocations_tz, by = c('id'))
 
 #Import bed summaries from Daily Bed Census (DBC); this can be imported above
-num_beds_spread <- numbeds %>%
-  spread(year, maxstaffedbeds) %>% 
-  select(-2017) %>% 
-  rename('dbc_beds_2017' = '2017',
-         'dbc_beds_2018' = '2018',
-         'caretype' = 'type') %>% 
+
+# Cleaning up numbeds
+num_beds <- num_beds_siteid %>% 
+  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
   ungroup() %>% 
-  select(-dbc_beds_2017)
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  group_by(year, id, type) %>% 
+  # Make sure there are not duplicate siteids being using for a given id
+  mutate(staffedbeds = max(staffedbeds)) %>%
+  distinct(year, id, type, staffedbeds) %>%
+  rename(caretype = type) %>% 
+  mutate(count = n())
 
-# #Spread DBC 2017 and 2018 data
-# dbc_beds_2017 <- num_beds_spread %>% 
-#   select(-dbc_beds_2018) %>% 
-#   spread(caretype, dbc_beds_2017) %>% 
-#   rename(at_beds_2017 = AT,
-#          cr_beds_2017 = CR,
-#          gr_beds_2017 = GR,
-#          mh_beds_2017 = MH) %>% 
-#   mutate(dbc_total_beds_2017 = sum(c(at_beds_2017, cr_beds_2017, gr_beds_2017, mh_beds_2017), na.rm = TRUE))
-
-dbc_beds_2018 <- num_beds_spread %>% 
-  spread(key = caretype, value = dbc_beds_2018) %>% 
+dbc_beds_2018 <- num_beds %>% 
+  filter(year == 2018) %>% 
+  select(-count, -year) %>% 
+  spread(key = caretype, value = staffedbeds) %>% 
   rename(at_beds_2018 = AT,
          cr_beds_2018 = CR,
          gr_beds_2018 = GR,
          mh_beds_2018 = MH) %>% 
-  left_join(select(num_beds, siteid, id), by = c('siteid')) %>% 
-  group_by(id) %>% 
-  summarise_at(vars(at_beds_2018:mh_beds_2018), sum, na.rm = TRUE) %>% 
-  group_by(id) %>% 
+  mutate(at_beds_2018 = replace_na(at_beds_2018, 0),
+         cr_beds_2018 = replace_na(cr_beds_2018, 0),
+         gr_beds_2018 = replace_na(gr_beds_2018, 0),
+         mh_beds_2018 = replace_na(mh_beds_2018, 0)) %>% 
   mutate(dbc_total_beds_2018 = sum(c(at_beds_2018, cr_beds_2018, gr_beds_2018, mh_beds_2018)))
 
 #Combine DBC bed data into wide table format by Postal Code
@@ -263,14 +259,11 @@ dbc_beds_2018 <- num_beds_spread %>%
 #   select(pcode, hosp_type, cihi_beds_2012:cihi_beds_2016, at_beds_2017:dbc_total_beds_2018)
 
 #Final Master List only including DBC because of incomplete CIHI Data
-hospital_lookup_master <- left_join(hospital_lookup, dbc_beds_2018, by = 'id') %>% 
-  select(id, year, name, pcode, csduid:treso_zone, cases_at_ad:dbc_total_beds_2018)
+hospital_lookup_master <- hospital_lookup %>% 
+  left_join(dbc_beds_2018, by = 'id') 
+  #select(id, year, name, pcode, lhin:city, cases_at_ad:dbc_total_beds_2018)
 
 saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
-
-hospital_lookup_latlong_id <- hospital_lookup_latlong %>% 
-  left_join(select(hospital_lookup_master, pcode, id, year, name), by = 'id') %>% 
-  distinct()
 
 rm(hospital_lookup, num_beds_spread, num_beds,dbc_beds_2018, CIHIhospitalbeds_spread, CIHIhospitalbeds, hosp_beds_comp)
 ```
