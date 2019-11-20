@@ -364,6 +364,7 @@ schoolSFIS <- schoolSFIS %>%
 
 # The postal code and enrollment dataset is cleaned here
 # We are looking at 2017 student data at this time.
+# TO-DO: Look at all years of student postal code data.
 studentPostSlim <- studentPost %>%
   select(year = Sch_YR,
          bsid = BSID, 
