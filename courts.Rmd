@@ -30,7 +30,7 @@ source("helpers.R")
 treso_shp <- readOGR(dsn ="input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("cache/treso_tb.rds")
 
-#TRESO Travel TIme Skims to distribute demand to courts
+# TRESO Travel TIme Skims to distribute demand to courts
 travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
 travel_time_skim <- travel_time_skim_square %>%
   melt(id = c("p/q/[val]")) %>%
