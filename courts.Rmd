@@ -93,7 +93,7 @@ court_hours_population <- court_hours %>%
   mutate_at("year", as.numeric) %>% 
   rename(hours = value, treso_id = treso.id.pos) %>% 
   select(-lat, -long, -csduid, -csdname, - courthouse.lat, - courthouse.long)
-  
+
 # IMPORTANT
 # CD 3553 (Greater Sudbury) is within CD 3552 (Sudbury)
 # The courts are located in Greater Sudbury, so the two CDs are combined and treated as one CD
