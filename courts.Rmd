@@ -19,10 +19,6 @@ source("helpers.R")
   - Assume that a portion of of individuals are "assigned" and another portion chooses closeset available courtroom
     - This split is defaulted to 20/80 for civil, family, small claims and 10/90 for OCJcrim, SCJcrim
   - Four years of back data may not be enough to tease out future trends where hrs/case is increasing and may cause an inflection in forecast years
-  
-# To-Do
-  - slider for base, inflection, max, by business line
-  - treso regression characteristic breakdown
 
 ## Import Data
 
@@ -302,14 +298,16 @@ MODEL_YEAR = 2018
 MODERNIZATION_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
                               mod.factor = c(1, 1, 1, 1, 1, 1))
 APPEARANCE_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
-                           factor = c(1, 1, 1, 1, 1, 1))
+                           app.factor = c(2, 2, 2, 2, 2, 2))
+FIXED_COST = 10000000
+VARIABLE_COST = 2000000
 
 # Prepare the origin demand vector for selected year
 treso_demand_origin <- readRDS("cache/mag/future_cases_bl_treso.rds") %>%
   rename(treso.id.por = treso_zone) %>% 
   filter(year == MODEL_YEAR) %>%
-  select(-year, -population, -pop.rate) %>% 
-  left_join(MODERNIZATION_FACTOR, by = "casetypes") %>% 
+  select(-year, -population, -pop.rate) %>%
+  left_join(MODERNIZATION_FACTOR, by = "casetypes") %>%
   mutate(court.hours = court.hours * mod.factor)
 
 # New Courthouse
@@ -370,12 +368,12 @@ saveRDS(courthours_od, "output/mag/courthours_od.rds")
 # appearance factor
 SELECTED_COURTHOUSE_BID = "B20705"
 appearance_trip_list <- courthours_od %>% 
-  filter(bid == SELECTED_COURTHOUSE_BID) %>% 
-  group_by(treso.id.por, treso.id.pos, casetypes) %>% 
+  # filter(bid == SELECTED_COURTHOUSE_BID) %>% 
+  group_by(treso.id.por, treso.id.pos, bid, casetypes) %>% 
   summarise(court.hours = sum(court.hours.to.closest, court.hours.to.random)) %>% 
   left_join(APPEARANCE_FACTOR, by = "casetypes") %>% 
-  mutate(appearances = court.hours / factor) %>% 
-  group_by(treso.id.por, treso.id.pos) %>% 
+  mutate(appearances = court.hours / app.factor) %>% 
+  group_by(treso.id.por, treso.id.pos, bid) %>% 
   summarise(appearances = sum(appearances)) %>% 
   ungroup()
 
@@ -405,8 +403,10 @@ courthouse_asset_updated <- courthours_od %>%
             courtrooms.needed = sum(courtrooms.needed),
             court.hours.distributed = sum(court.hours.distributed),
             utilization = sum(utilization)
-            )
-
+            ) %>% 
+  ungroup() %>% 
+  mutate(cost = FIXED_COST + VARIABLE_COST * courtrooms.needed) %>% 
+  select(bid, courtrooms.needed, court.hours.distributed, utilization, cost)
 ```
 
 # Linear Regression
