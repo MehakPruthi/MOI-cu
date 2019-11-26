@@ -1692,4 +1692,3 @@ courthouse_asset_casetypes <- left_join(courthouse_asset_distributed, courthouse
 
 saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
 ```
-
