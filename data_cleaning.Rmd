@@ -809,7 +809,7 @@ hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
 #   distinct(siteid)
 
 # Health Asset Inventory
-hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>% 
+hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
   spread(key = DatasetId, value = 'Master Number') %>% 
   select(lhin = LHIN,
          lhinlocation = Location,
@@ -832,7 +832,7 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
          datasetID2.siteid = as.numeric(replace_na(datasetID2.siteid, 0)), 
          datasetID3.siteid = as.numeric(replace_na(datasetID3.siteid, 0)), 
          datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
-         datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)), 
+         datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
          datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
   group_by(pcode, name) %>% 
   mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
@@ -986,6 +986,7 @@ ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
 
 #ALC Datasets
 #CCO Linkage Table
+# DO WE STILL NEED THIS TABLE? IF SO, FIX CODE
 ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
   select(lhin = WTISLHINNum,
          name = MNSName,
@@ -999,7 +1000,7 @@ ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>%
   left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
   left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
   left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>%
   ungroup() %>% 
   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
   select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 

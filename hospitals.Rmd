@@ -75,10 +75,10 @@ ltc_homes <- readRDS('cache/moh/ltc_homes.rds')
 ```
 
 ```{r}
-numbeds %>%
-  filter(year == 2017) %>% 
-  ungroup() %>% 
-  mutate(totbeds = sum(maxstaffedbeds))
+# numbeds %>%
+#   filter(year == 2017) %>%
+#   ungroup() %>%
+#   mutate(totbeds = sum(maxstaffedbeds))
 ```
 
 
@@ -218,7 +218,8 @@ num_beds <- num_beds_siteid %>%
   mutate(staffedbeds = max(staffedbeds)) %>%
   distinct(year, id, type, staffedbeds) %>%
   rename(caretype = type) %>% 
-  mutate(count = n())
+  mutate(count = n()) %>%
+  ungroup()
 
 dbc_beds_2018 <- num_beds %>% 
   filter(year == 2018) %>% 
@@ -260,12 +261,13 @@ dbc_beds_2018 <- num_beds %>%
 
 #Final Master List only including DBC because of incomplete CIHI Data
 hospital_lookup_master <- hospital_lookup %>% 
-  left_join(dbc_beds_2018, by = 'id') 
+  left_join(dbc_beds_2018, by = 'id') %>% 
+  filter(id != -9999)
   #select(id, year, name, pcode, lhin:city, cases_at_ad:dbc_total_beds_2018)
 
 saveRDS(hospital_lookup_master, file = 'output/moh/hospital_lookup_master.rds')
 
-rm(hospital_lookup, num_beds_spread, num_beds,dbc_beds_2018, CIHIhospitalbeds_spread, CIHIhospitalbeds, hosp_beds_comp)
+rm(hospital_lookup, num_beds, dbc_beds_2018)
 ```
 
 ##ALOS Calculation
