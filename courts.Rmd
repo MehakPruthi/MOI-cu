@@ -450,8 +450,9 @@ courthouse_2018_observed <- courthouse_asset %>%
   mutate(courtrooms.needed = round(court.hours.distributed / (op.utilization * OP_DAYS), digits = 2)) %>% 
   mutate(actual.utilization = court.hours.distributed / courtrooms / OP_DAYS,
          utilization = actual.utilization / op.utilization) %>% 
-  group_by(bid, name, lat, long, courthouse.lat, courthouse.long, building.type, cduid, cdname) %>% 
+  group_by(bid, name, address, lat, long, courthouse.lat, courthouse.long, building.type, cduid, cdname) %>% 
   summarise(courtrooms = first(courtrooms),
+            rentable.square.feet = first(rentable.square.feet),
             courtrooms.needed = sum(courtrooms.needed),
             court.hours.distributed = sum(court.hours.distributed),
             utilization = sum(utilization)
