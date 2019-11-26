@@ -325,7 +325,8 @@ courthouse_asset_new <- tibble(
 
 # Create a list of courthouses available in each CD
 courthouse_available <- courthouse_asset %>%
-  group_by(cduid, cdname) %>% 
+  unnest(casetypes = strsplit(casetypes.serviced, ",")) %>% 
+  group_by(cduid, cdname, casetypes) %>% 
   summarise(treso.id.pos = paste(treso.id.pos, collapse = ","),
             bid = paste(bid, collapse = ","),
             name = paste(name, collapse = ","),
@@ -338,9 +339,10 @@ courthouse_available <- courthouse_asset %>%
 # Distribute a percentage of TRESO demand to closest courthouse within the CD
 # Distribute another percentage of TRESO demand weight by available courhouses within the CD
 courthours_od <- treso_demand_origin %>%
+  filter(court.hours != 0) %>% 
   mutate(cduid = ifelse(cduid == 3552, 3553, cduid),
          cdname = ifelse(cdname == "Sudbury", "Greater Sudbury / Grand Sudbury", cdname)) %>% 
-  left_join(courthouse_available, by = c("cduid", "cdname")) %>% 
+  left_join(courthouse_available, by = c("cduid", "cdname", "casetypes")) %>% 
   unnest(treso.id.pos = strsplit(treso.id.pos, ","),
          bid = strsplit(bid, ","),
          name = strsplit(name, ","),
@@ -355,12 +357,20 @@ courthours_od <- treso_demand_origin %>%
   mutate(travel.utility = exp(1/value)) %>%
   arrange(treso.id.por, casetypes, desc(travel.utility)) %>% 
   group_by(treso.id.por, casetypes) %>% 
-  # Give a utility ranking for each POR, casetypes
+  # Give a utility ranking for each combination of POR and casetypes
   mutate(travel.utility.ranking = row_number(),
          courtroom.weight = courtrooms / sum(courtrooms)) %>% 
   ungroup() %>% 
+  # Flag the courthouses in the same TRESO zone servicing the same casetype that has the closest travel utility
+  group_by(treso.id.por, casetypes, travel.utility) %>% 
+  mutate(identical = ifelse(nchar(paste(unique(bid), collapse = ",")) > 6 && travel.utility.ranking == 1,
+                            ceiling(nchar(paste(unique(bid), collapse = "")) / 6) , 0)) %>% 
+  ungroup() %>% 
+  # If the courthouse is the closest but also have a identical flag - change the travel utility ranking to 2
+  mutate(travel.utility.ranking = ifelse(identical > 0, 2, travel.utility.ranking)) %>% 
   mutate(court.hours.to.closest = ifelse(travel.utility.ranking == 1, court.hours * CLOSEST_PERCENTAGE, 0),
-         court.hours.to.random = court.hours * RANDOM_PERCENTAGE * courtroom.weight)
+         court.hours.to.random = court.hours * RANDOM_PERCENTAGE * courtroom.weight,
+         court.hours.to.identical = ifelse(identical > 0, court.hours * CLOSEST_PERCENTAGE / identical, 0))
 
 saveRDS(courthours_od, "output/mag/courthours_od.rds")
 
@@ -370,7 +380,7 @@ SELECTED_COURTHOUSE_BID = "B20705"
 appearance_trip_list <- courthours_od %>% 
   # filter(bid == SELECTED_COURTHOUSE_BID) %>% 
   group_by(treso.id.por, treso.id.pos, bid, casetypes) %>% 
-  summarise(court.hours = sum(court.hours.to.closest, court.hours.to.random)) %>% 
+  summarise(court.hours = sum(court.hours.to.closest, court.hours.to.random, court.hours.to.identical)) %>% 
   left_join(APPEARANCE_FACTOR, by = "casetypes") %>% 
   mutate(appearances = court.hours / app.factor) %>% 
   group_by(treso.id.por, treso.id.pos, bid) %>% 
@@ -381,9 +391,10 @@ appearance_trip_list <- courthours_od %>%
 courthouse_asset_updated <- courthours_od %>% 
   group_by(bid, name, building.type, courtrooms, cduid, cdname, casetypes) %>% 
   summarise(court.hours.to.closest = sum(court.hours.to.closest),
-            court.hours.to.random = sum(court.hours.to.random)
+            court.hours.to.random = sum(court.hours.to.random),
+            court.hours.to.identical = sum(court.hours.to.identical)
             ) %>% 
-  mutate(court.hours.distributed = court.hours.to.closest + court.hours.to.random) %>% 
+  mutate(court.hours.distributed = court.hours.to.closest + court.hours.to.random + court.hours.to.identical) %>% 
   left_join(utilization_rate, by = "casetypes") %>% 
   mutate(op.utilization = 0) %>% 
   mutate(op.utilization = ifelse(court.hours.distributed <= inflect.hours,
@@ -406,7 +417,7 @@ courthouse_asset_updated <- courthours_od %>%
             ) %>% 
   ungroup() %>% 
   mutate(cost = FIXED_COST + VARIABLE_COST * courtrooms.needed) %>% 
-  select(bid, courtrooms.needed, court.hours.distributed, utilization, cost)
+  select(bid, name, courtrooms.needed, court.hours.distributed, utilization, cost)
 ```
 
 # Linear Regression

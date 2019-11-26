@@ -1669,7 +1669,27 @@ single_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag ==
 print(paste0("There are ", nrow(filter(single_basecourts, courtrooms < 1)), " base court(s) with less than one courtroom"))
   
 courthouse_asset_distributed <- rbind(multiple_basecourts, single_basecourts)
-saveRDS(courthouse_asset_distributed, "cache/mag/courthouse_master.rds")
 ```
 
+```{r append caretypes serviced}
+courthouse_service_caretypes <- readRDS("cache/mag/courthouse_hours.rds") %>% 
+  filter(value != 0) %>% 
+  group_by(bid) %>% 
+  summarise(casetypes.serviced = paste(unique(casetypes), collapse = ","))
+
+courthouse_asset_casetypes <- left_join(courthouse_asset_distributed, courthouse_service_caretypes, by = "bid") %>% 
+  group_by(cduid) %>% 
+  mutate(casetypes.serviced = ifelse(building.type == "Satellite Court",
+                                     paste(unique(casetypes.serviced), collapse = ","),
+                                     casetypes.serviced)) %>% 
+  ungroup() %>%
+  unnest(casetypes.serviced = strsplit(casetypes.serviced, ",")) %>% 
+  filter(casetypes.serviced != "NA") %>% 
+  distinct(bid, casetypes.serviced, .keep_all = TRUE) %>% 
+  group_by_at(vars(-casetypes.serviced)) %>% 
+  summarise(casetypes.serviced = paste(casetypes.serviced, collapse = ",")) %>% 
+  ungroup()
+
+saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
+```
 
