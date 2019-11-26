@@ -235,7 +235,7 @@ saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
 MODEL_YEAR <- 2018
 BASE_YEAR <- 2018
 OP_DAYS <- 249
-NEW_COURTROOM_SIZE <- 11500
+# NEW_COURTROOM_SIZE <- 11500
 
 # Utilization table for each business line
 utilization_rate <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
@@ -283,7 +283,7 @@ courthouse_asset_with_projected_cd <- courthouse_asset %>%
   summarise(number.of.courtrooms.2018 = sum(courtrooms),
             rentable.square.feet.2018 = sum(rentable.square.feet)) %>% 
   left_join(future_needs_cd, by = c("cduid", "cdname")) %>% 
-  mutate(rentable.square.feet.needed = courtrooms.needed * NEW_COURTROOM_SIZE) %>% 
+  mutate(rentable.square.feet.needed = courtrooms.needed * courtroom_size(courtrooms.needed)) %>% 
   ungroup()
 
 saveRDS(courthouse_asset_with_projected_cd, "output/mag/courthouse_asset_with_projected_cd.rds")

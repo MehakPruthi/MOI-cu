@@ -904,3 +904,30 @@ utility_rename <- function(x) {
   #' @return Renamed string
   name = paste0("courtrooms.needed.", x)
 }
+
+courtroom_size <- function(courtrooms) {
+  # Determine appropriate area per courtroom as a function of number of courtrooms in a courthouse
+  
+  # Gross Area for smallest courthouses: 1,600 sqm per courtroom
+  courtroom_count_min = 0
+  area_max_sqm = 1608 #set at 1,608 for 0 courtrooms, therefore 1,600 for 1 courtroom
+  
+  # Gross Area for largest courthouses: 1,200 sqm per courtroom
+  courtroom_count_max = 50
+  area_min_sqm = 1200
+  
+  # Gross Area function calculation
+  area_diff = area_max_sqm - area_min_sqm
+  courtroom_diff = courtroom_count_max - courtroom_count_min
+  area_change_per_courtroom = area_diff / courtroom_diff
+  
+  courtroom_count_scaled = min(courtrooms, 50)
+  required_area_per_courtroom = area_max_sqm - courtroom_count_scaled * area_change_per_courtroom
+  
+  required_area_per_courtroom_sqft = required_area_per_courtroom * 3.28^2
+  
+  return(required_area_per_courtroom_sqft)
+  
+}
+
+
