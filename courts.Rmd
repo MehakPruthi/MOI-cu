@@ -420,6 +420,47 @@ courthouse_asset_updated <- courthours_od %>%
   select(bid, name, courtrooms.needed, court.hours.distributed, utilization, cost)
 ```
 
+# Create 2018 Observed Data
+
+```{r observed 2018 court hours to all available courts}
+cd_court_hours <- court_hours %>% 
+  filter(year == 2018) %>% 
+  group_by(cduid, cdname, casetypes) %>%
+  summarise(court.hours = sum(value)) %>% 
+  ungroup()
+
+courthouse_2018_observed <- courthouse_asset %>% 
+  unnest(casetypes = strsplit(casetypes.serviced, ",")) %>% 
+  left_join(cd_court_hours, by = c("cduid", "cdname", "casetypes")) %>% 
+  group_by(cduid, cdname, casetypes) %>% 
+  mutate(courtroom.weight = courtrooms / sum(courtrooms)) %>% 
+  ungroup() %>% 
+  mutate(court.hours.distributed = court.hours * courtroom.weight) %>% 
+  left_join(utilization_rate, by = "casetypes") %>% 
+  mutate(op.utilization = 0) %>% 
+  mutate(op.utilization = ifelse(court.hours.distributed <= inflect.hours,
+                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours.distributed,
+                              op.utilization)) %>% 
+  mutate(op.utilization = ifelse(court.hours.distributed > inflect.hours & court.hours.distributed <= max.hours,
+                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours.distributed - inflect.hours)                                                       / (max.hours - inflect.hours)),
+                                 op.utilization)) %>% 
+  mutate(op.utilization = ifelse(court.hours.distributed > max.hours,
+                                 max.hours.dy,
+                                 op.utilization)) %>% 
+  mutate(courtrooms.needed = round(court.hours.distributed / (op.utilization * OP_DAYS), digits = 2)) %>% 
+  mutate(actual.utilization = court.hours.distributed / courtrooms / OP_DAYS,
+         utilization = actual.utilization / op.utilization) %>% 
+  group_by(bid, name, lat, long, courthouse.lat, courthouse.long, building.type, cduid, cdname) %>% 
+  summarise(courtrooms = first(courtrooms),
+            courtrooms.needed = sum(courtrooms.needed),
+            court.hours.distributed = sum(court.hours.distributed),
+            utilization = sum(utilization)
+            ) %>% 
+  ungroup()
+
+saveRDS(courthouse_2018_observed, "output/mag/courthouse_2018_observed.rds")
+```
+
 # Linear Regression
 
 - Explore whether there are any linear relationships between age groups and certain court hours
