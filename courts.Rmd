@@ -294,7 +294,7 @@ saveRDS(courthouse_asset_with_projected_cd, "output/mag/courthouse_asset_with_pr
 ```{r demand distribution}
 CLOSEST_PERCENTAGE = 0.8
 RANDOM_PERCENTAGE = 0.2
-MODEL_YEAR = 2018
+MODEL_YEAR = 2025
 MODERNIZATION_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
                               mod.factor = c(1, 1, 1, 1, 1, 1))
 APPEARANCE_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
@@ -311,20 +311,27 @@ treso_demand_origin <- readRDS("cache/mag/future_cases_bl_treso.rds") %>%
   mutate(court.hours = court.hours * mod.factor)
 
 # New Courthouse
-courthouse_asset_new <- tibble(
-  bid = 9999,
-  lat = 46.5, long = -81.5,
+new_courthouse <- tibble(
+  bid = "B99999",
+  courthouse.lat = 43.90032, courthouse.long = 	-78.85863,
   name = "New Hospital",
   building.type = "Base Court",
+  casetypes.serviced = c("civil"),
   courtrooms = 4,
   rentable.square.feet = 1000)
 
+# Overlay with TRESO Shapefile to get the TRESO/CD Information
+new_courthouse_xy <- create_court_xy(new_courthouse)
+new_courthouse_overlay <- create_overlay(new_courthouse_xy, treso_shp, type = "court") %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(new_courthouse, by = "bid") %>% 
+  mutate_if(is.factor, as.character)
+
 # Find out the treso zone and CD region
-# courthouse_asset_user <- courthouse_asset %>% 
-#   rbind(courthouse_asset_new)
+courthouse_asset_user <- bind_rows(courthouse_asset, new_courthouse_overlay)
 
 # Create a list of courthouses available in each CD
-courthouse_available <- courthouse_asset %>%
+courthouse_available <- courthouse_asset_user %>%
   unnest(casetypes = strsplit(casetypes.serviced, ",")) %>% 
   group_by(cduid, cdname, casetypes) %>% 
   summarise(treso.id.pos = paste(treso.id.pos, collapse = ","),
@@ -416,8 +423,9 @@ courthouse_asset_updated <- courthours_od %>%
             utilization = sum(utilization)
             ) %>% 
   ungroup() %>% 
-  mutate(cost = FIXED_COST + VARIABLE_COST * courtrooms.needed) %>% 
-  select(bid, name, courtrooms.needed, court.hours.distributed, utilization, cost)
+  mutate(cost = FIXED_COST + VARIABLE_COST * courtrooms.needed,
+         standard.area = courtroom_size(courtrooms.needed)) %>% 
+  select(bid, courtrooms, courtrooms.needed, court.hours.distributed, utilization, standard.area, cost)
 ```
 
 # Create 2018 Observed Data
@@ -453,6 +461,7 @@ courthouse_2018_observed <- courthouse_asset %>%
   group_by(bid, name, address, lat, long, courthouse.lat, courthouse.long, building.type, cduid, cdname) %>% 
   summarise(courtrooms = first(courtrooms),
             rentable.square.feet = first(rentable.square.feet),
+            casetypes.serviced = first(casetypes.serviced),
             courtrooms.needed = sum(courtrooms.needed),
             court.hours.distributed = sum(court.hours.distributed),
             utilization = sum(utilization)
