@@ -2265,7 +2265,7 @@ ggplot(data=simulated_compare_FCS.data) +
 
 ```{r testing enviroment for shiny, echo=FALSE, eval=FALSE}
 panel_id <- "Elementary"
-board_id <- "English Catholic"
+board_id <- "English Public"
 year_id <- 2025
 
 # Read the saved full list of POR and POS TRESO zones once and save it in output
@@ -2304,7 +2304,7 @@ pos <- school_master %>%
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-prop_matrix <- readRDS("cache/cfunc_ECE.rds")
+prop_matrix <- readRDS("cache/cfunc_EPE.rds")
 
 # 1D balance the matrix
 prop_matrix2 <- matrix_balancing_1d(prop_matrix, por, pos, constrained=TRUE)
@@ -2315,7 +2315,8 @@ trip_list <- melt(prop_matrix2) %>%
 colnames(trip_list) <- c('treso.id.por', 'treso.id.pos', 'trips')
 
 # Calculate the school weight
-pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, year_id, panel_id, board_id)
+pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, NULL,
+                                                         year_id, panel_id, board_id)
 print(paste0("For ", panel_id, "-", board_id, ", there are ",
              nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
              " TRESO zones with a single school, and ",
@@ -2466,7 +2467,7 @@ pos_new <- school_master_new %>%
   column_to_rownames(var = "treso.id.pos") %>%
   data.matrix()
 
-prop_matrix <- readRDS("cache/cfunc_ECE.rds")
+prop_matrix <- readRDS("cache/cfunc_EPE.rds")
 
 # 1D balance the matrix
 prop_matrix2_new <- matrix_balancing_1d(prop_matrix, por, pos_new, constrained=TRUE)

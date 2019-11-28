@@ -1,3 +1,13 @@
+# unnest in tidyr 1.0.0 currently has slow-down issues
+# https://github.com/tidyverse/tidyr/issues/694
+# So using the legacy unnest for now.
+if (exists("unnest_legacy", where="package:tidyr", mode="function")) {
+  unnest <- unnest_legacy
+}
+
+if (exists("nest_legacy", where="package:tidyr", mode="function")) {
+  nest <- nest_legacy
+}
 
 convertDegrees <- function(deg) {
   #' Convert degrees to radians
