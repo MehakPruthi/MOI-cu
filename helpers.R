@@ -842,3 +842,87 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   
   return(school_tb)
 }
+
+# Calculate the Geographic Adjustment Factor of a new school based on its enrolment, panel, and location
+school_gaf <- function(row, gaf_lookup) {
+  '
+  This function calculates the geographic adjustment factor for a school based on its location.
+
+  inputs: list of new schools containing postal code by school, and list of geographic adjustment factors by postal code
+  output: GAF of school for all schools in list
+  '
+  # Using function to calculate GAF on a per-row basis
+  user_input_pcode <- row['user_input_pcode']
+  
+  # Determine number of digits for GAF lookup in postal_code lookup table
+  for (pcode_length in 3:6) {
+    user_pcode <- substr(toupper(user_input_pcode), 1, pcode_length)
+    colname <- noquote(paste0('pcode_',pcode_length,'_digit'))
+    gafnum <- gaf_lookup %>%
+      filter(grepl(user_pcode, !!as.symbol(colname))) %>%
+      pull()
+    
+    if (length(gafnum) > 0) {
+      i <- pcode_length
+    }
+  }
+  
+  # Finding appropriate GAF based on correct number of postal code digits
+  user_pcode <- substr(toupper(user_input_pcode), 1, i)
+  colname <- noquote(paste0('pcode_',i,'_digit'))
+  
+  gaf <- gaf_lookup %>%
+    filter(!!as.symbol(colname) == user_pcode) %>% 
+    select(gaf) %>% 
+    pull()
+  
+return(gaf)
+}  
+
+# Calculate the inflated cost of construction of one or more facilities based on time horizon
+construction_cost <- function(user_input_inflation, user_input_scenario_year, currency_year, current_year, new_facility_list) {
+  '
+  This function calculates the annualized, inflated construction cost for a list of new facilities, and sums the 
+  inflated costs together. The function assumes total capital cost is split equally over construction years, and
+  that inflation is constant throughout the time horizon. The total cost presented is a sum of nominal dollars from
+  each year, in keeping with Treasury Board budget estimates, though in reality the unit of currency is therefore an
+  amalgam of dollars belonging to each year in the time horizon.
+
+  inputs: user provided inflation rate; year of scenario being tested; base year of cost estimates; current year upon
+    which construction timelines are set; list of new facilities to be built
+  output: list of spending in nominal dollars per year, and in total, to build the new facilities
+  '
+
+  # Determine min and max years for building inflation index
+  min_year = min(user_input_scenario_year, current_year) 
+  max_year = max(user_input_scenario_year, current_year)
+  
+  # "current_year + 1" is used assuming construction wouldn't begin until next year for any FUTURE scenarios
+  if (user_input_scenario_year > current_year) {
+    min_year = min(user_input_scenario_year, current_year+1) 
+    max_year = max(user_input_scenario_year, current_year+1)
+  }
+  
+  # Number of years to use in 'amortization' calc below
+  year_count = max_year - min_year + 1
+  
+  # Calculate inflation index, cost factors
+  compounded_inflation <- tibble(index_year = c(seq(min_year,max_year,1))) %>% 
+    mutate(inflation_factor = (1 + user_input_inflation)^(index_year - currency_year)) %>% 
+    mutate(annual_cost_index_uninflated = 1 / year_count) %>% 
+    mutate(annual_cost_index_inflated = inflation_factor / year_count) %>%
+    mutate(total_cost_index_inflated = sum(annual_cost_index_inflated))
+  
+  # Assign cost index to each new facility for each year in the scenario
+  scen_cost <- crossing(new_facility_list, compounded_inflation)
+  
+  # Calculate actual annualized inflated costs, and sum of same
+  annualized_inflated_cost <- scen_cost %>% 
+    mutate(annual_cost_inflated = cost_2018 * annual_cost_index_inflated) %>% 
+    group_by(index_year) %>% 
+    mutate(total_yearly_cost_inflated = sum(annual_cost_inflated)) %>%
+    ungroup() %>% 
+    mutate(total_cost = sum(annual_cost_inflated))
+  
+  return(annualized_inflated_cost)
+} 
