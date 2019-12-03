@@ -3329,10 +3329,6 @@ new_school_list_complete <- new_school_list_area %>%
   cbind(gaf) %>% 
   mutate(cost_2018 = round(total_area * cost_per_sqm * gaf, 0))
 
-#user_input_school_size <- 500 # Replace this hard-coded value with user-input value from visualization
-#user_input_panel <- 'Elementary' # Replace this hard-coded value with user-input value from visualization
-#user_input_pcode <- 'K0h2p0' # Replace this hard-coded value with user-input value from visualization
-
 ```
 
 ## Cost Annualization 
