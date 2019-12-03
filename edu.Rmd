@@ -3291,3 +3291,57 @@ for (board_id in school_board_list) {
 
 ### Step 6 - Run 20xx Forecast Model with 2D constrained to the final ADE values to obtain OD pairs
 
+## New School Cost Function
+```{r}
+# Read in cost function based on square metres per student as a function of number of pupil places, and $/m2
+area_per_ade <- read.csv("input/edu/school_cost_benchmark_areas.csv", stringsAsFactors = FALSE)
+area_rates <- read.csv("input/edu/school_cost_benchmark_area_rates.csv", stringsAsFactors = FALSE)
+
+# Read in Geographic Adjustment Factor based on postal code of proposed school location
+gaf_raw <- read.csv("input/edu/school_cost_benchmark_gaf.csv", stringsAsFactors = FALSE)
+
+# Geographic adjustment factor for specific municipalities on a postal code basis - to be looked up if possible 
+gaf_lookup <- gaf_raw %>% 
+  mutate(pcode_3_digit = ifelse(str_length(postal_code) == 3, toupper(postal_code), 0),
+         pcode_4_digit = ifelse(str_length(postal_code) == 4, toupper(postal_code), 0),
+         pcode_5_digit = ifelse(str_length(postal_code) == 5, toupper(postal_code), 0),
+         pcode_6_digit = ifelse(str_length(postal_code) == 6, toupper(postal_code), 0))
+
+# Min school size: 200 pupil-places (i.e., ADE) for elementary, 300 pupil-places for secondary
+
+new_school_list <- tibble(user_input_school_size = c(500, 750), user_input_panel = c('Elementary', 'Secondary'), user_input_pcode = c('k0b1e4', 'P6A5K1')) # Replace this hard-coded value with user-input value from visualization
+
+# Convert area_per_ade to be long format
+area_per_ade_long <- area_per_ade %>% 
+  rename(Elementary = elementary_sqm_pp, Secondary = secondary_sqm_pp) %>% 
+  gather(key = panel, value = 'sqm_pp', 2:3)
+
+# Join new_school_list to join in square metres per student and cost per square metre based on standard values
+new_school_list_area <- new_school_list %>% 
+  left_join(area_per_ade_long, by = c('user_input_school_size' = 'OTG', 'user_input_panel' = 'panel')) %>% 
+  mutate(total_area = user_input_school_size * sqm_pp) %>% 
+  left_join(area_rates, by = c('user_input_panel' = 'panel'))
+
+# Determine geogrpahic adjustment factor for each new school in new_school_list_area
+#plan(multiprocess)
+gaf <- future_apply(new_school_list_area, MARGIN = 1, FUN = school_gaf, gaf_lookup)
+
+new_school_list_complete <- new_school_list_area %>% 
+  cbind(gaf) %>% 
+  mutate(cost_2018 = round(total_area * cost_per_sqm * gaf, 0))
+
+```
+
+## Cost Annualization 
+- Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
+```{r}
+
+user_input_inflation <- 0.02 # Replace this hard-coded value with user-input value from visualization
+user_input_scenario_year <- 2025 # Replace this hard-coded value with user-input value from visualization
+currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
+current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
+
+annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_scenario_year, currency_year, current_year, new_school_list_complete)
+```
+
+

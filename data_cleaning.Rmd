@@ -26,6 +26,7 @@ schoolCap <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
 schoolForecast <- read.csv("input/edu/school_forecast.csv", stringsAsFactors = FALSE)
 schoolAssets <- read.csv("input/edu/school_assets.csv", stringsAsFactors = FALSE)
 schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", stringsAsFactors = FALSE)
+schoolAssetsSFIS.BID <- read.csv("input/edu/dbo_AssetInventoryEDULatLong.csv", stringsAsFactors = FALSE)
 studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
 eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
@@ -174,6 +175,22 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
 
 - Produce dataframe with geocoordinates for all schools (past & present)
 
+## Add FCI, renewal to asset data
+```{r clean school assets, echo=FALSE}
+# Retrieve FCI and renewal values
+schoolAssetsSlim <- schoolAssets %>%
+  filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
+  select(bid = BID, lat = Latitude, long = Longitude, ade = ADE,
+         asset.name = AssetName, fci = FCI, year.built = YearBuilt, renewal.needs = RenewalNeeds.TotalRenewalAdj.,
+         replacement.value = ReplacementValue, assessment.year = AssessmentYear) %>%
+  drop_na(bid, lat, long, ade) %>% 
+  left_join(select(schoolAssetsSFIS.BID, SFIS_ID, BUILDING.ID), by = c('bid' = 'BUILDING.ID')) %>% 
+  mutate(sfis = as.numeric(SFIS_ID)) %>%
+  select(-SFIS_ID, -bid, -lat, -long, -ade, -asset.name) %>% 
+  arrange(sfis)
+
+```
+
 ```{r}
 # Read in geocoordinates for schools with missing data
 # Geocoordinates were found using separate program and stored in CSV
@@ -296,7 +313,8 @@ school_treso_master <- school_treso_data %>%
   mutate(num.units.calculated = round(num.units.calculated,0)) %>%
   mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
-  rename(portable.units = num.units.calculated)
+  rename(portable.units = num.units.calculated) %>% 
+  left_join(schoolAssetsSlim, by = 'sfis')
 
 # Export to RDS
 saveRDS(school_treso_master, 'output/school_treso_master.rds')
@@ -305,11 +323,13 @@ saveRDS(school_treso_master, 'output/school_treso_master.rds')
 
 # Education Data cleaning
  
+- Clean the school asset data
 - Clean the school forecast data
 - Then, clean school capacity and historical demand data
 - Combine together 
 - Clean the student postal code data
 
+## Clean school capacity dataset
 ```{r education data cleaning, echo=FALSE}
 # The school capacity dataset contains the correct lat/long for schools
 schoolCapSlim <- schoolCap %>%
@@ -620,16 +640,6 @@ ggplot(data = student_travel, aes(distance)) +
   labs(x = "Distance (KM)", y = "Count", title = "") +
   theme_minimal()
 
-```
-
-
-```{r clean school assets, echo=FALSE}
-# TODO ask Alec what is this info used for.
-schoolAssetsSlim <- schoolAssets %>%
-  filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
-  select(bid = BID, lat = Latitude, long = Longitude, ade = ADE,
-         asset.name = AssetName) %>%
-  drop_na(bid, lat, long, ade)
 ```
 
 ## Clean EQAO Data
