@@ -3107,23 +3107,19 @@ ggplot(data=combined_tlfd_2, aes(x=bin, y=enrolment, fill=flag)) +
   theme_bw()
 ```
 
-## Creating TRESO 2017 POR Data
+## Creating Forecasted TRESO POR Data
 
-```{r sample treso population in 2017, include = FALSE}
-observed_2011_treso <- readRDS("cache/treso_tb.rds") %>% 
-  select(treso_zone, n_ele_pop, n_sec_pop) %>% 
-  gather(key = "panel", value = "enrolment", n_ele_pop, n_sec_pop) %>% 
-  filter(enrolment > 0) %>% 
-  mutate(panel = ifelse(panel == "n_ele_pop", "Elementary", "Secondary")) %>% 
-  left_join(select(read.csv("input/treso/treso_zone_system.csv"), csduid, csdname, treso_id),
-            by = c("treso_zone" = "treso_id")) %>% 
-  rename(treso.id.por = treso_zone)
+```{r forecast TRESO POR, include = FALSE}
+YEAR = 2025
 
 board_type_sample_spread <- readRDS("cache/board_type_sample_spread.rds")
 
+treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
+  select(treso.id.por = treso_zone, panel = age.group, csduid, enrolment = paste0("population.", YEAR)) %>% 
+  filter(panel != "other")
+  
 # Apply the board sampling probabilities to the students
-treso_level_sampling_2011 <- observed_2011_treso %>%
-  select(treso.id.por, enrolment, panel, csduid) %>%
+treso_forecast_population_board <- treso_forecast_population %>%
   left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
   group_by(treso.id.por, panel) %>%
   summarise(
@@ -3147,34 +3143,10 @@ treso_level_sampling_2011 <- observed_2011_treso %>%
          `French Catholic` = sum(sample.result == "FC"),
          `French Public` = sum(sample.result == "FP"))
 
-# Observed school demand for scaling
-school_sfis_2017 <- readRDS("output/school_treso_master.rds") %>%
-  filter(year == 2017) %>% 
-  filter(zero_otg_flag == 0 | excessive_util_flag == 0) %>%
-  mutate(utilization = ifelse(otg != 0, ade / otg, 0))
+forecast_por <- treso_forecast_population_board %>% 
+  select(treso.id.por, panel, csduid, csdname, `English Catholic`:`French Public`) %>%
+  gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`)
 
-#Scale TRESO sampled enrollemnt to observed school demand by board type and panel
-board_panel_summary_2017 <- school_sfis_2017 %>%
-  group_by(board_type_name, panel)%>%
-  summarise (ade.sum = sum(ade)) 
-
-treso_level_sampling_2017_sum <- treso_level_sampling_2011 %>%
-  group_by(panel)%>%
-  summarise(`English Catholic` = sum(`English Catholic`), 
-            `English Public` = sum(`English Public`),
-            `French Catholic` = sum(`French Catholic`),
-            `French Public` = sum(`French Public`)) %>% 
-  gather(key="board_type_name", value="enrolment.sum", `English Catholic`:`French Public`) %>%
-  left_join(board_panel_summary_2017, by=c("panel", "board_type_name")) %>%
-  mutate(ratio = ade.sum/enrolment.sum)
-
-treso_por_2017 <- select(treso_level_sampling_2011, treso.id.por, panel, csduid, csdname, 
-                         `English Catholic`:`French Public`) %>%
-  gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`) %>%
-  left_join(select(treso_level_sampling_2017_sum, panel, board_type_name, ratio), by=c("panel", "board_type_name")) %>%
-  mutate(enrolment.scaled = enrolment * ratio) %>%
-  select(treso.id.por, enrolment.scaled, panel, board_type_name) 
-saveRDS(treso_por_2017, "cache/treso_por_2017.rds")
 ```
 
 ## Application of gravity model {.tabset .tabset-fade}
@@ -3282,6 +3254,12 @@ for (board_id in school_board_list) {
 
 
 ### Step 2 - Run 20xx Forecast Model
+
+```{r application of gravity model - Step 2}
+
+
+```
+
 
 ### Step 3 - Calculate difference between Base and Forecast Models
 
