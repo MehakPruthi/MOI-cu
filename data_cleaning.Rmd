@@ -26,6 +26,7 @@ schoolCap <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
 schoolForecast <- read.csv("input/edu/school_forecast.csv", stringsAsFactors = FALSE)
 schoolAssets <- read.csv("input/edu/school_assets.csv", stringsAsFactors = FALSE)
 schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", stringsAsFactors = FALSE)
+schoolAssetsSFIS.BID <- read.csv("input/edu/dbo_AssetInventoryEDULatLong.csv", stringsAsFactors = FALSE)
 studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
 eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
@@ -169,6 +170,22 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
 
 - Produce dataframe with geocoordinates for all schools (past & present)
 
+## Add FCI, renewal to asset data
+```{r clean school assets, echo=FALSE}
+# Retrieve FCI and renewal values
+schoolAssetsSlim <- schoolAssets %>%
+  filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
+  select(bid = BID, lat = Latitude, long = Longitude, ade = ADE,
+         asset.name = AssetName, fci = FCI, year.built = YearBuilt, renewal.needs = RenewalNeeds.TotalRenewalAdj.,
+         replacement.value = ReplacementValue, assessment.year = AssessmentYear) %>%
+  drop_na(bid, lat, long, ade) %>% 
+  left_join(select(schoolAssetsSFIS.BID, SFIS_ID, BUILDING.ID), by = c('bid' = 'BUILDING.ID')) %>% 
+  mutate(sfis = as.numeric(SFIS_ID)) %>%
+  select(-SFIS_ID, -bid, -lat, -long, -ade, -asset.name) %>% 
+  arrange(sfis)
+
+```
+
 ```{r}
 # Read in geocoordinates for schools with missing data
 # Geocoordinates were found using separate program and stored in CSV
@@ -291,7 +308,8 @@ school_treso_master <- school_treso_data %>%
   mutate(num.units.calculated = round(num.units.calculated,0)) %>%
   mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
-  rename(portable.units = num.units.calculated)
+  rename(portable.units = num.units.calculated) %>% 
+  left_join(schoolAssetsSlim, by = 'sfis')
 
 # Export to RDS
 saveRDS(school_treso_master, 'output/school_treso_master.rds')
@@ -300,11 +318,13 @@ saveRDS(school_treso_master, 'output/school_treso_master.rds')
 
 # Education Data cleaning
  
+- Clean the school asset data
 - Clean the school forecast data
 - Then, clean school capacity and historical demand data
 - Combine together 
 - Clean the student postal code data
 
+## Clean school capacity dataset
 ```{r education data cleaning, echo=FALSE}
 # The school capacity dataset contains the correct lat/long for schools
 schoolCapSlim <- schoolCap %>%
@@ -615,16 +635,6 @@ ggplot(data = student_travel, aes(distance)) +
   labs(x = "Distance (KM)", y = "Count", title = "") +
   theme_minimal()
 
-```
-
-
-```{r clean school assets, echo=FALSE}
-# TODO ask Alec what is this info used for.
-schoolAssetsSlim <- schoolAssets %>%
-  filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
-  select(bid = BID, lat = Latitude, long = Longitude, ade = ADE,
-         asset.name = AssetName) %>%
-  drop_na(bid, lat, long, ade)
 ```
 
 ## Clean EQAO Data
@@ -1563,4 +1573,252 @@ ALC_master <- rbind(siteid_ALC, facilityid_ALC)
 #TEST
 ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalALCdays))
 
+```
+
+# Court Data Cleaning
+
+## Import Court Data
+
+```{r import court data}
+courthouse_asset <- read_csv("input/mag/Court asset data.csv") %>% 
+  select(year = Collection_Year, bid = BID, name = BuildingName, address = Address1,
+         postal.code = PostalCode, city = City, courthouse.lat = Latitude, courthouse.long = Longitude,
+         building.type = BuildingType, courtrooms = Courtrooms, region = Region, 
+         rentable.square.feet = Rentable_square_feet,
+         gross.square.feet = Gross_square_feet) %>% 
+  mutate(gross.square.feet = as.numeric(gross.square.feet), courtrooms = as.numeric(courtrooms)) %>% 
+  replace_na(list(gross.square.feet = 0, courtrooms = 0)) %>% 
+  # Remove entries which are not base court or satelite court
+  filter(building.type %in% c("Base Court", "Satellite Court") | name == "Napanee OCJ Courthouse + VWAP Office" |
+           name == "Timmins OCJ Courthouse" | name == "Toronto SCJ + Family Courthouse") %>%
+  # Assume satellite courthouses with 0 courtrooms to be 1
+  mutate(courtrooms = ifelse(building.type == "Satellite Court" & courtrooms == 0, 1, courtrooms)) %>% 
+  mutate(courtrooms = replace(courtrooms, name == "Smith Falls Satellite Court", 1)) %>% 
+  # Remove entries manually after the base court and satellite court filters
+  filter(name != "Milton Courthouse (Double with 18784)") %>% 
+  filter(name != "Sarnia Courthouse- Land Registry Office Building") %>% 
+  filter(name != "Newmarket Courthouse - Modular Addition") %>% 
+  filter(name != "Parry Sound Jail - Holding Cells") %>% 
+  filter(name != "Temp Swing Space for 361 University Ave relocation for Firepanel Project") %>% 
+  filter(name != "OPP Sally Port") %>% 
+  filter(name != "Elliot Lake Victim Witness Assiatance Program Office") %>% 
+  filter(name != "Renfrew SCJ Small Claims Administration Office") %>% 
+  filter(!(city == "St. Thomas" & courtrooms == 0)) %>% 
+  filter(!(city == "Barrie" & courtrooms == 0)) %>% 
+  filter(!(city == "Sault Ste. Marie" & courtrooms == 0)) %>% 
+  filter(!(city == "Sudbury" & courtrooms == 0)) %>% 
+  # Misaligned data for city entry
+  mutate(city = replace(city, name == "Toronto SCJ + Family Courthouse", "Toronto")) %>% 
+  mutate(city = replace(city, name == "Toronto Courthouse", "Toronto"))
+  
+
+courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>% 
+  rename(year = Year, region = REGION, city = LOCATION, address = ADDRESS) %>% 
+  rename_at(vars(contains("CJ"), contains("COURT"), contains("TOTAL"), contains("CIVIL")), tolower) %>% 
+  rename_at(vars(contains(",_")), funs(sub(",_", "_", .))) %>% 
+  rename(number_of_courtrooms = "number of courtrooms") %>% 
+  mutate(SCJfam = family_court_branch + scj_family, smac = divisional_court+small_claims_court) %>% 
+  select(-family_court_branch, -scj_family, -divisional_court, -small_claims_court) %>%
+  rename(OCJcrim= 'ocj_criminal', OCJfam= 'ocj_family', SCJcrim= 'scj_criminal') %>% 
+  mutate(year = as.numeric(substr(year, 1, 4))) %>% 
+  mutate(city = stringr::str_to_title(city),
+         region = toupper(tolower(region))) %>% 
+  mutate(city = replace(city, city == "L'orignal", "L'Orignal")) %>% 
+  mutate(address = ifelse(is.na(address), address, paste0(address, " St"))) %>% 
+  mutate(address = replace(address, address == "36 Wyndham St", "36 Wyndham St S")) %>% 
+  mutate(address = replace(address, address == "245 Windsor St", "245 Windsor Ave")) %>% 
+  mutate(address = replace(address, address == "48 Spruce St", "48 Spruce Street North")) %>% 
+  mutate(address = replace(address, address == "1023 King St", "1023-1025 King St")) %>% 
+  mutate(address = replace(address, address == "97 Thomas St", "97 Thomas St E")) %>% 
+  mutate(address = replace(address, address == "49 Place D'Armes St", "49 Place D'Armes")) %>% 
+  mutate(address = replace(address, address == "55 Main St", "55 Main St W")) %>% 
+  mutate(address = replace(address, address == "45 Main St", "45 Main Street E")) %>% 
+  mutate(address = replace(address, address == "70 Simcoe St", "70-110 Simcoe St")) %>% 
+  mutate(address = replace(address, address == "1000 FINCH St", "1000 Finch Ave W")) %>% 
+  mutate(address = replace(address, address == "2201 FINCH St", "2201 Finch Ave W")) %>% 
+  mutate(address = replace(address, address == "361 UNIVERSITY St", "361 University Ave")) %>%
+  mutate(address = replace(address, address == "130 QUEEN, 330/393 UNIVERSITY St", "393 University Ave")) %>% 
+  mutate(address = replace(address, address == "311 JARVIS St", "311 Jarvis St")) %>% 
+  mutate(address = replace(address, address == "COLLEGE PARK St", "444 Yonge Street")) %>% 
+  mutate(address = replace(address, address == "OLD CITY HALL St", "60 Queen St W")) %>% 
+  mutate(address = replace(address, address == "38 Pine St", "38 Pine St N")) %>% 
+  mutate(address = replace(address, address == "41 Dundas St", "41 Dundas St W")) %>% 
+  mutate(address = replace(address, address == "1911 EGLINTON St", "1911 Eglinton Ave E")) %>% 
+  mutate(address = replace(address, address == "47 SHEPPARD St", "47 Sheppard Ave E"))
+```
+
+## Clean Courthouse Master List
+
+- Combine the asset data (`courthouse_asset`) with the 5 year historical court-hour data (`courthouse_hours`) to give location informaiton
+- It is assumed that the dataset with historical court-hour is the source of truth
+  - There is a mismatch between asset data and historical data, the asset data splits up the satellite courthouses while the historical data combines them as one entry. Since the source of truth is in the court-hour data, it is assumed that all satellite courthouses have 1 court room and they belong to the base courthouse of the CD.
+  - If there are multiple base courthouse in the CD; the closer base courthouse is taken to be the base of the satellite courthouses
+  - The total number of courtrooms in the satellite courthouses and their base courthouse will be equal to the value in the court-hour dataset
+
+```{r clean courthouse hours}
+
+# Group the 3 Toronto Courthouses into 1 entry at 130 QUEEN, 330/393 UNIVERSITY St
+temp <- filter(courthouse_asset, address %in% c("130 Queen St W", "393 University Ave", "330 University Ave")) %>% 
+  group_by(city) %>% 
+  summarise(courtrooms = sum(courtrooms),
+            rentable.square.feet = sum(rentable.square.feet), 
+            gross.square.feet = sum(gross.square.feet))
+
+courthouse_asset <- courthouse_asset %>% 
+  filter(!(address %in% c("130 Queen St W", "330 University Ave"))) %>% 
+  mutate(courtrooms = replace(courtrooms, address == "393 University Ave", temp$courtrooms)) %>% 
+  mutate(rentable.square.feet = replace(rentable.square.feet, address == "393 University Ave", temp$rentable.square.feet)) %>% 
+  mutate(gross.square.feet = replace(gross.square.feet, address == "393 University Ave", temp$gross.square.feet))
+
+# Spread the 5 year data into wide format
+courthouse_hours_wide <- courthouse_hours %>% 
+  gather(variable, value, -(year:address)) %>% 
+  unite(temp, year, variable) %>%
+  spread(key = "temp", value = "value") 
+
+# Join courthouse_hours_wide with courthouse_asset dataset to get lat/long information
+courthouse_hours_wide_location <- courthouse_hours_wide %>% 
+  left_join(select(courthouse_asset, bid, name, address, city, courthouse.lat, courthouse.long), by = c("city", "address")) %>% 
+  left_join(select(distinct(courthouse_asset, city, .keep_all = TRUE), bid, name, address, city, courthouse.lat, courthouse.long), by = c("city")) %>%
+  mutate(bid = ifelse(is.na(bid.x), bid.y, bid.x)) %>% 
+  mutate(name = ifelse(is.na(name.x), name.y, name.x)) %>% 
+  mutate(address = ifelse(is.na(address.x), address.y, address.x)) %>% 
+  mutate(courthouse.lat = ifelse(is.na(courthouse.lat.x), courthouse.lat.y, courthouse.lat.x)) %>% 
+  mutate(courthouse.long = ifelse(is.na(courthouse.long.x), courthouse.long.y, courthouse.long.x)) %>% 
+  select(-bid.x, -bid.y, -name.x, -name.y, -address.x, -address.y,
+         -courthouse.lat.x, -courthouse.lat.y, -courthouse.long.x, -courthouse.long.y)
+
+# Overlay on TRESO zones to get the CDUID
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
+treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
+courthouse_hours_xy <- create_court_xy(courthouse_hours_wide_location)
+courthouse_hours_overlay <- create_overlay(courthouse_hours_xy, treso_shp, type = "court")
+courthouse_hours_overlay <- courthouse_hours_overlay %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(courthouse_hours_wide_location, by = "bid")
+
+#issue long form of court hour dataset for easy use
+courthouse_hours_overlay_long <- courthouse_hours_overlay %>%
+  gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
+  separate(year, c("year", "casetypes"), sep = 4) %>% 
+  spread(key = casetypes, value) %>% 
+  select(-"_number_of_courtrooms","_number_of_courtrooms" ) %>% 
+  gather(key="casetypes", value, `_civil`:`_smac`) %>% 
+  rename("number_of_courtrooms" = "_number_of_courtrooms", "total" = "_total") %>% 
+  select(-"total", -"number_of_courtrooms", "total", "number_of_courtrooms") %>% 
+  mutate(casetypes = substring(casetypes, 2))
+
+# Save the wide court hour dataset
+saveRDS(courthouse_hours_overlay_long, "cache/mag/courthouse_hours.rds")
+
+rm(temp, courthouse_hours_wide_location, courthouse_hours_wide, courthouse_hours_xy)
+```
+
+
+```{r clean courthouse asssets}
+# Relying on the assumption that satellite courthouses are 1 courtroom and satellite courthouses are within the same
+# CD as the base courthouse, distribute the total courtrooms appropriately
+courthouse_asset_xy <- create_court_xy(courthouse_asset)
+courthouse_asset_overlay <- create_overlay(courthouse_asset_xy, treso_shp, type = "court") %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(courthouse_asset, by = "bid") %>% 
+  mutate(building.type = replace(building.type, 
+                                 building.type %in% c("Office", "Court Support Office"), 
+                                 "Base Court")) %>% 
+  # There are a few satellite courts in Sudbury but base court is in Greater Sudbury, replace those manually
+  mutate(cdname = replace(cdname, cdname == "Sudbury", "Greater Sudbury / Grand Sudbury")) %>% 
+  mutate(cduid = replace(cduid, cduid == 3552, 3553)) %>%
+  left_join(select(courthouse_hours_overlay, bid, `2018_number_of_courtrooms`), by = "bid") %>% 
+  mutate(courtrooms = ifelse(building.type == "Satellite Court", courtrooms, `2018_number_of_courtrooms`)) %>% 
+  select(-`2018_number_of_courtrooms`)
+
+# Distribute the base courthouse's courtrooms to satellite courthouses
+multiple_courthouse_asset_tag <- courthouse_asset_overlay %>% 
+  filter(building.type == "Base Court") %>% 
+  group_by(cdname) %>% 
+  summarise(mutilple.basecourts.tag = ifelse(n() > 1, 1, 0))
+
+courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset_tag, by = "cdname")
+
+multiple_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
+  filter(building.type == "Satellite Court") %>% 
+  group_by(cdname) %>% 
+  summarise(total.satellite.rooms = sum(courtrooms))
+
+multiple_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
+  left_join(multiple_basecourts_satellite_rooms, by = "cdname") %>% 
+  replace_na(list("total.satellite.rooms" = 0))
+
+multiple_basecourts_satellite_room_share <- multiple_basecourts %>% 
+  filter(building.type == "Base Court") %>% 
+  group_by(cdname) %>% 
+  mutate(total.base.courts = n()) %>% 
+  ungroup() %>% 
+  mutate(share.of.satellite = total.satellite.rooms / total.base.courts) %>% 
+  arrange(cdname)
+
+# Apply bucket rounding to chunks of data by TRESO POS
+bucket_round_share <- by(multiple_basecourts_satellite_room_share$share.of.satellite, 
+                         multiple_basecourts_satellite_room_share[c("cdname")], smart_round, simplify = FALSE)
+
+# Convert the output of by() to a dataframe
+temp <- sapply(bucket_round_share, I) %>% 
+  data.table::melt() %>% 
+  rename(share.of.satellite.rounded = value, cdname = L1) %>% 
+  mutate(share.of.satellite.rounded = as.numeric(share.of.satellite.rounded)) %>% 
+  arrange(cdname) %>% 
+  select(-cdname) %>% 
+  cbind(multiple_basecourts_satellite_room_share) %>% 
+  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - share.of.satellite.rounded, courtrooms))
+
+# If there are negative courtooms in any base courts, manually shift them from another courthouse
+print(paste0("There are ", nrow(filter(temp, courtrooms < 1)), " base court(s) with less than one courtroom"))
+temp <- temp %>% 
+  mutate(courtrooms = ifelse(name == "Stratford SCJ Courthouse", courtrooms + 1, courtrooms)) %>% 
+  mutate(courtrooms = ifelse(name == "Stratford OCJ Courthouse", courtrooms - 1, courtrooms)) %>% 
+  select(bid, courtrooms.reduced = courtrooms)
+print(paste0("There are ", nrow(filter(temp, courtrooms.reduced < 1)), " base court(s) with less than one courtroom"))
+
+multiple_basecourts <- left_join(multiple_basecourts, temp, by = "bid") %>% 
+  mutate(courtrooms = ifelse(is.na(courtrooms.reduced), courtrooms, courtrooms.reduced)) %>% 
+  select(-mutilple.basecourts.tag, -total.satellite.rooms, -courtrooms.reduced)
+  
+# Distribute satellite courthouses in CD with a single basecourt
+single_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
+  filter(building.type == "Satellite Court") %>% 
+  group_by(cdname) %>% 
+  summarise(total.satellite.rooms = sum(courtrooms))
+
+single_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
+  left_join(single_basecourts_satellite_rooms, by = "cdname") %>% 
+  replace_na(list("total.satellite.rooms" = 0)) %>% 
+  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - total.satellite.rooms, courtrooms)) %>% 
+  select(-mutilple.basecourts.tag, -total.satellite.rooms)
+
+# If there are negative courtooms in any base courts, manually shift them from another courthouse
+print(paste0("There are ", nrow(filter(single_basecourts, courtrooms < 1)), " base court(s) with less than one courtroom"))
+  
+courthouse_asset_distributed <- rbind(multiple_basecourts, single_basecourts)
+```
+
+```{r append caretypes serviced}
+courthouse_service_caretypes <- readRDS("cache/mag/courthouse_hours.rds") %>% 
+  filter(value != 0) %>% 
+  group_by(bid) %>% 
+  summarise(casetypes.serviced = paste(unique(casetypes), collapse = ","))
+
+courthouse_asset_casetypes <- left_join(courthouse_asset_distributed, courthouse_service_caretypes, by = "bid") %>% 
+  group_by(cduid) %>% 
+  mutate(casetypes.serviced = ifelse(building.type == "Satellite Court",
+                                     paste(unique(casetypes.serviced), collapse = ","),
+                                     casetypes.serviced)) %>% 
+  ungroup() %>%
+  unnest(casetypes.serviced = strsplit(casetypes.serviced, ",")) %>% 
+  filter(casetypes.serviced != "NA") %>% 
+  distinct(bid, casetypes.serviced, .keep_all = TRUE) %>% 
+  group_by_at(vars(-casetypes.serviced)) %>% 
+  summarise(casetypes.serviced = paste(casetypes.serviced, collapse = ",")) %>% 
+  ungroup()
+
+saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
 ```
