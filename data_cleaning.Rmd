@@ -1077,6 +1077,8 @@ ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('
          year = replace(year, year == '1617', 2016),
          year = replace(year, year == '1718', 2017))
 
+saveRDS(ALC_madd_raw, file = 'cache/moh/ALC_madd_raw.rds')
+
 ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
   group_by(year) %>% 
   distinct(month) %>% 
