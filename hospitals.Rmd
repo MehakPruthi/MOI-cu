@@ -531,20 +531,22 @@ hospital_lookup_ALC <- hospital_lookup_master %>%
 
 ```
 
-###Estimating Suppression
+###Estimating Suppression: Aggregate Level
 ```{r}
 #ALC raw data includes agegroup == 9 which is the totalling flag
-#ALC data for 2017 only includes LHINs 1-3 and 10-14
+#ALC data for 2017 only includes LHINs 1-3 and 10-14; ALC data for 2012 also partial
+# MADD = most appropriate discharge destination
 ALC_madd_raw <- readRDS('cache/moh/ALC_madd_raw.rds') %>% 
-  filter(madd == 'LTC', year != 2011, year != 2017)
+  filter(madd == 'LTC', year != 2011, year!= 2012, year != 2017)
 
 ALC_madd_prov_total <- ALC_madd_raw %>% 
   filter(number == 15, agegroup == 9) %>% 
   rename('prov.days.tot' = 'alcdays',
          'prov.los.avg' = 'avg.los')
 
+# This query is a double-check to make sure LHIN totals sum to provincial total
 ALC_lhin_vol <-  ALC_madd_raw %>% 
-  filter(madd == 'LTC', agegroup == 9, year != 2011, year != 2017, number < 15) %>% 
+  filter(agegroup == 9, number < 15) %>% 
   rename('lhin.num' = 'number',
          'lhin.days' = 'alcdays',
          'lhin.los.avg' = 'avg.los') %>% 
@@ -558,51 +560,112 @@ ALC_lhin_vol <-  ALC_madd_raw %>%
          adj.lhin.days.tot = ifelse(lhin.days == 'LV' | lhin.days == 'NS', remaining.days, as.numeric(lhin.days))) %>% 
   select(year, lhin.num, agegroup, patients, adj.lhin.days.tot)
 
-#ALC estimations at higher age-group aggregation
-#estimations at agegroup == 9; accurate only for years 2011-2016 because 2017 is missing LHIN data (see note above)
-ALC_hosp_vol_ag <- ALC_madd_raw %>% 
-  filter(madd == 'LTC', number > 999, agegroup == 9, year != 2011, year != 2017) %>% 
+# This step cleans up most-appropriate discharge data for later use; filtered at an AGGREGATED level
+# Accurate only for years 2012-2016 because 2011 and 2017 are missing LHIN data (see note above)
+ALC_madd_clean_ag <- ALC_madd_raw %>% 
+  filter(madd == 'LTC', number > 999, agegroup == 9) %>% 
   rename(hosp.alc.days = alcdays,
          hosp.avg.los = avg.los) %>% 
   left_join(select(ALC_idcrosswalk_slim, lhin, ALCsite_id), by = c('siteid' = 'ALCsite_id')) %>% 
   left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot, agegroup), by = c('year', 'lhin' = 'lhin.num', 'agegroup')) %>% 
   filter(!is.na(lhin)) %>% 
-  select(year, siteid, lhin, lhin.days.tot = adj.lhin.days.tot, madd, agegroup, patients, hosp.avg.los, hosp.alc.days) %>% 
+  select(year, siteid, lhin, lhin.days.tot = adj.lhin.days.tot, madd, agegroup, patients, hosp.avg.los, hosp.alc.days)
+
+# This step fills in missing patient days for hospitals where the number of days are suppressed based on low patient counts,    but does so for all age groups combined (i.e., agegroup == 9)
+ALC_hosp_vol_ag <- ALC_madd_clean_ag %>% 
   group_by(year, lhin) %>% 
-  mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV', 0),
+  mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0),
          hosp.days.tot = sum(as.numeric(hosp.alc.days)),
-         hosp.missing.days = lhin.days.tot - hosp.days.tot,
-         lhin.missing.patients = ifelse(hosp.alc.days == 0, patients, 0),
-         hosp.residual.avg = ifelse(is.finite(hosp.missing.days/lhin.missing.patients), hosp.missing.days/lhin.missing.patients, 0)) %>%
+         lhinhosp.missing.days = lhin.days.tot - hosp.days.tot,
+         hosp.missing.patients = ifelse(hosp.alc.days == 0, patients, 0),
+         lhin.missing.patients = ifelse(hosp.alc.days == 0, sum(hosp.missing.patients), 0),
+         hosp.residual.avg = ifelse(is.finite(lhinhosp.missing.days/lhin.missing.patients),  lhinhosp.missing.days/lhin.missing.patients, 0)) %>%
   group_by(year, siteid) %>% 
   mutate(remaining.days = hosp.residual.avg * patients,
          adj.hosp.days.tot = ifelse(hosp.avg.los == 'LV', remaining.days, as.numeric(hosp.alc.days))) %>% 
-  select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot)
+  # Find remaining missing hospital days - i.e., difference between sum of hospital values and LHIN totals which can't be assigned to hospitals with suppressed values (i.e., no hospitals in LHIN with suppressed values, yet days are missing)
+  # These values are distributed across hospitals within the LHIN proportionally based on share of days within the LHIN
+  group_by(year, lhin) %>% 
+  mutate(adj.lhinhosp.days.tot = sum(adj.hosp.days.tot)) %>% 
+  mutate(adj.hosp.days.tot = (adj.hosp.days.tot / adj.lhinhosp.days.tot) * lhin.days.tot) %>% 
+  select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot) %>% 
+  ungroup()
 
-#ALC estimations w/ disaggregated age-groups
-ALC_hosp_vol_disag <- ALC_madd_raw %>% 
-  filter(madd == 'LTC', number > 999, agegroup != 9, year != 2011, year != 2017) %>% 
+```
+
+### Calculating LHIN/Provincial Agegroup Averages
+```{r}
+# This step cleans up most-appropriate discharge data for later use; filtered at a DISAGGREGATED level
+ALC_madd_clean_disag <- ALC_madd_raw %>% 
+  # Filter for LTC; 4-digit hospital siteids; all age groups except 'total'; all years with complete data
+  filter(madd == 'LTC', number > 999, agegroup != 9) %>% 
   rename(hosp.alc.days = alcdays,
-         hosp.avg.los = avg.los) %>% 
-  left_join(select(ALC_hosp_vol_ag, year, lhin, siteid, hosp.days.tot.agg = adj.hosp.days.tot), by = c('year', 'siteid')) %>%
+         hosp.avg.los = avg.los) %>%
+  left_join(select(ALC_idcrosswalk_slim, lhin, ALCsite_id), by = c('siteid' = 'ALCsite_id')) %>% 
+  left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot), by = c('year', 'lhin' = 'lhin.num')) %>% 
+  filter(!is.na(lhin))
+
+# Calculate number of ALC days per patient for different age groups, at the LHIN level, to fill in suppression gaps
+alc_avg_ages.ex2 <- ALC_madd_clean_disag %>%
+  mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0)) %>% 
+  group_by(lhin, agegroup, year) %>% 
+  mutate(lhin.agegroup.patients = sum(patients), lhin.agegroup.days = sum(as.numeric(hosp.alc.days))) %>% 
+  mutate(lhin.agegroup.los = lhin.agegroup.days / lhin.agegroup.patients) %>% 
+  ungroup() %>%
+  distinct(year, lhin, agegroup, lhin.agegroup.patients, lhin.agegroup.days, lhin.agegroup.los)
+  # No total days available for some agegroups (due to suppression resulting from low volumes at the LHIN level) - therefore use average at the provincial level --> see next step
+
+# Determine average length of stay at the provincial level to fill in gaps where data suppressed at the LHIN level
+alc_avg_agegroup2 <- ALC_madd_raw %>% 
+  filter(number == 15) %>% 
+  rename('lhin.num' = 'number',
+         'lhin.days' = 'alcdays',
+         'lhin.los.avg' = 'avg.los') %>%
+  group_by(agegroup, year) %>% 
+  mutate(prov.agegroup2.patients = sum(patients), prov.agegroup2.days = sum(as.numeric(lhin.days))) %>% 
+  mutate(prov.agegroup2.los = prov.agegroup2.days / prov.agegroup2.patients) %>% 
+  ungroup() %>% 
+  distinct(year, agegroup, prov.agegroup2.patients, prov.agegroup2.days, prov.agegroup2.los)
+
+# Combine length of stay estimates for agegroups
+alc_avg_ages <- alc_avg_ages.ex2 %>% 
+  left_join(alc_avg_agegroup2, by = c('agegroup', 'year')) %>% 
+  mutate(agegroup.los = ifelse(lhin.agegroup.los == 0, prov.agegroup2.los, lhin.agegroup.los)) %>% 
+  select(-prov.agegroup2.patients, -prov.agegroup2.days)
+
+rm(alc_avg_agegroup2, alc_avg_ages.ex2)
+
+```
+
+### Estimating Suppression: Disaggregate Level (Age Groups)
+```{r}
+# ALC estimations w/ disaggregated age-groups
+ALC_hosp_vol_disag <- ALC_madd_clean_disag %>%
+  left_join(select(ALC_hosp_vol_ag, year, siteid, hosp.days.tot.agg = adj.hosp.days.tot), by = c('year', 'siteid')) %>%
+  left_join(select(alc_avg_ages, year, lhin, agegroup, agegroup.los), by = c('year', 'lhin', 'agegroup')) %>% 
   filter(!is.na(lhin)) %>%
   group_by(year, siteid) %>% 
   mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0),
          hosp.days.tot = sum(as.numeric(hosp.alc.days)),
-         hosp.missing.days = hosp.days.tot.agg - hosp.days.tot,
-         hosp.missing.patients = ifelse(hosp.alc.days == 0, patients, 0),
-         hosp.residual.avg = ifelse(is.finite(hosp.missing.days/sum(hosp.missing.patients)), hosp.missing.days/sum(hosp.missing.patients), 0)) %>% 
+         hosp.missing.days = round(hosp.days.tot.agg - hosp.days.tot, 0),
+         hosp.missing.patients = ifelse(hosp.alc.days == 0, patients, 0)) %>% 
+         #hosp.residual.avg = ifelse(is.finite(hosp.missing.days/sum(hosp.missing.patients)), hosp.missing.days/sum(hosp.missing.patients), 0)) %>%
+  # This assumes patients of all agegroups have equal length-of-stay; introduce weighting factor to account for differing lengths of stay, and scale back to known missing number of ALC days
+  mutate(unscaled.missing.days = round(hosp.missing.patients * agegroup.los, 0)) %>% 
+  mutate(sum.unscaled = sum(unscaled.missing.days)) %>% 
+  mutate(scaled.missing.days = ifelse(sum.unscaled == 0, 0, unscaled.missing.days / sum.unscaled * hosp.missing.days)) %>%
   group_by(year, siteid, agegroup) %>% 
-  mutate(remaining.days = hosp.residual.avg * patients,
-         adj.hosp.days.tot = ifelse(hosp.avg.los == 'LV', remaining.days, as.numeric(hosp.alc.days))) %>%
+  mutate(adj.hosp.days.tot = ifelse(hosp.avg.los == 'LV', scaled.missing.days, as.numeric(hosp.alc.days))) %>%
   select(year, lhin, siteid, agegroup, patients, adj.hosp.days.tot) %>% 
   mutate(agecluster = ifelse(agegroup == 1, 'ped', 
                              ifelse(agegroup %in% 2:4, 'ad',
-                                    ifelse(agegroup %in% 5:6, 'sr'))))
+                                    ifelse(agegroup %in% 5:6, 'sr')))) %>% 
+  ungroup()
 
 saveRDS(ALC_hosp_vol_disag, file = 'cache/moh/ALC_hospitals_disaggregated.rds')
   
 #ALC estimation methodology comparison at the provincial-level
+# This query is a double-check to make sure calculations valid --> not used for production tables below
 ALC_summary <- ALC_hosp_vol_disag %>% 
   group_by(year) %>% 
   summarise(hosp.days.tot.dis = sum(adj.hosp.days.tot)) %>% 
@@ -616,84 +679,82 @@ ALC_summary <- ALC_hosp_vol_disag %>%
   distinct(year, hosp.days.tot.dis, hosp.days.tot.agg, lhin.days.tot) %>%
   left_join(select(ALC_madd_prov_total, year, prov.days.tot), by = 'year')
 #totals for 2017 are far lower than the provincial because of the missing LHIN data
-
 ```
+
 
 ### Base-Year Calculations
 ```{r}
 #ALC VOLUMES FOR INDIVIDUAL HOSPITALS BY AGE CLUSTER
 ALC_hosp_vol <- ALC_hosp_vol_disag %>% 
   left_join(hospital_lookup_ALC, by = c('siteid' = 'ALCsite_id')) %>%
-  filter(!is.na(csduid)) %>% #REMOVES ALC SITES THAT DON'T MATCH TO EITHER HOSPITAL PAI DATA OR TO MASTER LIST; OPERATION LOSES APPROX 40K/1,180K CASES
-  group_by(year, csduid, csdname,siteid, id, name, agecluster) %>% 
-  summarise(hosp.alc.patients = sum(patients),
+  filter(!is.na(csduid)) %>% # Double-check in case any ALC sites don't match to Hospital PAI or master list
+  group_by(year, id, agecluster) %>% 
+  mutate(hosp.alc.patients = sum(patients),
             hosp.alc.days = sum(adj.hosp.days.tot),
             avg.los = hosp.alc.days / hosp.alc.patients) %>%
   group_by(year, csduid) %>% 
   mutate(hosp.alc.mrkt = hosp.alc.days / sum(hosp.alc.days)) %>% #MARKET-SHARE OF HOSPITAL ALC DAYS TO CSD TOTAL DAYS
-  ungroup()
+  ungroup() %>% 
+  distinct(year, id, name = name.y, csduid, csdname, agecluster, hosp.alc.patients, hosp.alc.days, avg.los, hosp.alc.mrkt)
 
 saveRDS(ALC_hosp_vol, file = 'cache/moh/ALC_hospital_volumes.rds')
 
-#CALCULATE ALC DEMAND AT THE CSD LEVEL COMPRISING OF THE SUM OF ALC BEDS/BEDDAYS FOR EACH AGECLUSTER; JOINING LTC CAPACITY DATA FROM LTC-HOMES DATASET
+# CALCULATE ALC DEMAND AT THE CSD LEVEL COMPRISING THE SUM OF ALC BEDS/BEDDAYS FOR EACH AGECLUSTER; JOINING LTC CAPACITY DATA FROM LTC-HOMES DATASET
 ALC_csd_vol <- ALC_hosp_vol %>%
-  group_by(year, csduid, csdname) %>% 
+  group_by(year, csduid, agecluster, csdname) %>% 
   summarise_at(vars(hosp.alc.patients:hosp.alc.days), sum) %>%
   rename(csd.alc.patients = hosp.alc.patients,
-         csd.alc.days = hosp.alc.days) %>% 
-  ungroup() %>% 
+         csd.alc.days = hosp.alc.days) %>%
+  group_by(year, csduid) %>% 
+  mutate(csd.alc.days.sum.ages = sum(csd.alc.days), csd.alc.patients.sum.ages = sum(csd.alc.patients)) %>% 
+  mutate(csd.alc.days.percent.ages = csd.alc.days / csd.alc.days.sum.ages, csd.alc.patients.percent.ages = csd.alc.patients / csd.alc.patients.sum.ages) %>% 
   mutate(csdname = toupper(csdname)) %>% 
-  left_join(ltc_homes_csd, by = c('csduid', 'csdname')) %>% 
+  left_join(ltc_homes_csd, by = c('csduid', 'csdname')) %>%
+  # Split existing LTC patients along hospital observed proportions in terms of ageclusters, then sum total by CSD
   mutate(csd.ltc.patients = replace_na(csd.ltc.patients, 0),
          ltc.bed.days = replace_na(ltc.bed.days, 0),
-         csd.demand.days = ltc.bed.days + csd.alc.days,
-         csd.demand.patients = csd.ltc.patients + csd.alc.patients)
+         csd.demand.days.ages = round(ltc.bed.days * csd.alc.days.percent.ages + csd.alc.days, 0),
+         csd.demand.patients.ages = round(csd.ltc.patients * csd.alc.patients.percent.ages + csd.alc.patients, 0),
+         csd.demand.days.total = sum(csd.demand.days.ages),
+         csd.demand.patients.total = sum(csd.demand.patients.ages)) %>% 
+  ungroup()
 
-#ADD TRESO-LEVEL DISAGGREGATIONS BY FIRST JOINING IN CORRESPONDING  CSD-TRESO LIST AND THEN TAKING THE PROPORTION OF TRESO POPULATION TO TOTAL CSD POPULATION
+# ADD TRESO-LEVEL DISAGGREGATIONS BY FIRST JOINING IN CORRESPONDING CSD-TRESO LIST AND THEN TAKING THE PROPORTION OF TRESO POPULATION TO TOTAL CSD POPULATION
 ALC_treso <- ALC_csd_vol %>% 
   left_join(select(treso_population_long, treso_zone, csduid, age_cluster, treso.population.agecluster, year), by = c('year','csduid', 'agecluster' = 'age_cluster')) %>%
   distinct() %>% 
   group_by(year, csduid, agecluster) %>%
-  mutate(csd.pop = sum(treso.population.agecluster),
-         treso.csd.pop.perc = treso.population.agecluster / csd.pop,
-         treso.csd.dem.patients = csd.demand.patients * treso.csd.pop.perc,
+  mutate(csd.age.pop = sum(treso.population.agecluster),
+         treso.csd.pop.perc = treso.population.agecluster / csd.age.pop,
+         treso.csd.dem.patients = csd.demand.patients.total * treso.csd.pop.perc,
          treso.csd.dem.patients = replace_na(treso.csd.dem.patients, 0),
-         treso.csd.dem.days = csd.demand.days * treso.csd.pop.perc) %>% 
-  ungroup() #SHOULD ADD WEIGHT TO SR POPULATION BASED ON A CALCULATED PARAMETER SUCH AS SR/AD POPULATION OR SR/AD CASES
-
-# #ALC rates can be calculated and joined in during forecasting operations as a rate or as a parameter
-# ALC_rates <- ALC_treso %>% 
-#   filter(year == 2016) %>% 
-#   group_by(csduid) %>% 
-#   mutate(csd.alc.rate = csd.demand.days / sum(treso.population.agecluster)) %>% 
-#   mutate(cduid = substr(csduid, 1, 4)) %>% 
-#   group_by(cduid) %>% 
-#   mutate(cd.demand.days = sum(treso.csd.dem.days),
-#          cd.alc.rate = cd.demand.days / sum(treso.population.agecluster)) %>% 
-#   ungroup() %>% 
-#   select(treso_zone, csduid, csdname, cduid, agecluster, csd.alc.rate, cd.alc.rate)
-
-#CALCULATE PROVINCIAL RATE OF DEMAND / 65+
-ALC_csd_rates <- treso_population_long %>%
-  filter(age_cluster != 'ped', year > 2011, year < 2017) %>% 
-  mutate(cduid = substr(csduid, 1, 4)) %>% 
-  group_by(year, cduid, csduid) %>% 
-  summarise(csd.population = sum(population)) %>% 
-  left_join(select(ALC_csd_vol, year, csduid, csd.demand.patients, csd.demand.days), by = c('year', "csduid")) %>% 
-  mutate(csd.demand.patients = replace_na(csd.demand.patients, 0),
-         csd.demand.days = replace_na(csd.demand.days, 0),
-         csd.alc.rate = csd.demand.days / csd.population) %>% 
-  group_by(year, cduid) %>% 
-  mutate(cd.demand.days = sum(csd.demand.days),
-         cd.alc.rate = cd.demand.days / sum(csd.population)) %>% 
+         treso.csd.dem.days = csd.demand.days.total * treso.csd.pop.perc) %>% 
   ungroup()
-  
-#CALCULATE PROVINCIAL RATE OF LTC DEMAND = TOTAL-DEMAND / 75+ POPULATION
+
+# CALCULATE PROVINCIAL RATE OF DEMAND / 75+
+# CSD/CD rates not particularly meaningful given the huge variation from one CSD/CD to the next; use provincial average values, disaggregated by agecluster, for ALC rates per population.
+ALC_csd_rates <- treso_population_long %>%
+  rename(agecluster = age_cluster) %>% 
+  filter(agecluster != 'ped', year > 2012, year < 2017) %>% 
+  mutate(cduid = substr(csduid, 1, 4)) %>% 
+  group_by(year, cduid, csduid, agecluster) %>% 
+  summarise(csd.population.ages = sum(population)) %>% 
+  left_join(select(ALC_csd_vol, year, csduid, agecluster, csd.demand.patients.ages, csd.demand.days.ages), by = c('year', "csduid", 'agecluster')) %>% 
+  mutate(csd.demand.patients.ages = replace_na(csd.demand.patients.ages, 0),
+         csd.demand.days.ages = replace_na(csd.demand.days.ages, 0),
+         csd.alc.rate.ages = csd.demand.days.ages / csd.population.ages) %>% 
+  group_by(year, cduid, agecluster) %>% 
+  mutate(cd.demand.days.ages = sum(csd.demand.days.ages),
+         cd.alc.rate.ages = cd.demand.days.ages / sum(csd.population.ages)) %>% 
+  ungroup()
+
+# Calculate provincial rates averaging across all CDs, all years, since huge variability observed in terms of ALC days per population by CSD/CD. E.g., for adults, some CDs have as little as 0.01 ALC days per person, whereas some have 2.6 days per person. For seniors, some CDs have as little as 4.6 days per person, whereas others have as many as 56 days per person. Clearly, because hospitals and ALC facilities are not evenly distributed throughout all CDs, 'demand' by CD swings wildly based on availability (i.e., capacity), with out-of-CD users certainly skewing the ALC rates when compared to a CD's population. 
 ALC_prov_rate <- ALC_csd_rates %>% 
-  group_by(year) %>%  
-  summarise(total.pop = sum(csd.population),
-            total.dem.days = sum(csd.demand.days)) %>% 
-  mutate(prov.alc.rate = total.dem.days / total.pop)
+  filter(year %in% (2000:2020)) %>% # Adjust this filter to choose specific years to include in rate calculations
+  group_by(agecluster) %>%  # Not grouped by 'year' so populations in calculations below appear high, but provincial ALC rate calculations are accurate, they simply represent an average of historical years
+  summarise(total.pop.ages = sum(csd.population.ages),
+            total.dem.days.ages = sum(csd.demand.days.ages)) %>% 
+  mutate(prov.alc.rate.ages = total.dem.days.ages / total.pop.ages)
   
 ```
 
@@ -704,7 +765,7 @@ PROJ_YEAR_ALC <- 2022
 # Ratio of demand for LTC bed-days to adult population (75+) 
 USER_RATE_SELECT <- "PROVINCIAL" 
 #USER CAN SELECT "PROVINCIAL" FOR PROVINCIAL AVERAGE OF DEMAND/SR-POPULATION (PROJ_ALC_RATE) OR "CSD" FOR AVERAGE 2016 CSD-ALC RATE APPLIED AT TRESO-LEVEL
-  PROJ_ALC_RATE <- 2.3
+PROJ_ALC_RATE <- 2.3
 
 #LTC CAPACITY PARAMETERS
 CSDUID_ADDED_CAP = 3510101 #THIS INPUT IS FOR THE CSDUID
@@ -767,7 +828,6 @@ ALC_proj_csd <- proj_pop_control %>% #NEEDS TO BE UPDATED
          csd.residual.alc.patients = csd.residual.alc.days / LTC_ALOS) %>% 
   select(csduid, ltc.csd.demand.days:csd.residual.alc.patients) %>% 
   distinct()
-
 }
 
 #ALC PROJECTION TO HOPSITALS FROM CSD TOTALS USING MARKETSHARE
