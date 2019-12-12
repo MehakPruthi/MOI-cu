@@ -847,12 +847,9 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
   group_by(pcode, name) %>% 
   mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
   ungroup() %>% 
-  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>% 
-  # Omit from location data any hospitals not found in HBAM data
-  #inner_join(distinct(HBAMhistorical, siteid, caretype), by = c('datasetID1.siteid' = 'siteid', 'caretype')) %>%
-  #inner_join(distinct(HBAMprojected, siteid, caretype), by = c('datasetID1.siteid' = 'siteid', 'caretype')) %>%
-  # left_join(select(ALC_idcrosswalk, siteid, ALCsite_id, type), by = c('siteid', 'caretype' = 'type')) %>% 
-  distinct()
+  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
+  mutate(lat = replace(lat, id == 33, 44.217317),
+         long = replace(long, id == 33, -76.527267)) # Lat/long incorrect in raw input data for Providence Care Hospital
 
 # Join postal code centroids to hospital postal code data
 pccfSlimHosp <- pccf %>%
