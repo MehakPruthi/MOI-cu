@@ -3154,10 +3154,10 @@ forecast_por <- treso_forecast_population_board %>%
 ### Step 1 - Run 2017 Base Model
 
 ```{r application of gravity model - step 1}
-
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/por_full.rds")
 pos_full <- readRDS("output/pos_full.rds")
+
 # Remove schools with status other than "Open" for modelling
 school_master <- readRDS("output/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
@@ -3182,100 +3182,27 @@ for (board_id in school_board_list) {
     prop_matrix <- readRDS(paste0("cache/cfunc_", segment_id, ".rds"))
     
     # Create pos vector
-    pos <- school_master %>% 
-      filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
-      select(treso.id.pos, otg) %>%
-      group_by(treso.id.pos) %>%
-      summarise(otg = sum(otg)) %>%
-      right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
-      replace_na(list(otg = 0)) %>%
-      arrange(treso.id.pos) %>%
-      column_to_rownames(var = "treso.id.pos") %>%
-      data.matrix()
+    pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
     
-    # Create por vector
     # Apply the board sampling probabilities to the student population from TRESO
-    treso_forecast_population_board <- treso_forecast_population %>%
-      left_join(select(board_type_sample_spread, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
-      group_by(treso.id.por, panel) %>%
-      summarise(
-        csduid = first(csduid),
-        csdname = first(csdname),
-        enrolment = sum(enrolment),
-        `English Catholic` = mean(`English Catholic`),
-        `English Public` = mean(`English Public`),
-        `French Catholic` = mean(`French Catholic`),
-        `French Public` = mean(`French Public`)
-      ) %>%
-      filter(!is.na(csdname)) %>%
-      # Create probability list for sample
-      unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
-      rowwise() %>%
-      mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
-      # Sample the different board types 
-      mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
-      mutate(`English Catholic` = sum(sample.result == "EC"),
-             `English Public` = sum(sample.result == "EP"),
-             `French Catholic` = sum(sample.result == "FC"),
-             `French Public` = sum(sample.result == "FP"))
-    
-    por <- treso_forecast_population_board %>% 
-      select(treso.id.por, panel, csduid, csdname, `English Catholic`:`French Public`) %>%
-      gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`) %>% 
-      filter(panel == panel_id, board_type_name == board_id) %>% 
-      select(treso.id.por, enrolment) %>% 
-      right_join(por_full, by=c("treso.id.por" = "orig")) %>% 
-      replace_na(list(enrolment = 0)) %>% 
-      arrange(treso.id.por) %>% 
-      column_to_rownames(var = "treso.id.por") %>% 
-      data.matrix()
+    treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                    board_type_sample = board_type_sample_spread) 
+    # Create forecast por vector
+    por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
+                                      panel_id=panel_id, board_id=board_id)
     
     print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
     
     # 1D balancing
     prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
+    
     trip_list <- reshape2::melt(prop_matrix_balanced) %>%
         arrange(Var1, Var2)
     colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
     
-    # Calculate the school weight
-    pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, new_school = NULL,
-                                                             year_id, panel_id, board_id)
-    print(paste0("For ", panel_id, "-", board_id, ", there are ",
-                nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
-                " TRESO zones with a single school, and ",
-                nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
-                " TRESO zones with multiple schools."))
-
-    # Apply bucket rounding to chunks of data by TRESO POS
-    results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
-    
-    # Convert the output of by() to a dataframe
-    results2 <- sapply(results, I)
-    colnames(results2) <- colnames(prop_matrix)
-    rownames(results2) <- rownames(prop_matrix)
-    
-    df <- reshape2::melt(results2) %>%
-        arrange(Var1, Var2)
-    colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
-    
-    # After combining with travel time, trip list can be shortened
-    df <- filter(df, enrolment.rounded != 0)
-    
-    # Combine the school weight and sample using the weight
-    trip_list <- left_join(df, pos_school_weight, by=c("treso.id.pos"))
-    
-    plan(multiprocess)
-    results <- future_apply(trip_list, 1, sample_by_row)
-    results_tb <- t(as.data.table(results))
-    trip_list_schools <- cbind(trip_list, results_tb)
-    
-    trip_list_schools_summary_2017 <- trip_list_schools %>% 
-        unnest(results_tb) %>%
-        mutate(enrol.value = 1) %>%
-        rename(sfis = results_tb) %>% 
-        group_by(sfis) %>% 
-        summarise(simulated.ade = sum(enrol.value))
+    # Produce the simulated ADE for each school
+    school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
+                                               year_id = year_id, panel_id = panel_id, board_id = board_id)
     
    break 
   }
@@ -3316,16 +3243,7 @@ for (board_id in school_board_list) {
     prop_matrix <- readRDS(paste0("cache/cfunc_", segment_id, ".rds"))
     
     # Create pos vector
-    pos <- school_master %>% 
-      filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
-      select(treso.id.pos, otg) %>%
-      group_by(treso.id.pos) %>%
-      summarise(otg = sum(otg)) %>%
-      right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
-      replace_na(list(otg = 0)) %>%
-      arrange(treso.id.pos) %>%
-      column_to_rownames(var = "treso.id.pos") %>%
-      data.matrix()
+    pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
     
     # Create por vector
     # Apply the board sampling probabilities to the student population from TRESO
