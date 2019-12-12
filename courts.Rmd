@@ -124,9 +124,9 @@ The age ranges for business lines are as follows:
 
 ```{r population rates for base year 2018}
 BASE_YEAR <- 2018
-WEIGHT_FACTOR <- "recent_year"
+WEIGHT_FACTOR <- "five_years"
 WEIGHT_CUSTOM = tibble("year" = c(2018, 2017, 2016, 2015, 2014),
-                       "weight" = c(1, 1, 1, 1, 1))
+                       "weight" = c(1, 1, 1, 1, 1)) 
 
 
 if (WEIGHT_FACTOR == "five_years") {
@@ -169,7 +169,7 @@ if (WEIGHT_FACTOR == "five_years") {
 }
 
 baseyear_rates <- court_rate %>% 
-  # Add the contribution of the multiple hospitals together
+  # Add the contribution of the multiple courthouses together
   group_by(cduid, cdname, casetypes) %>% 
   summarise(pop.rate = sum(pop.rate)) %>% 
   replace_na(list(pop.rate = 0)) %>% 
@@ -229,6 +229,10 @@ print(paste0("The calculated court hours is: ", (sum(filter(future_cases_bl_tres
 saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
 ```
 
+### Projecting for CD level demand - 2 approaches used for WSP to choose one
+#### Approach 1: CD is assumed as 1 large courthouse
+
+
 # Courtroom Required
 
 ```{r courtroom required}
@@ -263,6 +267,8 @@ future_needs <- readRDS("cache/mag/future_cases_bl.rds") %>%
                                  max.hours.dy,
                                  op.utilization)) %>% 
   mutate(courtrooms.needed = round(court.hours / (op.utilization * OP_DAYS), digits = 2))
+
+saveRDS(future_needs, "cache/mag/future_needs.rds")
            
   
 # Summarise to CD and Casetype level
@@ -287,7 +293,62 @@ courthouse_asset_with_projected_cd <- courthouse_asset %>%
   ungroup()
 
 saveRDS(courthouse_asset_with_projected_cd, "output/mag/courthouse_asset_with_projected_cd.rds")
+
+
+
+# Calculating utilization for CD level - 3 approaches used for WSP to choose one
+
+## Approach 1 - Calculate an average utilization by CD and model year
+cd_utilization_appr1 <- courthouse_asset_with_projected_cd %>% 
+  mutate(utilization_appr1 = courtrooms.needed/number.of.courtrooms.2018)
+
+## Approach 2 - Calculating utilization by weighting BL courtroom needs by BL courtroom hrs -- comment: this approach underestimated the need for courtrooms by order of magnitudes. It circumvents the results of the operational utilization graphs. not recommended for use
+cd_utilization_appr2 <- future_needs_cd_casetypes %>% 
+  group_by(cduid) %>% 
+  mutate(total = sum(courthours.needed)) %>% 
+  mutate(weight= courthours.needed/total) %>% 
+  mutate(adjst_courtrooms_needed = courtrooms.needed*weight) %>% 
+  select(-total, -weight) %>% 
+  summarise(cdname = first(cdname), adj_cd_courtroom_needs = sum(adjst_courtrooms_needed)) %>% 
+  mutate(adjst_courtroom_needs_rounded = round(adj_cd_courtroom_needs,0)) %>% 
+  left_join(select(courthouse_asset_with_projected_cd, number.of.courtrooms.2018, cduid), by = "cduid") %>% 
+  mutate(utilization_appr2 =adjst_courtroom_needs_rounded/number.of.courtrooms.2018)
+
+## Approach 3 - create a new 'general' operational utilization chart and assume each CD is one large courthouse:: comments: generates resonable estimates and close to the by casetype approach, however very slightly underestimates the results.
+
+###create a general rate using weighted means of the total sums of BL CDs
+cd_utilization_appr3_utilization_chart <- future_needs_cd_casetypes %>% 
+  group_by(casetypes) %>% 
+  summarise(courthours.needed = sum(courthours.needed)) %>% 
+  left_join(utilization_rate, by = "casetypes") %>% 
+  summarise(base.hrs.dy.weighted = weighted.mean(base.hours.dy, courthours.needed), inflect.hrs.dy.weighted = weighted.mean(inflect.hours.dy, courthours.needed), max.hrs.dy.weighted = weighted.mean(max.hours.dy, courthours.needed), inflect.hours.weighted = weighted.mean(inflect.hours, courthours.needed), max.hours.weighted = weighted.mean(max.hours, courthours.needed)) %>% 
+  rename(base.hours.dy = base.hrs.dy.weighted, inflect.hours.dy = inflect.hrs.dy.weighted, max.hours.dy = max.hrs.dy.weighted, inflect.hours = inflect.hours.weighted, max.hours = max.hours.weighted)
+
+###Apply the general rate to the sum of CD courthr totals
+cd_utilization_appr3 <- readRDS("cache/mag/future_cases_bl.rds") %>%
+  filter(year == MODEL_YEAR) %>% 
+  group_by(cduid, cdname, year) %>% 
+  summarise(court.hours = sum(court.hours)) %>% 
+  crossing(cd_utilization_appr3_utilization_chart) %>% 
+  mutate(op.utilization = 0) %>% 
+  mutate(op.utilization = ifelse(court.hours <= inflect.hours,
+                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours,
+                              op.utilization)) %>% 
+  mutate(op.utilization = ifelse(court.hours > inflect.hours & court.hours <= max.hours,
+                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours - inflect.hours)                                                       / (max.hours - inflect.hours)),
+                                 op.utilization)) %>% 
+  mutate(op.utilization = ifelse(court.hours > max.hours,
+                                 max.hours.dy,
+                                 op.utilization)) %>% 
+  mutate(courtrooms.needed = round(court.hours / (op.utilization * OP_DAYS), digits = 2)) %>% 
+  left_join(select(courthouse_asset_with_projected_cd, number.of.courtrooms.2018, cduid), by = "cduid") %>% 
+  mutate(utilization_appr3 =courtrooms.needed/number.of.courtrooms.2018) %>% 
+  left_join(select(cd_utilization_appr1, utilization_appr1, cduid), by="cduid")
+
+  
 ```
+
+
 
 # Demand Distribution
 
