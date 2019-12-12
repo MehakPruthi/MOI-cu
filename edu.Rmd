@@ -3443,60 +3443,152 @@ school_forecast <- filter(school_master, year == 2017) %>%
 
 # Create a POS vector with schools over OTG Threshold - pos_overfill
 pos_overfill <- school_forecast %>% 
-  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0),
-         overfill.ade = simulated.ade - otg.threshold) %>% 
+  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0)) %>% 
   filter(overfill.flag == 1) %>% 
-  select(treso.id.pos, overfill.ade) %>% 
+  select(treso.id.pos, overfill.flag) %>% 
   group_by(treso.id.pos) %>% 
-  summarise(overfill.ade = sum(overfill.ade)) %>% 
+  summarise(overfill.flag = max(overfill.flag)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>% 
-  replace_na(list(overfill.ade = 0)) %>% 
+  replace_na(list(overfill.flag = 0)) %>% 
   arrange(treso.id.pos) %>% 
   column_to_rownames(var = "treso.id.pos") %>% 
   data.matrix()
 
+# Calculate the total overfilled ADE
+overfill_ade <- school_forecast %>% 
+  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0),
+         overfill.ade = simulated.ade - otg.threshold) %>% 
+  filter(overfill.flag == 1) %>% 
+  select(overfill.ade) %>% 
+  sum()
+
 # Create a POS vector with schools under OTG Threshold - pos_underfill
 pos_underfill <- school_forecast %>% 
   mutate(underfill.flag = ifelse(simulated.ade <= otg.threshold, 1, 0)) %>% 
-  filter(underfill.flag == 1)
+  filter(underfill.flag == 1) %>% 
+  select(treso.id.pos, otg) %>% 
+  group_by(treso.id.pos) %>% 
+  summarise(otg = sum(otg)) %>% 
+  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>% 
+  replace_na(list(otg = 0)) %>% 
+  arrange(treso.id.pos) %>% 
+  column_to_rownames(var = "treso.id.pos") %>% 
+  data.matrix()
 
 # Apply pos_overfill to balanced matrix to obtain origin zones of the overflown schools
-prop_matrix_balanced
+por_overfill <- prop_matrix_balanced %*% pos_overfill %>% 
+  as_tibble(rownames = NA) %>% 
+  # scale the number of origin ADE to match the overflown ADE total
+  rownames_to_column(var = "treso.id.por") %>% 
+  group_by() %>% 
+  mutate(ade.overfill = overfill.flag * overfill_ade / sum(overfill.flag)) %>% 
+  ungroup() %>% 
+  select(treso.id.por, ade.overfill) %>% 
+  column_to_rownames(var = "treso.id.por") %>% 
+  data.matrix()
 
-# Summarize a POR vector of origins of schools over OTG Threshold - por_
+# Sanity check with the dot product operation
+print(paste0("The first element of por_overfill is: ", (prop_matrix_balanced %*% pos_overfill)[1,1]))
+print(paste0("Compare that with the sum of first column of prop_matrix_balanced: ", sum(prop_matrix_balanced[1,as.logical(pos_overfill)])))
 
-# Scale t
+print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which should be the same as the overfill_ade: ", overfill_ade))
 ```
 
+### Step 5 - Check the iterated results
 
-# Step 5 - Create final pos vector using simulated ADE
 ```{r application of gravity model - step 5}
+# Balance the por_overfill against pos_underfill schools to redistribute the overfilled ADE
+print(paste0("ADE is: ", sum(por_overfill), ". OTG is: ", sum(pos_underfill), "."))
+    
+# 1D balancing
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, constrained=TRUE)
+trip_list <- reshape2::melt(prop_matrix_balanced) %>%
+    arrange(Var1, Var2)
+colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
-school_forecast <- filter(school_master, year == 2017) %>% 
+# Calculate the school weight
+pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, new_school = NULL,
+                                                         year_id, panel_id, board_id)
+print(paste0("For ", panel_id, "-", board_id, ", there are ",
+            nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
+            " TRESO zones with a single school, and ",
+            nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
+            " TRESO zones with multiple schools."))
+
+# Apply bucket rounding to chunks of data by TRESO POS
+results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
+
+# Convert the output of by() to a dataframe
+results2 <- sapply(results, I)
+colnames(results2) <- colnames(prop_matrix)
+rownames(results2) <- rownames(prop_matrix)
+
+df <- reshape2::melt(results2) %>%
+    arrange(Var1, Var2)
+colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+
+# After combining with travel time, trip list can be shortened
+df <- filter(df, enrolment.rounded != 0)
+
+# Combine the school weight and sample using the weight
+trip_list <- left_join(df, pos_school_weight, by=c("treso.id.pos"))
+
+plan(multiprocess)
+results <- future_apply(trip_list, 1, sample_by_row)
+results_tb <- t(as.data.table(results))
+trip_list_schools <- cbind(trip_list, results_tb)
+
+trip_list_schools_summary_20xx_iterated <- trip_list_schools %>% 
+    unnest(results_tb) %>%
+    mutate(enrol.value = 1) %>%
+    rename(sfis = results_tb) %>% 
+    group_by(sfis) %>% 
+    summarise(simulated.ade = sum(enrol.value))
+
+# Create a school list of ADE overfill, so it can be removed in summary
+school_overfill_ade <- school_forecast %>% 
+  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0),
+         overfill.ade = simulated.ade - otg.threshold) %>% 
+  filter(overfill.flag == 1) %>% 
+  select(sfis, overfill.ade)
+
+trip_list_schools_summary_20xx_final <- full_join(trip_list_schools_summary_20xx,
+                                                  trip_list_schools_summary_20xx_iterated,
+                                                  by="sfis", suffix=c("", ".iteration")) %>% 
+  replace_na(list(simulated.ade = 0, simulated.ade.iteration = 0)) %>% 
+  mutate(simulated.ade = simulated.ade + simulated.ade.iteration) %>% 
+  select(-simulated.ade.iteration) %>% 
+  left_join(school_overfill_ade, by="sfis") %>% 
+  replace_na(list(overfill.ade = 0)) %>% 
+  mutate(simulated.ade = simulated.ade - overfill.ade) %>% 
+  select(-overfill.ade)
+
+# Take the difference between the simulated ADEs
+trip_list_schools_summary_difference <- full_join(trip_list_schools_summary_2017,
+                                                  trip_list_schools_summary_20xx_final, 
+                                                  by="sfis", suffix=c(".2017", ".20xx")) %>%
+  replace_na(list(simulated.ade.2017 = 0, simulated.ade.20xx = 0)) %>% 
+  mutate(change.ade = simulated.ade.20xx - simulated.ade.2017)
+
+school_forecast_final <- filter(school_master, year == 2017) %>% 
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0) %>% 
   filter(panel == panel_id, board_type_name == board_id) %>% 
   full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), by="sfis") %>% 
   replace_na(list(ade = 0, change.ade = 0)) %>% 
-  mutate(simulated.ade = ade + change.ade) %>% 
-  select(sfis, school.name, otg, ade, simulated.ade.2017, simulated.ade.20xx) %>% 
-  select(treso.id.pos, sfis, school.name, otg, ade, simulated.ade)
+  mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>% 
+  # Create OTG threshold based on user input
+  mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
+  select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
 
-pos <- school_forecast %>% 
-  select(treso.id.pos, simulated.ade) %>%
-  group_by(treso.id.pos) %>%
-  summarise(simulated.ade = sum(simulated.ade)) %>%
-  right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
-  replace_na(list(simulated.ade = 0)) %>%
-  arrange(treso.id.pos) %>%
-  column_to_rownames(var = "treso.id.pos") %>%
-  data.matrix()
-  
 ```
-
 
 ### Step 6 - Run 20xx Forecast Model with 2D constrained to the final ADE values to obtain OD pairs
 
 ```{r application of gravity model - step 5}
+# POR will remain the same
+
+# Create final POS with iterated ADE value
+
 # 2D balancing, scale the total to the POS side 
 prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="columns", rel_error = 0.01)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
