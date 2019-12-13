@@ -874,7 +874,6 @@ ALC_proj_csd <- proj_pop_control %>%
   mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario.year))) %>% 
   group_by(csduid) %>%
   mutate(ltc.csd.demand.days = sum(ltc.treso.demand.days)) %>%
-  # distinct(csduid, ltc.csd.demand.days) %>% 
   # Join to capacity data
   left_join(distinct(ltc_proj_homes, csduid, total.csd.beds, ltc.bed.days.cap), by = 'csduid') %>% 
   # Join to length-of-stay data
@@ -888,17 +887,37 @@ ALC_proj_csd <- proj_pop_control %>%
          csd.residual.patients = csd.patients.demand - csd.patients.cap) %>%
   mutate(cduid = substr(csduid, 1, 4)) %>% 
   ungroup() %>% 
-  distinct(cduid, total.csd.beds, ltc.bed.days.cap, csd.patients.demand, csd.patients.cap, ltc.csd.demand.days, csd.residual.alc.days, csd.residual.patients) %>%
+  distinct(cduid, csduid, total.csd.beds, ltc.bed.days.cap, avg.annual.los, csd.patients.demand, csd.patients.cap, ltc.csd.demand.days, csd.residual.alc.days, csd.residual.patients) %>%
 # Use the code below to sum to the CD level if desired
   # group_by(cduid) %>% 
   # mutate(total.cd.beds = sum(total.csd.beds), ltc.bed.days.cap.cd = sum(ltc.bed.days.cap), cd.patients.demand = sum(csd.patients.demand), cd.patients.cap = sum(csd.patients.cap), ltc.cd.demand.days = sum(ltc.csd.demand.days)) %>% 
-  # mutate(cd.residual.patients = max(cd.patients.demand - cd.patients.cap, 0),  
-  #        cd.residual.alc.days = max(ltc.cd.demand.days - ltc.bed.days.cap.cd, 0)) %>% 
+  # mutate(cd.residual.patients = cd.patients.demand - cd.patients.cap,  
+  #        cd.residual.alc.days = ltc.cd.demand.days - ltc.bed.days.cap.cd) %>% 
   # distinct(total.cd.beds, ltc.bed.days.cap.cd, cd.patients.demand, cd.patients.cap, ltc.cd.demand.days, cd.residual.patients, cd.residual.alc.days) %>% 
-  # ungroup() %>% 
-  mutate(sumDemandDays = sum(ltc.csd.demand.days), sumCapDays = sum(ltc.bed.days.cap), sumResidualDays = sum(csd.residual.alc.days)) # TODO: delete this row once working
-  #select(csduid, ltc.csd.demand.days:csd.residual.alc.patients) %>% 
-  #distinct()
+  # ungroup() %>%
+  # Set CD Length of Stay to be equal to CSD length of stay since length of stay is calculated at the LHIN level. This is used so that CDs/CSDs with no LTC capacity can have patient demand estimated as a function of their bed-days demand
+  group_by(cduid) %>%
+  mutate(avg.annual.los = replace_na(avg.annual.los, 0)) %>% 
+  mutate(avg.annual.los = max(avg.annual.los)) %>% 
+  mutate(csd.patients.cap = replace_na(csd.patients.cap, 0),
+         csd.patients.demand = replace_na(csd.patients.demand, 0)) %>%
+  mutate(csd.patients.cap = ifelse(csd.patients.cap == 0, ltc.bed.days.cap / avg.annual.los, csd.patients.cap),
+         csd.patients.demand = ifelse(csd.patients.demand == 0, ltc.csd.demand.days / avg.annual.los, csd.patients.demand)) %>%
+  mutate(ltc.cd.demand.days = sum(ltc.csd.demand.days), 
+         ltc.cd.bed.days.cap = sum(ltc.bed.days.cap), 
+         cd.patients.demand = sum(csd.patients.demand),
+         cd.patients.cap = sum(csd.patients.cap),
+         cd.residual.alc.days = sum(csd.residual.alc.days),
+         cd.residual.patients = sum(csd.residual.patients)) %>%
+  ungroup() %>% 
+  mutate(sumDemandDays = sum(ltc.csd.demand.days), sumCapDays = sum(ltc.bed.days.cap), sumResidualDays = sum(csd.residual.alc.days))
+
+# TODO: Delete this query when above code working
+# cd_avg_los <- ltc_los_per_year %>% 
+#   mutate(cduid = substr(csduid, 1, 4)) %>% 
+#   group_by(cduid) %>%
+#   mutate(cd.avg.los <- max(avg.annual.los)) %>% 
+#   ungroup()
 
 # This code is to run the ALC/LTC model using rates calculated at the CSD level; however, owing to extreme variability in rates calculated from CD to CD (let alone CSD to CSD) owing to 'uneven' facility distributions, this code should not be used unless another level of geography (e.g., LHINs) can be used to disaggregate provincial rates such that they appear within the bounds of reason at the disaggregated level.
 
@@ -919,14 +938,14 @@ ALC_proj_csd <- proj_pop_control %>%
 # }
 
 # ALC PROJECTION TO HOPSITALS FROM CSD TOTALS USING MARKETSHARE
-ALC_proj_hosp <- ALC_hosp_vol %>%
-  filter(year == max(year)) %>% 
-  mutate(year = scenario.year) %>% 
-  select(-agecluster, -hosp.alc.patients, -hosp.alc.days, avg.los) %>% 
-  left_join(select(ALC_proj_csd, csduid, csd.residual.alc.days, csd.residual.alc.patients), by = c('csduid')) %>% 
-  group_by(id) %>% 
-  mutate(proj.alc.patients = csd.residual.alc.patients * hosp.alc.mrkt,
-         proj.alc.beddays = csd.residual.alc.days * hosp.alc.mrkt)
+# ALC_proj_hosp <- ALC_hosp_vol %>%
+#   filter(year == max(year)) %>% 
+#   mutate(year = scenario.year) %>% 
+#   select(-agecluster, -hosp.alc.patients, -hosp.alc.days, avg.los) %>% 
+#   left_join(select(ALC_proj_csd, csduid, csd.residual.alc.days, csd.residual.alc.patients), by = c('csduid')) %>% 
+#   group_by(id) %>% 
+#   mutate(proj.alc.patients = csd.residual.alc.patients * hosp.alc.mrkt,
+#          proj.alc.beddays = csd.residual.alc.days * hosp.alc.mrkt)
 
 }
 ```
