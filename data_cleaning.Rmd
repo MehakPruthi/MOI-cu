@@ -808,16 +808,6 @@ hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
   mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
   filter(agegroup != 7)
 
-# ## Identifying Duplicated Site IDs
-# duplicated_siteid <- HBAMhistorical %>% 
-#   filter(year == 2016) %>%
-#   group_by(siteid, caretype) %>%
-#   distinct(siteid) %>% 
-#   ungroup(caretype) %>% 
-#   add_count(siteid) %>% 
-#   filter(n > 1) %>% 
-#   distinct(siteid)
-
 # Health Asset Inventory
 hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
   spread(key = DatasetId, value = 'Master Number') %>% 
@@ -844,12 +834,22 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
          datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
          datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
          datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
-  group_by(pcode, name) %>% 
+  group_by(pcode) %>% 
   mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
   ungroup() %>% 
   mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
+  # Choose first name in list for each hospital
+  group_by(id) %>% 
+  mutate(name = first(name)) %>% 
+  ungroup() %>% 
+  # Lat/long incorrect in raw input data for Providence Care Hospital
   mutate(lat = replace(lat, id == 33, 44.217317),
-         long = replace(long, id == 33, -76.527267)) # Lat/long incorrect in raw input data for Providence Care Hospital
+         long = replace(long, id == 33, -76.527267))
+
+# TODO: Delete when code working
+a <- 1239
+hosploc <- hospitallocations %>% 
+  filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
 
 # Join postal code centroids to hospital postal code data
 pccfSlimHosp <- pccf %>%
@@ -1128,24 +1128,24 @@ CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>%
 saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
 
 #Test SiteID/Fac ID Linkages
-ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+#ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
 
 #Identify Mismatched Site IDs
-ALC_mismatchedids <- ALC_idlinkage %>% 
-  filter(is.na(type))
-
-ALC_mismatchedids %>% 
-  group_by(type) %>%
-  count()
-
-ALC_idlinkage %>% 
-  count(type %in% lhin.moh)
-
-#Filter out Mismatched IDs
-hospital_ALC_master <- ALC_idlinkage %>% 
-  filter(!is.na(type)) %>% 
-  group_by(siteid, facilityid, type, name.moh) %>% 
-  distinct()
+# ALC_mismatchedids <- ALC_idlinkage %>% 
+#   filter(is.na(type))
+# 
+# ALC_mismatchedids %>% 
+#   group_by(type) %>%
+#   count()
+# 
+# ALC_idlinkage %>% 
+#   count(type %in% lhin.moh)
+# 
+# #Filter out Mismatched IDs
+# hospital_ALC_master <- ALC_idlinkage %>% 
+#   filter(!is.na(type)) %>% 
+#   group_by(siteid, facilityid, type, name.moh) %>% 
+#   distinct()
 
 #LTC Facility Data
 ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
