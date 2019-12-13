@@ -18,7 +18,7 @@ library(tictoc)
 library(gridExtra)
 library(future.apply)
 library(FNN)
-# source('helpers.r')
+source('helpers.r')
 ```
 
 ## Import Relevant Files
@@ -512,8 +512,9 @@ ltc.op.days = 365 # Set operating days at LTC facilities; set based on observed 
 ltc_homes_csd <- ltc_homes %>% 
   group_by(csduid, csdname) %>% 
   summarise(csd.ltc.patients = sum(beds)) %>% 
-  mutate(ltc.bed.days.cap = csd.ltc.patients * op.days,
-         csdname = toupper(csdname))
+  mutate(ltc.bed.days.cap = csd.ltc.patients * ltc.op.days,
+         csdname = toupper(csdname)) %>% 
+  ungroup()
 
 saveRDS(ltc_homes_csd, file = 'cache/moh/ltc_homes_csd.rds')
 
@@ -670,10 +671,11 @@ ALC_hosp_vol_disag <- ALC_madd_clean_disag %>%
   mutate(agecluster = ifelse(agegroup == 1, 'ped', 
                              ifelse(agegroup %in% 2:4, 'ad',
                                     ifelse(agegroup %in% 5:6, 'sr')))) %>% 
-  ungroup() %>% 
-  group_by(siteid) %>% # TODO: Remove this line
-  filter(year == 2016) %>% # TODO: Remove this line
-  mutate(siteCount = n()) # TODO: Remove this line
+  ungroup()
+  # This code checks for number of hospitals when incorporated into ALC_hosp_vol - can be removed if code working
+  # group_by(siteid) %>% # TODO: Remove this line
+  # filter(year == 2016) %>% # TODO: Remove this line
+  # mutate(siteCount = n()) # TODO: Remove this line
 
 saveRDS(ALC_hosp_vol_disag, file = 'cache/moh/ALC_hospitals_disaggregated.rds')
   
@@ -701,13 +703,6 @@ ALC_summary <- ALC_hosp_vol_disag %>%
 ALC_hosp_vol <- ALC_hosp_vol_disag %>% 
   left_join(hospital_lookup_ALC, by = c('siteid' = 'ALCsite_id')) %>%
   filter(!is.na(csduid)) %>% # Double-check in case any ALC sites don't match to Hospital PAI or master list
-  filter(year == 2016) %>% # TODO: Remove this line
-  mutate(sumDays = sum(adj.hosp.days.tot)) %>% # TODO: Remove this line
-  group_by(siteid) %>% # TODO: Remove this line
-  mutate(siteCountCheck = n()) %>% # TODO: Remove this line
-  mutate(siteCountdiff = siteCountCheck - siteCount) %>% # TODO: Remove this line 
-  filter(siteCountdiff > 0) %>% # TODO: Remove this line
-  distinct(siteid, id, siteCountdiff) # TODO: Remove this line
   group_by(year, id, agecluster) %>% 
   mutate(hosp.alc.patients = sum(patients),
             hosp.alc.days = sum(adj.hosp.days.tot),
@@ -715,12 +710,12 @@ ALC_hosp_vol <- ALC_hosp_vol_disag %>%
   group_by(year, csduid) %>% 
   mutate(hosp.alc.mrkt = hosp.alc.days / sum(hosp.alc.days)) %>% #MARKET-SHARE OF HOSPITAL ALC DAYS TO CSD TOTAL DAYS
   ungroup() %>% 
-  distinct(year, id, name = name.y, csduid, csdname, agecluster, hosp.alc.patients, hosp.alc.days, avg.los, hosp.alc.mrkt)
+  distinct(year, id, name = name.x, csduid, csdname, agecluster, hosp.alc.patients, hosp.alc.days, avg.los, hosp.alc.mrkt)
 
 saveRDS(ALC_hosp_vol, file = 'cache/moh/ALC_hospital_volumes.rds')
 
-# CALCULATE ALC DEMAND AT THE CSD LEVEL COMPRISING THE SUM OF ALC BEDS/BEDDAYS FOR EACH AGECLUSTER; JOINING LTC CAPACITY DATA FROM LTC-HOMES DATASET
-ALC_csd_vol <- ALC_hosp_vol %>%
+# Calculate the percentage of ALC days used by agecluster == adult vs. agecluster == senior; JOINING LTC CAPACITY DATA FROM LTC-HOMES DATASET
+ALC_csd_vol_join <- ALC_hosp_vol %>%
   group_by(year, csduid, agecluster, csdname) %>% 
   summarise_at(vars(hosp.alc.patients:hosp.alc.days), sum) %>%
   rename(csd.alc.patients = hosp.alc.patients,
@@ -729,27 +724,75 @@ ALC_csd_vol <- ALC_hosp_vol %>%
   mutate(csd.alc.days.sum.ages = sum(csd.alc.days), csd.alc.patients.sum.ages = sum(csd.alc.patients)) %>% 
   mutate(csd.alc.days.percent.ages = csd.alc.days / csd.alc.days.sum.ages, csd.alc.patients.percent.ages = csd.alc.patients / csd.alc.patients.sum.ages) %>% 
   mutate(csdname = toupper(csdname)) %>% 
-  left_join(ltc_homes_csd, by = c('csduid', 'csdname')) %>%
+  # Full join to ltc_homes_csd since there may be CSDs with hospitals but no LTC facilities, and vice versa
+  full_join(ltc_homes_csd, by = c('csduid')) %>%
   # Split existing LTC patients along hospital observed proportions in terms of ageclusters, then sum total by CSD
   mutate(csd.ltc.patients = replace_na(csd.ltc.patients, 0),
          ltc.bed.days.cap = replace_na(ltc.bed.days.cap, 0),
-         csd.demand.days.ages = round(ltc.bed.days.cap * csd.alc.days.percent.ages + csd.alc.days, 0),
+         csd.alc.days = replace_na(csd.alc.days, 0), # Replace NA values for CSDs w/ LTC facilities but no hospital ALC days
+         csd.alc.patients = replace_na(csd.alc.patients, 0), # Replace NAs for CSDs w/ LTC but no hospital ALC patients
+         csd.alc.days.percent.ages = replace_na(csd.alc.days.percent.ages, 0), # Replace NA values for CSDs w/ no hospital ALC
+         csd.alc.patients.percent.ages = replace_na(csd.alc.patients.percent.ages, 0)) %>% # Replace NAs for CSDs w/ no hosp. ALC
+  ungroup() %>% 
+  filter(is.na(csduid) == FALSE) %>%
+  mutate(csdname = ifelse(is.na(csdname.x), csdname.y, csdname.x)) %>% 
+  select(-csdname.x, -csdname.y)
+
+# Calculate average % breakdown for agecluster = senior vs. agecluster = adult for CSDs where there ARE hospitals with ALC patients
+ALC_LTC_age_breakdown <- ALC_csd_vol_join %>%
+  filter(is.na(agecluster) == FALSE) %>% 
+  group_by(year, agecluster) %>%  
+  mutate(sum.alc.days = sum(csd.alc.days), sum.alc.patients = sum(csd.alc.patients)) %>% 
+  group_by(year) %>% 
+  mutate(prov.alc.days.percent = sum.alc.days / sum(csd.alc.days), 
+         prov.alc.patients.percent = sum.alc.patients / sum(csd.alc.patients)) %>% 
+  select(year, agecluster, prov.alc.days.percent, prov.alc.patients.percent) %>% 
+  distinct()
+
+  # CSDs with LTC capacity but not hospital ALC capacity do not have an inherent split into age clusters; simulate this split by creating a dataframe with CSDs, LTC capacity, and ageclusters for use in next query
+ALC_LTC_csd_ageclusters <- ALC_csd_vol_join %>% 
+  filter(is.na(agecluster))
+
+agelist <- c('ad', 'sr')
+yearlist <- c(2013, 2014, 2015, 2016) # List of historical years during which LTC beds in CSDs with no hospital ALC 
+
+ALC_LTC_csd_age_cross <- crossing(ALC_LTC_csd_ageclusters, agelist, yearlist) %>% 
+  select(csduid, agecluster = agelist, year = yearlist)
+  
+  # Clean up ALC_csd_vol_join and calculate ALC demand at the CSD level by summing ALC beds/bed-days plus LTC beds/bed-days for each age cluster
+ALC_csd_vol <- ALC_csd_vol_join %>% 
+  left_join(ALC_LTC_csd_age_cross, by = c('csduid')) %>% 
+  mutate(agecluster.x = ifelse(is.na(agecluster.x), agecluster.y, agecluster.x)) %>%
+  rename(agecluster = agecluster.x) %>% 
+  select(-agecluster.y) %>% 
+  mutate(year.x = ifelse(is.na(year.x), year.y, year.x)) %>%
+  rename(year = year.x) %>% 
+  select(-year.y) %>% 
+  # Join in average % breakdown for agecluster = senior vs. agecluster = adult for use in CSDs where there are no hospitals with ALC patients and therefore cannot calculate a CSD-specific breakdown
+  left_join(ALC_LTC_age_breakdown, by = c('year', 'agecluster')) %>% 
+  # Calculate total ALC demand (ALC days observed plus LTC days)
+  group_by(year, csduid) %>% 
+  mutate(csd.alc.days.percent.ages = ifelse(csd.alc.days.percent.ages > 0, csd.alc.days.percent.ages, prov.alc.days.percent),
+         csd.alc.patients.percent.ages = ifelse(csd.alc.patients.percent.ages > 0, csd.alc.patients.percent.ages, prov.alc.patients.percent)) %>% 
+  mutate(csd.demand.days.ages = round(ltc.bed.days.cap * csd.alc.days.percent.ages + csd.alc.days, 0),
          csd.demand.patients.ages = round(csd.ltc.patients * csd.alc.patients.percent.ages + csd.alc.patients, 0),
          csd.demand.days.total = sum(csd.demand.days.ages),
          csd.demand.patients.total = sum(csd.demand.patients.ages)) %>% 
-  ungroup()
+  ungroup() 
 
-# ADD TRESO-LEVEL DISAGGREGATIONS BY FIRST JOINING IN CORRESPONDING CSD-TRESO LIST AND THEN TAKING THE PROPORTION OF TRESO POPULATION TO TOTAL CSD POPULATION
-ALC_treso <- ALC_csd_vol %>% 
-  left_join(select(treso_population_long, treso_zone, csduid, age_cluster, treso.population.agecluster, year), by = c('year','csduid', 'agecluster' = 'age_cluster')) %>%
-  distinct() %>% 
-  group_by(year, csduid, agecluster) %>%
-  mutate(csd.age.pop = sum(treso.population.agecluster),
-         treso.csd.pop.perc = treso.population.agecluster / csd.age.pop,
-         treso.csd.dem.patients = csd.demand.patients.total * treso.csd.pop.perc,
-         treso.csd.dem.patients = replace_na(treso.csd.dem.patients, 0),
-         treso.csd.dem.days = csd.demand.days.total * treso.csd.pop.perc) %>% 
-  ungroup()
+# TODO: Ask Nour: Do we need this query? Not used anywhere.
+# # ADD TRESO-LEVEL DISAGGREGATIONS BY FIRST JOINING IN CORRESPONDING CSD-TRESO LIST AND THEN TAKING THE PROPORTION OF TRESO POPULATION TO TOTAL CSD POPULATION
+# ALC_treso <- ALC_csd_vol %>% 
+#   # Use a full join in case there are CSDs with no hospitals or LTC facilities. In theory there should be no CSDs with hospitals or LTC facilities that have no population, in which case this functions as a right_join, but use full_join as double-check.
+#   full_join(select(treso_population_long, treso_zone, csduid, age_cluster, treso.population.agecluster, year), by = c('year','csduid', 'agecluster' = 'age_cluster')) %>%
+#   distinct() %>% 
+#   group_by(year, csduid, agecluster) %>%
+#   mutate(csd.age.pop = sum(treso.population.agecluster),
+#          treso.csd.pop.perc = treso.population.agecluster / csd.age.pop,
+#          treso.csd.dem.patients = csd.demand.patients.total * treso.csd.pop.perc,
+#          treso.csd.dem.patients = replace_na(treso.csd.dem.patients, 0),
+#          treso.csd.dem.days = csd.demand.days.total * treso.csd.pop.perc) %>% 
+#   ungroup()
 
 # CSD/CD rates not particularly meaningful given the huge variation from one CSD/CD to the next; use provincial average values, disaggregated by agecluster, for ALC rates per population.
 ALC_csd_rates <- treso_population_long %>%
@@ -780,21 +823,22 @@ ALC_prov_rate <- ALC_csd_rates %>%
 ###Forecasting-Year Calculation
 ```{r}
 # RECALL PROJ_YEAR AND op.days FROM ABOVE
-scenario.year <- 2016 # TODO: Replace with user-defined input from visualization tool
+scenario.year <- 2025 # TODO: Replace with user-defined input from visualization tool
 
 # Number of beds added by CSD
 # TODO: Replace with user-defined input from visualization tool
-new_ltc_cap_csd <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0))
+new_ltc_cap_csd <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 8000))
 
 # Converts annual turnover into length of stay (days) WITHIN a given calendar year --> this does not imply the average length of stay overall is less than a year. However, WITHIN a given year, the length of stay tops out at 365 days.
 ltc_los_per_year = ltc_turnover_raw %>% 
-  mutate(avg.annual.los = 1 / (1 + system.turnover.2018) * op.days) %>% 
+  mutate(avg.annual.los = 1 / (1 + system.turnover.2018) * ltc.op.days) %>% 
   left_join(distinct(hospitallocations_tz, lhin, csduid), by = c('lhin')) %>% 
   # This function fails for Toronto's CSD (3520005) which is associated with several LHINs; assume associated with LHIN 7 for purposes of length of stay evaluation
   mutate(csd.lhin.concat = paste(lhin, csduid, sep = '_')) %>% 
   filter(csd.lhin.concat != '5_3520005', csd.lhin.concat != '6_3520005', csd.lhin.concat != '8_3520005', csd.lhin.concat != '9_3520005', csd.lhin.concat != '10_3520005') %>% 
   select(-csd.lhin.concat)
 
+# This if function tests if the year is 2016 (with known historical data) or a future year. When it is 2016, it pulls actual historical ALC days. When it is a future year, it estimates ALC demand based on population growth and rates observed
 if (scenario.year == 2016) {
   ALC_proj_hosp <- ALC_hosp_vol %>% 
     group_by(year, id, name, agecluster, csduid, csdname) %>% 
@@ -805,13 +849,14 @@ if (scenario.year == 2016) {
 } else {
   
 # Calculate capacity of LTC by CSD, including any additional beds added by visualization tool user
+# When running this set of queries for 2016, the model returns LTC demand days ()
 ltc_proj_homes <- ltc_homes %>% 
   group_by(csduid) %>%
   mutate(existing.csd.beds = sum(beds)) %>% 
   left_join(select(new_ltc_cap_csd, csduid, added.ltc.cap), by = c('csduid')) %>% 
   mutate(added.ltc.cap = replace_na(added.ltc.cap, 0)) %>% 
   mutate(total.csd.beds = existing.csd.beds + added.ltc.cap,
-         ltc.bed.days.cap = total.csd.beds * op.days) %>% 
+         ltc.bed.days.cap = total.csd.beds * ltc.op.days) %>% 
   ungroup() %>% 
   mutate(csdname = toupper(csdname)) %>%
   mutate(sumBeds = sum(beds))
@@ -824,7 +869,7 @@ proj_pop_control <- treso_population_moh %>%
   summarise_at(vars(paste0("population.", scenario.year)), sum)
    
 # Calculate ALC demand as a function of population growth, join to capacity
-ALC_proj_csd <- proj_pop_control %>% 
+ALC_proj_csd <- proj_pop_control %>%
   left_join(select(ALC_prov_rate, agecluster, prov.alc.rate.ages), by = c('agecluster')) %>% 
   mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario.year))) %>% 
   group_by(csduid) %>%
@@ -837,30 +882,23 @@ ALC_proj_csd <- proj_pop_control %>%
   group_by(csduid) %>% 
   mutate(total.csd.beds = replace_na(total.csd.beds, 0), 
          ltc.bed.days.cap = replace_na(ltc.bed.days.cap, 0),
-         csd.residual.alc.days = max(ltc.csd.demand.days - ltc.bed.days.cap, 0),
+         csd.residual.alc.days = ltc.csd.demand.days - ltc.bed.days.cap,
          csd.patients.demand = ltc.csd.demand.days / avg.annual.los,
          csd.patients.cap = ltc.bed.days.cap / avg.annual.los,
-         csd.residual.patients = max(csd.patients.demand - csd.patients.cap, 0)) %>%
+         csd.residual.patients = csd.patients.demand - csd.patients.cap) %>%
   mutate(cduid = substr(csduid, 1, 4)) %>% 
   ungroup() %>% 
-  distinct(cduid, total.csd.beds, ltc.bed.days.cap, csd.patients.demand, csd.patients.cap, ltc.csd.demand.days) %>%
-  group_by(cduid) %>% 
-  mutate(total.cd.beds = sum(total.csd.beds), ltc.bed.days.cap.cd = sum(ltc.bed.days.cap), cd.patients.demand = sum(csd.patients.demand), cd.patients.cap = sum(csd.patients.cap), ltc.cd.demand.days = sum(ltc.csd.demand.days)) %>% 
-  mutate(cd.residual.patients = max(cd.patients.demand - cd.patients.cap, 0),  
-         cd.residual.alc.days = max(ltc.cd.demand.days - ltc.bed.days.cap.cd, 0)) %>% 
-  distinct(total.cd.beds, ltc.bed.days.cap.cd, cd.patients.demand, cd.patients.cap, ltc.cd.demand.days, cd.residual.patients, cd.residual.alc.days) %>% 
-  ungroup() %>% 
-  mutate(sumDemandDays = sum(ltc.cd.demand.days), sumCapDays = sum(ltc.bed.days.cap.cd))
+  distinct(cduid, total.csd.beds, ltc.bed.days.cap, csd.patients.demand, csd.patients.cap, ltc.csd.demand.days, csd.residual.alc.days, csd.residual.patients) %>%
+# Use the code below to sum to the CD level if desired
+  # group_by(cduid) %>% 
+  # mutate(total.cd.beds = sum(total.csd.beds), ltc.bed.days.cap.cd = sum(ltc.bed.days.cap), cd.patients.demand = sum(csd.patients.demand), cd.patients.cap = sum(csd.patients.cap), ltc.cd.demand.days = sum(ltc.csd.demand.days)) %>% 
+  # mutate(cd.residual.patients = max(cd.patients.demand - cd.patients.cap, 0),  
+  #        cd.residual.alc.days = max(ltc.cd.demand.days - ltc.bed.days.cap.cd, 0)) %>% 
+  # distinct(total.cd.beds, ltc.bed.days.cap.cd, cd.patients.demand, cd.patients.cap, ltc.cd.demand.days, cd.residual.patients, cd.residual.alc.days) %>% 
+  # ungroup() %>% 
+  mutate(sumDemandDays = sum(ltc.csd.demand.days), sumCapDays = sum(ltc.bed.days.cap), sumResidualDays = sum(csd.residual.alc.days)) # TODO: delete this row once working
   #select(csduid, ltc.csd.demand.days:csd.residual.alc.patients) %>% 
   #distinct()
-
-mutate(total.csd.beds = replace_na(total.csd.beds, 0), 
-         ltc.bed.days.cap = replace_na(ltc.bed.days.cap, 0),
-         csd.residual.alc.days = max(ltc.csd.demand.days - ltc.bed.days.cap, 0),
-         csd.patients.demand = ltc.csd.demand.days / avg.annual.los,
-         csd.patients.cap = ltc.bed.days.cap / avg.annual.los,
-         csd.residual.patients = max(csd.patients.demand - csd.patients.cap, 0))
-
 
 # This code is to run the ALC/LTC model using rates calculated at the CSD level; however, owing to extreme variability in rates calculated from CD to CD (let alone CSD to CSD) owing to 'uneven' facility distributions, this code should not be used unless another level of geography (e.g., LHINs) can be used to disaggregate provincial rates such that they appear within the bounds of reason at the disaggregated level.
 
@@ -880,7 +918,7 @@ mutate(total.csd.beds = replace_na(total.csd.beds, 0),
 #   distinct()
 # }
 
-#ALC PROJECTION TO HOPSITALS FROM CSD TOTALS USING MARKETSHARE
+# ALC PROJECTION TO HOPSITALS FROM CSD TOTALS USING MARKETSHARE
 ALC_proj_hosp <- ALC_hosp_vol %>%
   filter(year == max(year)) %>% 
   mutate(year = scenario.year) %>% 
@@ -891,29 +929,7 @@ ALC_proj_hosp <- ALC_hosp_vol %>%
          proj.alc.beddays = csd.residual.alc.days * hosp.alc.mrkt)
 
 }
-
 ```
-
-<!-- ### Intermediate step for using CSD-rate instead of provincial rate for ALC demand -->
-
-<!-- ```{r} -->
-<!-- #INTERMEDIATE CSD-RATE CALCULATION -->
-<!-- ALC_proj_csd <- proj_pop_control %>% -->
-<!--   mutate(cduid = substr(csduid, 1, 4)) %>% -->
-<!--   left_join(select(ALC_rates, treso_zone, csduid, cduid, csd.alc.rate, cd.alc.rate), by = c('treso_zone', 'csduid', 'cduid')) %>%  -->
-<!--   mutate(ltc.treso.demand.days = ifelse(csd.alc.rate == 0 | is.na(csd.alc.rate),  -->
-<!--                                         (get(paste0("population.", PROJ_YEAR_ALC)) * cd.alc.rate * LTC_ALOS), -->
-<!--                                         (get(paste0("population.", PROJ_YEAR_ALC)) * csd.alc.rate * LTC_ALOS))) %>%  -->
-<!--   group_by(csduid) %>%  -->
-<!--   mutate(ltc.csd.demand.days = sum(ltc.treso.demand.days)) %>%  -->
-<!--   left_join(select(ltc_homes_csd, csduid, csd.ltc.patients, ltc.bed.days), by = 'csduid') %>%  -->
-<!--   mutate(csd.ltc.patients = replace_na(csd.ltc.patients, 0), #REPLACE CSD'S W/ ZERO LTC CAPACITY -->
-<!--          ltc.bed.days = replace_na(ltc.bed.days, 0), -->
-<!--          csd.residual.alc.days = ifelse(ltc.csd.demand.days - ltc.bed.days > 0, ltc.csd.demand.days - ltc.bed.days, 0), -->
-<!--          csd.residual.alc.patients = csd.residual.alc.days / LTC_ALOS) %>%  -->
-<!--   select(csduid, ltc.csd.demand.days:csd.residual.alc.patients) %>%  -->
-<!--   distinct() -->
-<!-- ``` -->
 
 
 
