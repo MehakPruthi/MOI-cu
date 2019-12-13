@@ -1,3 +1,13 @@
+# unnest in tidyr 1.0.0 currently has slow-down issues
+# https://github.com/tidyverse/tidyr/issues/694
+# So using the legacy unnest for now.
+if (exists("unnest_legacy", where="package:tidyr", mode="function")) {
+  unnest <- unnest_legacy
+}
+
+if (exists("nest_legacy", where="package:tidyr", mode="function")) {
+  nest <- nest_legacy
+}
 
 convertDegrees <- function(deg) {
   #' Convert degrees to radians
@@ -41,7 +51,7 @@ haverFunctionManhattan <- function(lat1, lon1, lat2, lon2) {
   #' @param lat2 Latitude value of the second point
   #' @param lon2 Longitude value of the second point
   #' @return Manhattan distance in KM between the two points
-  
+
   # Determine 'corner' point in Pythagorean triangle by assiging lat, lon from other points
   lat3 <- lat1
   lon3 <- lon2
@@ -76,7 +86,7 @@ balance <- function(matrix, tot, axis) {
   return(matrix2)
 }
 
-calc_error <- function(matrix, a, b) {  
+calc_error <- function(matrix, a, b) {
   #' Error calculation function
   #' 
   #' @param matrix The matrix
@@ -150,6 +160,7 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
   
   return(matrix2)
 }
+
 
 matrix_balancing_2d <- function(matrix, a, b, totals_to_use="raise", max_iterations=10000, rel_error=0.0001) {
   #' Two dimensional balances a matrix
@@ -368,7 +379,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
     school_list_master <- school_list_master %>% 
       bind_rows(new_school)
   }
-
+  
   # Filter school list based on panel and board type
   school_list_master <- school_list_master %>%
     filter(year == year_id, panel == panel_id, board_type_name == board_id)
@@ -408,7 +419,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
     summarise(
       sfis.list = paste(sfis, collapse = ","),
       school.name.list = paste(school.name, collapse = ","),
-      dsb.index.ist = paste(dsb.index, collapse = ","),
+      dsb.index.list = paste(dsb.index, collapse = ","),
       school.weight.prob.list = paste(school.weight.prob, collapse = ",")
     ) %>%
     rowwise() %>%
@@ -481,6 +492,8 @@ smart_round <- function(x, digits = 0) {
 sample_by_row <- function(row) {
   x <- row["sfis.list"][[1]]
   size <- row["enrolment.rounded"][[1]]
+  
+  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
   
   if (length(x) == 1) {
     # Quirk 
@@ -661,7 +674,7 @@ create_school_xy_from_school <- function(school_sfis) {
 create_school_xy_simple <- function(school_sfis) {
   '
   This function differs from `create_school_xy` in that this takes in the school dataframe
-  without the catchment distnace. This function differs from `create_school_xy_from_schools` 
+  without the catchment distnace. This function differs from `create_school_xy_from_schools`
   in that it pulls different metadata fields.
   
   input: Dataframe of school with lat long
@@ -684,7 +697,30 @@ create_school_xy_simple <- function(school_sfis) {
   return(school_xy)
 }
 
-# Spatial gymnastics to find the matching TRESO zone for student or school XY locations
+create_court_xy <- function(court_master) {
+  '
+  This function takes in the court dataframe. 
+  
+  input: Dataframe of court with lat long
+  output: SpatialPointsDataFrame of each court
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  court_spdf <- court_master %>%
+    ungroup() %>%
+    select(bid, courthouse.lat, courthouse.long) %>%
+    mutate(lat = courthouse.lat, long = courthouse.long) %>%
+    mutate(id = row_number())
+  coordinates(court_spdf) <- c('long', 'lat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(court_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  court_xy <- spTransform(court_spdf, CRS(treso_projarg))
+  
+  return(court_xy)
+}
+
 create_overlay <- function(xy_location, treso_shp, type = 'student') {
   '
   This function takes the SpatialPointsDataFrame of either school or students and maps the
@@ -730,21 +766,36 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
             sfis = xy_location@data$sfis) %>%
       as_tibble() %>%
       select(Treso_ID, sfis, school.lat, school.long) %>%
-      rename(
-        treso.id.pos = Treso_ID
-      )
+      rename(treso.id.pos = Treso_ID)
+  }
+  else if (type == 'court') {
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(lat = xy_location@data$courthouse.lat,
+            long = xy_location@data$courthouse.long,
+            bid = xy_location@data$bid) %>%
+      as_tibble() %>%
+      mutate(bid = as.character(bid)) %>%  
+      select(Treso_ID, bid, lat, long) %>%
+      rename(treso.id.pos = Treso_ID)
   }
   else if (type == 'marker') {
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>% 
       cbind(., school.name = xy_location@data$school.name,
             year = xy_location@data$year,
             sfis = xy_location@data$sfis,
+            dsb.index = xy_location@data$dsb.index,
+            school.lat = xy_location@data$school.lat,
+            school.long = xy_location@data$school.long,
             board_type_name = xy_location@data$board_type_name,
+            board.name = xy_location@data$board.name,
             panel = xy_location@data$panel,
             otg = xy_location@data$otg) %>% 
       as_tibble() %>%
-      mutate(school.name = as.character(school.name), board_type_name = as.character(board_type_name), panel = as.character(panel)) %>% 
-      select(Treso_ID, school.name, year, sfis, board_type_name, panel, otg) %>% 
+      mutate(year = as.integer(as.character(year)), school.name = as.character(school.name),
+             board.name = as.character(board.name),
+             board_type_name = as.character(board_type_name), panel = as.character(panel)) %>% 
+      select(Treso_ID, year, dsb.index, school.name, school.lat, school.long, sfis, board.name, board_type_name, panel, otg) %>% 
       rename(treso.id.pos = Treso_ID)
   }
   
@@ -842,3 +893,132 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   
   return(school_tb)
 }
+
+getUtilizationColor <- function(value) {
+  sapply(value, function(value) {
+    if (value <= 0.75) {
+      "green"
+    } else if (value > 0.75 & value < 1.0) {
+      "orange"
+    } else {
+      "red"
+    }
+  })
+}
+
+utility_rename <- function(x) {
+  #' Rename columns by taking in x and adding "courtrooms.needed." as a prefix to x
+  #' 
+  #' @param x The string to be renamed
+  #' @return Renamed string
+  name = paste0("courtrooms.needed.", x)
+}
+
+courtroom_size <- function(courtrooms) {
+  # Determine appropriate area per courtroom as a function of number of courtrooms in a courthouse
+  
+  # Gross Area for smallest courthouses: 1,600 sqm per courtroom
+  courtroom_count_min = 1
+  area_max_sqm = 1600
+  
+  # Gross Area for largest courthouses: 1,200 sqm per courtroom
+  courtroom_count_max = 50
+  area_min_sqm = 1200
+  
+  # Gross Area function calculation
+  area_diff = area_max_sqm - area_min_sqm
+  courtroom_diff = courtroom_count_max - courtroom_count_min
+  area_change_per_courtroom = area_diff / courtroom_diff
+  
+  courtroom_count_scaled = max(min(courtrooms, 50), 1) # Setting area standard to have a minimum courtroom count of 1 and a max of 50 in linear sizing scale
+  required_area_per_courtroom = area_max_sqm - courtroom_count_scaled * area_change_per_courtroom
+  
+  required_area_per_courtroom_sqft = required_area_per_courtroom * 3.28^2
+  
+  return(required_area_per_courtroom_sqft)
+  
+}
+
+# Calculate the Geographic Adjustment Factor of a new school based on its enrolment, panel, and location
+school_gaf <- function(row, gaf_lookup) {
+  '
+  This function calculates the geographic adjustment factor for a school based on its location.
+
+  inputs: list of new schools containing postal code by school, and list of geographic adjustment factors by postal code
+  output: GAF of school for all schools in list
+  '
+  # Using function to calculate GAF on a per-row basis
+  user_input_pcode <- row['user_input_pcode']
+  
+  # Determine number of digits for GAF lookup in postal_code lookup table
+  for (pcode_length in 3:6) {
+    user_pcode <- substr(toupper(user_input_pcode), 1, pcode_length)
+    colname <- noquote(paste0('pcode_',pcode_length,'_digit'))
+    gafnum <- gaf_lookup %>%
+      filter(grepl(user_pcode, !!as.symbol(colname))) %>%
+      pull()
+    
+    if (length(gafnum) > 0) {
+      i <- pcode_length
+    }
+  }
+  
+  # Finding appropriate GAF based on correct number of postal code digits
+  user_pcode <- substr(toupper(user_input_pcode), 1, i)
+  colname <- noquote(paste0('pcode_',i,'_digit'))
+  
+  gaf <- gaf_lookup %>%
+    filter(!!as.symbol(colname) == user_pcode) %>% 
+    select(gaf) %>% 
+    pull()
+  
+return(gaf)
+}  
+
+# Calculate the inflated cost of construction of one or more facilities based on time horizon
+construction_cost <- function(user_input_inflation, user_input_scenario_year, currency_year, current_year, new_facility_list) {
+  '
+  This function calculates the annualized, inflated construction cost for a list of new facilities, and sums the 
+  inflated costs together. The function assumes total capital cost is split equally over construction years, and
+  that inflation is constant throughout the time horizon. The total cost presented is a sum of nominal dollars from
+  each year, in keeping with Treasury Board budget estimates, though in reality the unit of currency is therefore an
+  amalgam of dollars belonging to each year in the time horizon.
+
+  inputs: user provided inflation rate; year of scenario being tested; base year of cost estimates; current year upon
+    which construction timelines are set; list of new facilities to be built
+  output: list of spending in nominal dollars per year, and in total, to build the new facilities
+  '
+
+  # Determine min and max years for building inflation index
+  min_year = min(user_input_scenario_year, current_year) 
+  max_year = max(user_input_scenario_year, current_year)
+  
+  # "current_year + 1" is used assuming construction wouldn't begin until next year for any FUTURE scenarios
+  if (user_input_scenario_year > current_year) {
+    min_year = min(user_input_scenario_year, current_year+1) 
+    max_year = max(user_input_scenario_year, current_year+1)
+  }
+  
+  # Number of years to use in 'amortization' calc below
+  year_count = max_year - min_year + 1
+  
+  # Calculate inflation index, cost factors
+  compounded_inflation <- tibble(index_year = c(seq(min_year,max_year,1))) %>% 
+    mutate(inflation_factor = (1 + user_input_inflation)^(index_year - currency_year)) %>% 
+    mutate(annual_cost_index_uninflated = 1 / year_count) %>% 
+    mutate(annual_cost_index_inflated = inflation_factor / year_count) %>%
+    mutate(total_cost_index_inflated = sum(annual_cost_index_inflated))
+  
+  # Assign cost index to each new facility for each year in the scenario
+  scen_cost <- crossing(new_facility_list, compounded_inflation)
+  
+  # Calculate actual annualized inflated costs, and sum of same
+  annualized_inflated_cost <- scen_cost %>% 
+    mutate(annual_cost_inflated = cost_2018 * annual_cost_index_inflated) %>% 
+    group_by(index_year) %>% 
+    mutate(total_yearly_cost_inflated = sum(annual_cost_inflated)) %>%
+    ungroup() %>% 
+    mutate(total_cost = sum(annual_cost_inflated))
+  
+  return(annualized_inflated_cost)
+} 
