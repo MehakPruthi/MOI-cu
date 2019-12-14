@@ -902,7 +902,8 @@ ALC_proj_csd <- proj_pop_control %>%
   mutate(csd.patients.cap = replace_na(csd.patients.cap, 0),
          csd.patients.demand = replace_na(csd.patients.demand, 0)) %>%
   mutate(csd.patients.cap = ifelse(csd.patients.cap == 0, ltc.bed.days.cap / avg.annual.los, csd.patients.cap),
-         csd.patients.demand = ifelse(csd.patients.demand == 0, ltc.csd.demand.days / avg.annual.los, csd.patients.demand)) %>%
+         csd.patients.demand = ifelse(csd.patients.demand == 0, ltc.csd.demand.days / avg.annual.los, csd.patients.demand),
+         csd.residual.patients = ifelse(is.na(csd.residual.patients), csd.patients.demand - csd.patients.cap, csd.residual.patients)) %>%
   mutate(ltc.cd.demand.days = sum(ltc.csd.demand.days), 
          ltc.cd.bed.days.cap = sum(ltc.bed.days.cap), 
          cd.patients.demand = sum(csd.patients.demand),
