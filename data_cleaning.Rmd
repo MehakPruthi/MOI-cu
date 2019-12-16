@@ -33,8 +33,8 @@ eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileE
 pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 ```
 
-# TRESO Data cleaning 
-```{r treso data cleaning, echo=FALSE}
+# TRESO Data Structuring 
+```{r treso data structuring, echo=FALSE}
 # Clean hhld_df
 hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
   as_tibble()
@@ -112,7 +112,7 @@ treso_tb <- socio_economic_tb %>%
     deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
   ) %>%
   left_join(hhld_structure, by = "treso_zone") %>%
-  saveRDS("cache/treso_tb.rds")
+  saveRDS("cache/treso/treso_tb.rds")
 
 # Clean global variables
 rm(hhld_tb, socio_economic_tb, hhld_structure)
@@ -157,7 +157,7 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
 ```
 
 ## Add FCI, renewal to asset data
-```{r clean school assets, echo=FALSE}
+```{r add fci, echo=FALSE}
 # Retrieve FCI and renewal values
 schoolAssetsSlim <- schoolAssets %>%
   filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
@@ -172,9 +172,9 @@ schoolAssetsSlim <- schoolAssets %>%
 
 ```
 
-## Produce dataframe with geocoordinates for all schools (past & present)
+## Create School Master List (past & present)
 
-```{r}
+```{r create school master list}
 # Read in geocoordinates for schools with missing data
 # Geocoordinates were found using separate program and stored in CSV
 missingCoords <- read_csv('input/edu/school_missing_geocoordinates.csv')
@@ -298,7 +298,7 @@ school_treso_master <- school_treso_data %>%
   left_join(schoolAssetsSlim, by = 'sfis')
 
 # Export to RDS
-saveRDS(school_treso_master, 'output/edu/school_treso_master.rds')
+saveRDS(school_treso_master, 'cache/edu/school_treso_master.rds')
 
 ```
 
@@ -355,6 +355,9 @@ schoolSFIS <- left_join(schoolCapSlim, schoolForecastSlim, by = c('sfis')) %>%
   rename(school.name = school.name.x, dsb.index = dsb.index.x) %>%
   arrange(sfis)
 
+# Save to cache
+saveRDS(schoolSFIS, "cache/edu/school_sfis_2017")
+
 # Drop any school that does not have a corresponding forecast
 unmatched_schools <- sum(is.na(schoolSFIS$bsid))                       
 print(paste0('A total of ', unmatched_schools, ' schools are unmatched between capacity and forecast'))
@@ -381,34 +384,6 @@ print(paste0('A total of ', num_schools_from_school_sfis, ' unique schools are c
 
 # Clean global variables
 rm(num_schools_from_student_post, num_schools_from_school_sfis)
-```
-
-## Create historical education dataset
-
-- The historical trends of ADE is used for visualization
-
-```{r historical education data, echo=FALSE}
-# The school capacity dataset contains the correct lat/long for schools
-schoolCapHistorical <- schoolCap %>%
-  select(year = Sch_yr, 
-         dsb.index = DSB_Index, 
-         board.name = BoardName, 
-         panel = Panel, 
-         sfis = `SFIS_ID`,
-         school.name = `FacilityName`, 
-         ade = ADE,
-         otg = OTG,
-         status = Status, 
-         dataset.id = dataSetID) %>%
-  mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
-  filter(status == "Open", dataset.id == 2) %>%
-  # Remove schools with capacity of 0
-  filter(otg != 0, ade != 0) %>%
-  # Remove schools with ADE that is less than 50
-  filter(ade >= 50) %>%
-  select(year, sfis, ade, otg, utilization) %>%
-  saveRDS("input/edu/school_historical_capacity.rds")
-
 ```
 
 
@@ -570,7 +545,7 @@ for (catchment_dist in percentileList){
     left_join(select(schoolCatchmentDistPercent, sfis, perc.dist, perc.value), by = c('sfis' = 'sfis')) %>%
     filter(perc.value == catchment_dist) %>%
     filter(man.dist <= perc.dist) %>%
-    saveRDS(file = paste0('cache/student_travel_', as.character(catchment_dist), '.rds'))
+    saveRDS(file = paste0('cache/edu/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
 rm(schoolCatchment, schoolCatchmentDistPercent, schoolCatchmentThreshold, percentileList, temp_tb)
@@ -611,7 +586,7 @@ rm(temp1, temp2, temp)
 ### Visualization of percentile travel distance
 
 ```{r visualize travel distance}
-student_travel <- readRDS(file = 'cache/student_travel_0.9.rds') %>%
+student_travel <- readRDS(file = 'cache/edu/student_travel_0.9.rds') %>%
   as_tibble() %>%
   group_by(sfis, school.name, school.lat, school.long) %>%
   summarise(distance = first(perc.dist))
@@ -681,7 +656,7 @@ eqao_standardized <- left_join(eqaoSlim, eqao_distribution, by = c("School.Type"
   mutate(eqao.standardized = eqao.normalized * 10) %>%
   select(School.Name, School.Number, School.Type, School.Language, School.Level, eqao.standardized)
 
-saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
+saveRDS(eqao_standardized, file = 'cache/edu/eqao_standardized_2017.rds')
 
 ```
 
