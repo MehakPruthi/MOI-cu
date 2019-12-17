@@ -847,7 +847,7 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
          long = replace(long, id == 33, -76.527267))
 
 # TODO: Delete when code working
-# a <- 4558
+# a <- 3949
 # hosploc <- hospitallocations %>%
 #   filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
 

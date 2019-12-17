@@ -127,7 +127,8 @@ HBAMhistorical_master_tz <- left_join(HBAMhistorical_master,
   mutate(maxCases = max(cases)) %>% 
   select(-cases) %>% 
   distinct() %>% 
-  rename(cases = maxCases)
+  rename(cases = maxCases) %>% 
+  ungroup()
 
 HBAMprojected_master_tz <- left_join(HBAMprojected_master, 
                                      select(hospital_overlay, treso_zone, id), 
@@ -284,22 +285,51 @@ avg_edlos <- mean(c(avg_edlos_2015, avg_edlos_2016, avg_edlos_2017))
 # Calculate average length of stay based on projected HBAM values for 2016. 2016 is the only year for which we have historical case data and projected length of stay, since HBAM historical does not inculde length of stay.
 HBAMprojected_alos <- HBAMprojected_master_tz %>%
   ungroup() %>% 
-  filter(year == 2016) %>% 
+  filter(year == 2016) %>%
+  filter(caretype != 'AM') %>% # Filter out AM (Emerg) care since there is no length of stay associated with Emerg cases
   select(year, id, agecluster = age_cluster, caretype, cases, los) %>% 
   group_by(year, id, caretype, agecluster) %>% 
-  summarise(totalcases = sum(cases),
-            total.los = sum(los, na.rm = TRUE)) %>% 
-  mutate(alos = total.los/totalcases) %>% 
-  select(year, id, caretype, agecluster, alos)
+  summarise(hosp.caretype.agecluster.cases = sum(cases),
+            hosp.caretype.agecluster.days = sum(los, na.rm = TRUE)) %>% 
+  group_by(year, id, agecluster) %>% 
+  mutate(hosp.caretype.agecluster.days.percent = hosp.caretype.agecluster.days / sum(hosp.caretype.agecluster.days)) %>% 
+  ungroup()
 
 # Remove 2016 ALC from 2016 average length of stay in order to estimate actual length of stay without ALC
-HBAMprojected_adj_alos <- HBAMprojected_alos %>% 
-  # TODO: Before completing the join below, must add caretype to ALC_proj_hosp_2016 data
-  left_join(ALC_proj_hosp_2016, by = c('year', 'id', 'agecluster', 'caretype')
+# In the raw dataset of ALC Most Appropriate Discharge Destination, most of the 'caretypes' associated with the data (i.e., the site IDs) are for 'AM' care, i.e., Emergency, presumably because many of those patients are admitted to hospital as an emergency case. (Out of 176 distinct siteid values in the ALC MADD raw data, 146 relate to 'AM' caretype siteids, with the remaining 30 siteids being for all other caretypes combined). This is not an accurate representation of the impact ALC has on caretypes given that reducing ALC would serve to free up wards - i.e., non-Emergency caretypes - but likely not reduce (or less significantly reduce) Emergency demand. As a proxy, ALC bed-days per hospital are divided across the four inpatient caretypes based on their relative bed-day weights as a percentage of total bed-days at a given hospital. 
+HBAMprojected_alc <- HBAMprojected_alos %>% 
+  # left_join(ALC_hosp_caretype, by = c('year', 'id', 'agecluster', 'caretype')) %>% 
+  # mutate(hosp.caretype.days = replace_na(hosp.caretype.days, 0),
+  #        hosp.caretype.agecluster.days.percent = replace_na(hosp.caretype.agecluster.days.percent, 0))
+  left_join(select(ALC_hosp_vol, year, id, agecluster, hosp.alc.days), by = c('year', 'id', 'agecluster')) %>%
+  filter(agecluster != 'ped') %>%  # Since no pediatric patients are counted as ALC
+  mutate(hosp.alc.days = replace_na(hosp.alc.days, 0)) %>%
+  # Assign hospital agecluster ALC days to different caretypes based on percentages previously established
+  mutate(hosp.alc.days.agecluster.caretype = hosp.alc.days * hosp.caretype.agecluster.days.percent,
+         net.hosp.days = hosp.caretype.agecluster.days - hosp.alc.days.agecluster.caretype) %>% 
+  # 13 of 805 entries in the table above have negative bed-days after removing estimated ALC by hospital; for any hospital/caretype which loses more than 50% of its bed-days by removing ALC, assume bed-days are reduced only to 50% of original total (i.e., assume ALC accounts for a max of 50% of total bed-days). Attempts were made to redistribute remaining ALC days to other caretypes within the hospital, but generally if one caretype had excessive ALC noted at a hospital, all caretypes at a hospital had excessive ALC. It may be possible to shift ALC days from one agecluster to another, but this would violate estimated ALC days by agecluster from the ALC MADD data. For now, any ALC which reduces hospital demand below 50% is 'ignored'. This means approximately 46,000 bed-days from the ALC MADD dataset are being 'ignored' / lost.
+  mutate(adj.net.hosp.days = pmax(net.hosp.days, 0.5 * hosp.caretype.agecluster.days),
+         other.caretype.alc.days = adj.net.hosp.days - net.hosp.days)
+  
+# This query attempts to redistribute the 'ignored' ALC data described above, but as described above, if one caretype had excessive ALC noted at a hospital, generally all other caretypes at a hospital also had excessive ALC. It may be possible to shift ALC days from one agecluster to another, but this would violate estimated ALC days by agecluster from the ALC MADD data.
+# HBAMprojected_alc_redist <- HBAMprojected_alc %>%   
+#   # group_by(year, id, agecluster) %>% 
+#   mutate(caretype.days.remaining = sum(other.caretype.alc.days)) %>% 
+#    # Filter out all caretype-ageclusters with demand already reduced by 50% due to removing ALC. Remaining ALC days to be redistributed amongst remaining caretype-ageclusters
+#   filter(adj.net.hosp.days == net.hosp.days) %>% 
+#   mutate(caretype.days.remaining.factor = ifelse(caretype.days.remaining > 0, adj.net.hosp.days / caretype.days.remaining, 0),
+#          caretype.days.remaining.percent = ifelse(sum(caretype.days.remaining.factor) > 0, caretype.days.remaining.factor / sum(caretype.days.remaining.factor), 0),
+#          caretype.extra.alc.days = caretype.days.remaining.percent * caretype.days.remaining)
 
-saveRDS(HBAMprojected_alos, file = 'cache/moh/HBAMprojected_alos.rds')
+# Calculate average level of service adjusted for ALC (necessary to join to bring pediatric bed-days back into the model)
+HBAMprojected_alos_adj <- HBAMprojected_alos %>% 
+  left_join(select(HBAMprojected_alc, year, id, agecluster, caretype, adj.net.hosp.days), by = c('year', 'id', 'caretype', 'agecluster')) %>% 
+  # Use adj.net.hosp.days for adult and senior populations but use pre-ALC calculation for pediatrics (since no ALC)
+  mutate(adj.net.hosp.days = ifelse(is.na(adj.net.hosp.days), hosp.caretype.agecluster.days, adj.net.hosp.days)) %>%
+  mutate(adj.caretype.agecluster.los = adj.net.hosp.days / hosp.caretype.agecluster.cases) %>% 
+  select(year, id, agecluster, caretype, adj.net.hosp.days, adj.caretype.agecluster.los)
 
-
+saveRDS(HBAMprojected_alos, file = 'cache/moh/HBAMprojected_alos_adj.rds')
 
 ```
 
@@ -534,12 +564,6 @@ hospital_lookup_ALC <- hospital_lookup_master %>%
 #   left_join(hospital_lookup_ALC, by = c('pcode')) %>%
 #   distinct()
 
-# hospital_lookup_master2 <- hospital_lookup_master %>% # TODO: Remove this line and whole query
-#   filter(year == 2016) %>% 
-#   select(id, pcode, csduid, csdname, name) %>% 
-#   group_by(id, pcode, csduid, csdname, name) %>% 
-#   mutate(counter = n()) #
-#   distinct()
 
 ```
 
@@ -701,7 +725,7 @@ ALC_summary <- ALC_hosp_vol_disag %>%
 ### Base-Year Calculations
 ```{r}
 # Calculate ALC days by hospital by caretype for 2016; this will be used in average length of stay calculations to distribute ALC based on caretype
-ALC_hosp_siteid <- ALC_hosp_vol_disag %>% 
+ALC_hosp_vol <- ALC_hosp_vol_disag %>% 
   left_join(hospital_lookup_ALC, by = c('siteid' = 'ALCsite_id')) %>%
   filter(!is.na(csduid)) %>% # Double-check in case any ALC sites don't match to Hospital PAI or master list
   group_by(year, id, agecluster) %>% 
@@ -710,17 +734,35 @@ ALC_hosp_siteid <- ALC_hosp_vol_disag %>%
             avg.los = hosp.alc.days / hosp.alc.patients) %>%
   group_by(year, csduid) %>% 
   mutate(hosp.alc.mrkt = hosp.alc.days / sum(hosp.alc.days)) %>% #MARKET-SHARE OF HOSPITAL ALC DAYS TO CSD TOTAL DAYS
-  ungroup()
-
-# TODO: Calculate ALC by caretype based on the above
-ALC_hosp_caretype <- ALC_hosp_siteid %>% 
-  
-
-#ALC VOLUMES FOR INDIVIDUAL HOSPITALS BY AGE CLUSTER
-ALC_hosp_vol <- ALC_hosp_siteid %>% 
+  ungroup() %>% 
   distinct(year, id, name = name.x, csduid, csdname, agecluster, hosp.alc.patients, hosp.alc.days, avg.los, hosp.alc.mrkt)
 
 saveRDS(ALC_hosp_vol, file = 'cache/moh/ALC_hospital_volumes.rds')
+
+# Calculate ALC by hospital by caretype for 2016 for use in length-of-stay calculations
+# Commented out since this mostly yields ALC demand identified as 'AM' caretype, or Emergency, which is not meaningful or actionable data.
+# ALC_hosp_caretype <- ALC_hosp_vol_disag %>% 
+#   ungroup() %>% 
+#   filter(year == 2016) %>% 
+#   distinct(year, siteid, agecluster, adj.hosp.days.tot) %>% 
+#   #left_join(distinct(HBAMhistorical_master_tz, year, id, siteid, caretype), by = c('year', 'siteid', 'id')) %>% 
+#   left_join(select(hospitallocations, datasetID1.siteid, id, caretype), by = c('siteid' = 'datasetID1.siteid')) %>% 
+#   left_join(select(hospitallocations, datasetID2.siteid, id, caretype), by = c('siteid' = 'datasetID2.siteid')) %>% 
+#   left_join(select(hospitallocations, datasetID3.siteid, id, caretype), by = c('siteid' = 'datasetID3.siteid')) %>% 
+#   left_join(select(hospitallocations, datasetID4.siteid, id, caretype), by = c('siteid' = 'datasetID4.siteid')) %>% 
+#   left_join(select(hospitallocations, datasetID5.siteid, id, caretype), by = c('siteid' = 'datasetID5.siteid')) %>% 
+#   left_join(select(hospitallocations, datasetID6.siteid, id, caretype), by = c('siteid' = 'datasetID6.siteid')) %>% 
+#   ungroup() %>% 
+#   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+#   mutate(caretype = pmax(replace_na(caretype.x, 0), replace_na(caretype.x.x, 0), replace_na(caretype.x.x.x,0), replace_na(caretype.y, 0), replace_na(caretype.y.y, 0), replace_na(caretype.y.y.y, 0))) %>%
+#   # Take distinct rows from dataframe above since individual siteid codes may have been joined on multiple times to match the datasetID values
+#   distinct(year, id, siteid, agecluster, caretype, adj.hosp.days.tot) %>% 
+#   group_by(year, id, agecluster, caretype) %>% 
+#   summarise(hosp.caretype.days = sum(adj.hosp.days.tot)) %>% 
+#   # Calculate percent of ALC days by caretype/agecluster for each hospital id
+#   group_by(year, id) %>% 
+#   mutate(hosp.caretype.agecluster.days.percent = hosp.caretype.days / sum(hosp.caretype.days)) %>% 
+#   ungroup()
 
 # Calculate the percentage of ALC days used by agecluster == adult vs. agecluster == senior; JOINING LTC CAPACITY DATA FROM LTC-HOMES DATASET
 ALC_csd_vol_join <- ALC_hosp_vol %>%
@@ -831,7 +873,7 @@ ALC_prov_rate <- ALC_csd_rates %>%
 ###Forecasting-Year Calculation
 ```{r}
 # RECALL PROJ_YEAR AND op.days FROM ABOVE
-scenario.year <- 2025 # TODO: Replace with user-defined input from visualization tool
+scenario.year <- 2016 # TODO: Replace with user-defined input from visualization tool
 
 # Number of beds added by CSD
 # TODO: Replace with user-defined input from visualization tool
@@ -914,7 +956,7 @@ ALC_proj_csd <- proj_pop_control %>%
 
 ALC_proj_cd <- ALC_proj_csd %>% 
   group_by(cduid) %>% 
-  summarize(ltc.cd.demand.days = sum(ltc.csd.demand.days), 
+  summarise(ltc.cd.demand.days = sum(ltc.csd.demand.days), 
          ltc.cd.bed.days.cap = sum(ltc.bed.days.cap), 
          cd.patients.demand = sum(csd.patients.demand),
          cd.patients.cap = sum(csd.patients.cap),
@@ -933,25 +975,6 @@ ALC_proj_cd <- ALC_proj_csd %>%
          adj.cd.residual.alc.days = ifelse(cd.residual.alc.days < 0, 0, cd.residual.alc.days - borrowed.cd.ltc.days),
          sumBorrowed = sum(borrowed.cd.ltc.days), sumResidual = sum(adj.cd.residual.alc.days))
 
-# This code is to run the ALC/LTC model using rates calculated at the CSD level; however, owing to extreme variability in rates calculated from CD to CD (let alone CSD to CSD) owing to 'uneven' facility distributions, this code should not be used unless another level of geography (e.g., LHINs) can be used to disaggregate provincial rates such that they appear within the bounds of reason at the disaggregated level.
-
-# ALC_proj_csd <- proj_pop_control %>% #NEEDS TO BE UPDATED
-#   left_join(select(ALC_rates, csduid, csd.alc.rate, cd.alc.rate), by = 'csduid') %>% 
-#   mutate(ltc.treso.demand.days = ifelse(csd.alc.rate == 0 | is.na(csd.alc.rate), 
-#                                      (get(paste0("population.", proj.year.alc)) * cd.alc.rate * LTC_ALOS),
-#                                      (get(paste0("population.", proj.year.alc)) * csd.alc.rate * LTC_ALOS))) %>%  
-#   group_by(csduid) %>% 
-#   mutate(ltc.csd.demand.days = sum(ltc.treso.demand.days)) %>% 
-#   left_join(select(ltc_proj_homes, csduid, csd.ltc.patients, ltc.bed.days), by = 'csduid') %>% 
-#   mutate(csd.ltc.patients = replace_na(csd.ltc.patients, 0), #REPLACE CSD'S W/ ZERO LTC CAPACITY
-#          ltc.bed.days = replace_na(ltc.bed.days, 0),
-#          csd.residual.alc.days = ifelse(ltc.csd.demand.days - ltc.bed.days > 0, ltc.csd.demand.days - ltc.bed.days, 0),
-#          csd.residual.alc.patients = csd.residual.alc.days / LTC_ALOS) %>% 
-#   select(csduid, ltc.csd.demand.days:csd.residual.alc.patients) %>% 
-#   distinct()
-# }
-
-}
 ```
 
 
