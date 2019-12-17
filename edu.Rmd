@@ -68,19 +68,19 @@ saveRDS(eqao_2017, "cache/edu/eqao_2017.rds")
 
 ```
 
-## Application of gravity model {.tabset .tabset-fade}
+## Application of Gravity Model {.tabset .tabset-fade}
 
 ### Step 1 - Run 2017 Base Model
 
 ```{r application of gravity model - step 1}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
-por_full <- readRDS("output/por_full.rds")
-pos_full <- readRDS("output/pos_full.rds")
+por_full <- readRDS("output/treso/por_full.rds")
+pos_full <- readRDS("output/treso/pos_full.rds")
 
 # Remove schools with status other than "Open" for modelling
-school_master <- readRDS("output/edu/school_treso_master.rds") %>%
+school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
-board_type_sample_spread <- readRDS("cache/board_type_sample_spread.rds") 
+board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
 
 school_board_list <- c("English Public", "English Catholic", "French Public", "French Catholic")
 panel_list <- c("Elementary", "Secondary")
@@ -98,7 +98,7 @@ for (board_id in school_board_list) {
     print(segment_id)
     
     # Read the propensity matrix
-    prop_matrix <- readRDS(paste0("cache/cfunc_", segment_id, ".rds"))
+    prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
     
     # Create pos vector
     pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
@@ -136,12 +136,12 @@ for (board_id in school_board_list) {
 
 ```{r application of gravity model - Step 2}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
-por_full <- readRDS("output/por_full.rds")
-pos_full <- readRDS("output/pos_full.rds")
+por_full <- readRDS("output/treso/por_full.rds")
+pos_full <- readRDS("output/treso/pos_full.rds")
 # The forecasted schools have "NA" in status
-school_master <- readRDS("output/edu/school_treso_master.rds") %>% 
+school_master <- readRDS("cache/edu/school_treso_master.rds") %>% 
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
-board_type_sample_spread <- readRDS("cache/board_type_sample_spread.rds") 
+board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
 
 school_board_list <- c("English Public", "English Catholic", "French Public", "French Catholic")
 panel_list <- c("Elementary", "Secondary")
@@ -159,7 +159,7 @@ for (board_id in school_board_list) {
     print(segment_id)
     
     # Read the propensity matrix
-    prop_matrix <- readRDS(paste0("cache/cfunc_", segment_id, ".rds"))
+    prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
     
     # Create pos vector
     pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
@@ -218,7 +218,7 @@ school_forecast <- filter(school_master, year == 2017) %>%
 
 # Create a POS vector with schools over OTG Threshold - pos_overfill
 pos_overfill <- school_forecast %>% 
-  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0)) %>% 
+  mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0)) %>% 
   filter(overfill.flag == 1) %>% 
   select(treso.id.pos, overfill.flag) %>% 
   group_by(treso.id.pos) %>% 
@@ -231,19 +231,21 @@ pos_overfill <- school_forecast %>%
 
 # Calculate the total overfilled ADE
 overfill_ade <- school_forecast %>% 
-  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0),
+  mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
          overfill.ade = simulated.ade - otg.threshold) %>% 
   filter(overfill.flag == 1) %>% 
   select(overfill.ade) %>% 
   sum()
 
 # Create a POS vector with schools under OTG Threshold - pos_underfill
+# Use the difference between OTG Threshold and Simulated ADE as the weight
 pos_underfill <- school_forecast %>% 
-  mutate(underfill.flag = ifelse(simulated.ade <= otg.threshold, 1, 0)) %>% 
-  filter(underfill.flag == 1) %>% 
-  select(treso.id.pos, otg) %>% 
+  mutate(underfill.flag = ifelse(simulated.ade < otg.threshold, 1, 0)) %>% 
+  filter(underfill.flag == 1) %>%
+  mutate(otg.leftover = otg.threshold - simulated.ade) %>% 
+  select(treso.id.pos, otg.leftover) %>% 
   group_by(treso.id.pos) %>% 
-  summarise(otg = sum(otg)) %>% 
+  summarise(otg = sum(otg.leftover)) %>% 
   right_join(pos_full, by=c("treso.id.pos" = "dest")) %>% 
   replace_na(list(otg = 0)) %>% 
   arrange(treso.id.pos) %>% 
@@ -270,6 +272,7 @@ print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which shou
 ```
 
 ### Step 5 - Re-balance, and Summarize Results from Iteration
+- TODO: reblance with 2D? and scale the OTG leftover to the ADE overfill?
 
 ```{r application of gravity model - step 5}
 # Balance the por_overfill against pos_underfill schools to redistribute the overfilled ADE
@@ -288,7 +291,7 @@ school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, scho
 
 # Calculate the ADE overfill for each school, so it can be removed in the summary
 school_summary_ade_overfill <- school_forecast %>% 
-  mutate(overfill.flag = ifelse(simulated.ade > otg.threshold, 1, 0),
+  mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
          overfill.ade = simulated.ade - otg.threshold) %>% 
   filter(overfill.flag == 1) %>% 
   select(sfis, overfill.ade)

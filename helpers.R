@@ -9,6 +9,10 @@ if (exists("nest_legacy", where="package:tidyr", mode="function")) {
   nest <- nest_legacy
 }
 
+write_excel <- function(x,row.names=FALSE,col.names=TRUE,...) {
+  write.table(x,"clipboard",sep="\t",row.names=row.names,col.names=col.names,...)
+}
+
 convertDegrees <- function(deg) {
   #' Convert degrees to radians
   #' 
