@@ -1,22 +1,37 @@
-# Convert degrees to radians
-convertDegrees <- function(deg) {
-  rad <- deg * pi / 180
-  return(rad)
+# unnest in tidyr 1.0.0 currently has slow-down issues
+# https://github.com/tidyverse/tidyr/issues/694
+# So using the legacy unnest for now.
+if (exists("unnest_legacy", where="package:tidyr", mode="function")) {
+  unnest <- unnest_legacy
 }
 
-# Haversine / Euclidean Distance
-haverFunction <- function(lat1, lon1, lat2, lon2){
-  '
-  Calculate the straightline distance between a pair of points.
+if (exists("nest_legacy", where="package:tidyr", mode="function")) {
+  nest <- nest_legacy
+}
 
-  Inputs: Point1 lat, Point1 lon, Point2 lat, Point2 lon
-  Output: Straightline distance in km between two points.
+write_excel <- function(x,row.names=FALSE,col.names=TRUE,...) {
+  write.table(x,"clipboard",sep="\t",row.names=row.names,col.names=col.names,...)
+}
 
-  #haversine = sin^2(theta/2)
-  #d = [2r][arcsin(sqrt(hav(lat2 - lat1)+cos(lat1)*cos(lat2)*hav(long2 - long1))]
-  #d = [2r][arcsin(sqrt(sin^2((lat2 - lat1)/2)+cos(lat1)*cos(lat2)*sin^2((long2 - long1)/2)))]
-  '
-  
+convertDegrees <- function(deg) {
+  #' Convert degrees to radians
+  #' 
+  #' @param deg The degree value to be converted
+  #' @return radian equivalent of the input
+  return(deg * pi / 180)
+}
+
+haverFunctionEuclidean <- function(lat1, lon1, lat2, lon2) {
+  #' Haversine / Euclidean Distance
+  #' 
+  #' Calculates the euclidean (or crow's fly) distance between two points
+  #' 
+  #' @param lat1 Latitude value of the first point
+  #' @param lon1 Longitude value of the first point
+  #' @param lat2 Latitude value of the second point
+  #' @param lon2 Longitude value of the second point
+  #' @return Euclidean distance in KM between the two points
+
   earthRadius <- 6378.1 #in km
   lat1Rad <- convertDegrees(lat1)
   lat2Rad <- convertDegrees(lat2)
@@ -30,16 +45,17 @@ haverFunction <- function(lat1, lon1, lat2, lon2){
   return(d)
 }
 
-# Manhattan Distance using Haversine
-manhattan <- function(lat1, lon1, lat2, lon2){
-  '
-  Calculate the Manhattan (i.e., grid) distance between a pair of points.
+haverFunctionManhattan <- function(lat1, lon1, lat2, lon2) {
+  #' Haversine / Manhattan Distance
+  #' 
+  #' Calculates the manhattan (or grid) distance between two points
+  #' 
+  #' @param lat1 Latitude value of the first point
+  #' @param lon1 Longitude value of the first point
+  #' @param lat2 Latitude value of the second point
+  #' @param lon2 Longitude value of the second point
+  #' @return Manhattan distance in KM between the two points
 
-  Inputs: Point1 lat, Point1 lon, Point2 lat, Point2 lon
-  Output: Manhattan distance in km between two points.
-
-  '
-  
   # Determine 'corner' point in Pythagorean triangle by assiging lat, lon from other points
   lat3 <- lat1
   lon3 <- lon2
@@ -54,6 +70,13 @@ manhattan <- function(lat1, lon1, lat2, lon2){
 }
 
 balance <- function(matrix, tot, axis) {
+  #' Balance function
+  #' 
+  #' @param matrix The matrix to be balanced
+  #' @param tot The vector to be balanced against
+  #' @param axis The direction of the balance, 1 indicates rows, 2 indicates columns
+  #' @return A balanced matrix
+
   if (axis == 1) {
     sum <- rowSums(matrix)
   } else if (axis == 2) {
@@ -68,13 +91,19 @@ balance <- function(matrix, tot, axis) {
 }
 
 calc_error <- function(matrix, a, b) {
+  #' Error calculation function
+  #' 
+  #' @param matrix The matrix
+  #' @param a The row vector
+  #' @param b The column vector
+  #' @return The total difference between the row sum of the matrix and the row vector and the column sum of the matrix and column vector
+
   row_sum <- sum(abs(a - rowSums(matrix)))
   col_sum <- sum(abs(b - colSums(matrix)))
   return(row_sum + col_sum)
 }
 
 matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
-  
   #' One dimensional balances a matrix
   #' 
   #' One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
@@ -136,14 +165,21 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
   return(matrix2)
 }
 
-matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_iterations = 10000, rel_error = 0.0001) {
-  '
-  Two dimensional matrix balancing.
-  
-  Inputs: Propensity matrix, Origin totals to balance against, Destination totals to balance against, 
-          The method of matching the totals, Maximum iterations to be used, Relative error to be required
-  Ouput: Balanced matrix
-  '
+
+matrix_balancing_2d <- function(matrix, a, b, totals_to_use="raise", max_iterations=10000, rel_error=0.0001) {
+  #' Two dimensional balances a matrix
+  #' 
+  #' Two dimensional matrix balancing with the option to scale the rows or columns to match one another or the average of the two.
+  #' The user can control the number of iterations and the relative error this function uses to terminate the iterative procedure. 
+  #' 
+  #' @param matrix The matrix to be balanced
+  #' @param a The row vector to be balanced against
+  #' @param b The column vector to be balanced against
+  #' @param totals_to_use A flag to determine which totals to use, it could be "row", "column" or "average"
+  #' @param max_iterations The maximum number of iterations this procedure should run for
+  #' @param rel_error The stopping threshold for this procedure
+  #' @return Two dimentionally balanced matrix
+
   valid_totals_to_use = c("rows", "columns", "average", "raise")
   if (!(totals_to_use %in% valid_totals_to_use)) {
     stop("totals_to_use is invalid, not one of ('rows', 'columns', 'average', 'raise')")
@@ -187,13 +223,24 @@ matrix_balancing_2d <- function(matrix, a, b, totals_to_use = "raise", max_itera
     matrix2 <- balance(matrix2, b, 2)
     error <- calc_error(matrix2, a, b) / init_error
     i <- i + 1
+    
+    print(paste0("Iteration: ", i))
   }
   return(matrix2)
 }
 
-# Calculate the simulated trips based on alpha and beta values
-calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
-  cfunc <- cost %>%
+calculate_simulated_trips <- function(observed_trips, travel_time, alpha, beta) {
+  #' Calculate the simulated trips based on alpha and beta values
+  #' 
+  #' The cost function between every origin and destination pair is computed based on the equation: \eqn{cost = t^{\alpha} * e^{\beta * t|}
+  #' 
+  #' @param observed_trips The observed trip list 
+  #' @param travel_time The travel time matrix
+  #' @param alpha The alpha value to compute the cost function
+  #' @param beta The beta value to compute the cost function
+  #' @return Simulated trips
+  
+  cfunc <- travel_time %>%
     mutate(value = value^alpha * exp(beta*value)) %>%
     replace_na(value = 0.001)
   
@@ -205,27 +252,29 @@ calculate_simulated_trips <- function(observed_trips, cost, alpha, beta) {
     mutate(prob_scaled = value / rowsum) %>%
     select(treso.id.por, treso.id.pos, prob_scaled)
   
-  
-  print(sum(cfunc_rowsums$rowsum))
-  print(sum(t$prob_scaled))
-  
   simulated_trips <- select(observed_trips, treso.id.por, enrolment, value) %>%
     group_by(treso.id.por) %>%
     summarise(enrolment = sum(enrolment)) %>%
     left_join(t, by = "treso.id.por") %>%
     mutate(enrolment = enrolment * prob_scaled) %>%
-    left_join(cost, by = c("treso.id.por", "treso.id.pos"))
+    left_join(travel_time, by = c("treso.id.por", "treso.id.pos"))
   
   return(simulated_trips)
 }
 
-# Read observed trips and travel time skim with the calculated intra-zonal travel times
-read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_sfis_2017, travel_time_skim,
-                                panel_id = "Elementary", board_id = "English Public") {
-  #'
-  #'
-  #'
-  #'
+# TODO check that renaming school_panel_def didn't mess anything up
+read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_panel_def, travel_time_skim,
+                                panel_id = "", board_id = "") {
+  #' Read the observed trip list and return the trips of the specified panel and board type with travel time, travel distance and enrolment
+  #' 
+  #' @param filepath The filepath to the observed trip list
+  #' @param school_board_def The school board definition file to convert DSB index to board types
+  #' @param treso_zone_def The treso zone definition file
+  #' @param school_panel_def The school panel defintion file based on sfis
+  #' @param travel_time_skim The travel time skim 
+  #' @param panel_id The panel id string
+  #' @param board_id The board id string
+  #' @return Observed trip list with 
   
   # Check if panel and board_type_name are valid
   if (!(panel_id %in% c("Elementary", "Secondary")) | !(board_id %in% c("English Public", "English Catholic", "French Public", "French Catholic"))) {
@@ -237,7 +286,7 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
     drop_na(treso.id.por) %>%
     left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
     left_join(select(treso_zone_def, treso_id, area, mof_region), by = c("treso.id.por" = "treso_id")) %>%
-    left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
+    left_join(select(school_panel_def, sfis, panel), by = "sfis") %>%
     # Filter the user selected panel and board type name
     filter(panel == panel_id, board_type_name == board_id) %>%
     # Join with travel_time_skim
@@ -326,9 +375,16 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
-calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, year_id, panel_id, board_id) {
+calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school=NULL,
+                                                year_id, panel_id, board_id) {
   
-  #filter school list based on panel and board type
+  # Include the new_school in the master school list
+  if(!is.null(new_school)){
+    school_list_master <- school_list_master %>% 
+      bind_rows(new_school)
+  }
+  
+  # Filter school list based on panel and board type
   school_list_master <- school_list_master %>%
     filter(year == year_id, panel == panel_id, board_type_name == board_id)
   
@@ -367,7 +423,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
     summarise(
       sfis.list = paste(sfis, collapse = ","),
       school.name.list = paste(school.name, collapse = ","),
-      dsb.index.ist = paste(dsb.index, collapse = ","),
+      dsb.index.list = paste(dsb.index, collapse = ","),
       school.weight.prob.list = paste(school.weight.prob, collapse = ",")
     ) %>%
     rowwise() %>%
@@ -622,7 +678,7 @@ create_school_xy_from_school <- function(school_sfis) {
 create_school_xy_simple <- function(school_sfis) {
   '
   This function differs from `create_school_xy` in that this takes in the school dataframe
-  without the catchment distnace. This function differs from `create_school_xy_from_schools` 
+  without the catchment distnace. This function differs from `create_school_xy_from_schools`
   in that it pulls different metadata fields.
   
   input: Dataframe of school with lat long
@@ -631,7 +687,7 @@ create_school_xy_simple <- function(school_sfis) {
   # Convert the school dataframe into SpatialPointsDataframe
   school_spdf <- school_sfis %>%
     ungroup() %>%
-    select(year, dsb.index, board.name, board_type_name, panel, school.name, sfis, school.lat, school.long, otg, ade) %>%
+    select(sfis, school.lat, school.long) %>%
     mutate(schoolLat = school.lat, schoolLong = school.long) %>%
     mutate(id = row_number())
   coordinates(school_spdf) <- c('schoolLong', 'schoolLat')
@@ -645,7 +701,30 @@ create_school_xy_simple <- function(school_sfis) {
   return(school_xy)
 }
 
-# Spatial gymnastics to find the matching TRESO zone for student or school XY locations
+create_court_xy <- function(court_master) {
+  '
+  This function takes in the court dataframe. 
+  
+  input: Dataframe of court with lat long
+  output: SpatialPointsDataFrame of each court
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  court_spdf <- court_master %>%
+    ungroup() %>%
+    select(bid, courthouse.lat, courthouse.long) %>%
+    mutate(lat = courthouse.lat, long = courthouse.long) %>%
+    mutate(id = row_number())
+  coordinates(court_spdf) <- c('long', 'lat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(court_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  court_xy <- spTransform(court_spdf, CRS(treso_projarg))
+  
+  return(court_xy)
+}
+
 create_overlay <- function(xy_location, treso_shp, type = 'student') {
   '
   This function takes the SpatialPointsDataFrame of either school or students and maps the
@@ -654,7 +733,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
   inputs: SpatialPointsDataFrame of school/student, TRESO shapefile, string indicating what is the object
   output: Dataframe of the school or student with the appropriate TRESO zone ID
   '
-  if (type == 'student'){
+  if (type == 'student') {
     # Find the treso zones which the student points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
       cbind(manhattan.dist = xy_location@data$manhattan.dist,
@@ -669,7 +748,7 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
         treso.id.por = Treso_ID
       )
   }
-  if (type == 'school'){
+  else if (type == 'school') {
     # Find the treso zones which the school points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
       cbind(catchment.dist = xy_location@data$catchment.dist,
@@ -683,27 +762,47 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
         treso.id.pos = Treso_ID
       )
   }
-  if (type == 'schoolSimple'){
+  else if (type == 'schoolSimple') {
     # Find the treso zones which the school points layover
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(., year = xy_location@data$year,
+      cbind(school.lat = xy_location@data$school.lat,
+            school.long = xy_location@data$school.long,
+            sfis = xy_location@data$sfis) %>%
+      as_tibble() %>%
+      select(Treso_ID, sfis, school.lat, school.long) %>%
+      rename(treso.id.pos = Treso_ID)
+  }
+  else if (type == 'court') {
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(lat = xy_location@data$courthouse.lat,
+            long = xy_location@data$courthouse.long,
+            bid = xy_location@data$bid) %>%
+      as_tibble() %>%
+      mutate(bid = as.character(bid)) %>%  
+      select(Treso_ID, bid, lat, long) %>%
+      rename(treso.id.pos = Treso_ID)
+  }
+  else if (type == 'marker') {
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>% 
+      cbind(., school.name = xy_location@data$school.name,
+            year = xy_location@data$year,
+            sfis = xy_location@data$sfis,
             dsb.index = xy_location@data$dsb.index,
-            board_type_name = xy_location@data$board_type_name,
-            school.name = xy_location@data$school.name,
             school.lat = xy_location@data$school.lat,
             school.long = xy_location@data$school.long,
-            sfis = xy_location@data$sfis,
-            panel = xy_location@data$panel,
+            board_type_name = xy_location@data$board_type_name,
             board.name = xy_location@data$board.name,
-            otg = xy_location@data$otg,
-            ade = xy_location@data$ade) %>%
+            panel = xy_location@data$panel,
+            otg = xy_location@data$otg) %>% 
       as_tibble() %>%
-      select(Treso_ID, year, dsb.index, board_type_name, panel, sfis, board.name, school.name, school.lat, school.long, otg, ade) %>%
-      rename(
-        treso.id.pos = Treso_ID
-      )
+      mutate(year = as.integer(as.character(year)), school.name = as.character(school.name),
+             board.name = as.character(board.name),
+             board_type_name = as.character(board_type_name), panel = as.character(panel)) %>% 
+      select(Treso_ID, year, dsb.index, school.name, school.lat, school.long, sfis, board.name, board_type_name, panel, otg) %>% 
+      rename(treso.id.pos = Treso_ID)
   }
-
+  
   return(overlay)
 }
 
@@ -798,3 +897,296 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   
   return(school_tb)
 }
+
+getUtilizationColor <- function(value) {
+  sapply(value, function(value) {
+    if (value <= 0.75) {
+      "green"
+    } else if (value > 0.75 & value < 1.0) {
+      "orange"
+    } else {
+      "red"
+    }
+  })
+}
+
+utility_rename <- function(x) {
+  #' Rename columns by taking in x and adding "courtrooms.needed." as a prefix to x
+  #' 
+  #' @param x The string to be renamed
+  #' @return Renamed string
+  name = paste0("courtrooms.needed.", x)
+}
+
+courtroom_size <- function(courtrooms) {
+  # Determine appropriate area per courtroom as a function of number of courtrooms in a courthouse
+  
+  # Gross Area for smallest courthouses: 1,600 sqm per courtroom
+  courtroom_count_min = 1
+  area_max_sqm = 1600
+  
+  # Gross Area for largest courthouses: 1,200 sqm per courtroom
+  courtroom_count_max = 50
+  area_min_sqm = 1200
+  
+  # Gross Area function calculation
+  area_diff = area_max_sqm - area_min_sqm
+  courtroom_diff = courtroom_count_max - courtroom_count_min
+  area_change_per_courtroom = area_diff / courtroom_diff
+  
+  courtroom_count_scaled = max(min(courtrooms, 50), 1) # Setting area standard to have a minimum courtroom count of 1 and a max of 50 in linear sizing scale
+  required_area_per_courtroom = area_max_sqm - courtroom_count_scaled * area_change_per_courtroom
+  
+  required_area_per_courtroom_sqft = required_area_per_courtroom * 3.28^2
+  
+  return(required_area_per_courtroom_sqft)
+  
+}
+
+# Calculate the Geographic Adjustment Factor of a new school based on its enrolment, panel, and location
+school_gaf <- function(row, gaf_lookup) {
+  '
+  This function calculates the geographic adjustment factor for a school based on its location.
+
+  inputs: list of new schools containing postal code by school, and list of geographic adjustment factors by postal code
+  output: GAF of school for all schools in list
+  '
+  # Using function to calculate GAF on a per-row basis
+  user_input_pcode <- row['user_input_pcode']
+  
+  # Determine number of digits for GAF lookup in postal_code lookup table
+  for (pcode_length in 3:6) {
+    user_pcode <- substr(toupper(user_input_pcode), 1, pcode_length)
+    colname <- noquote(paste0('pcode_',pcode_length,'_digit'))
+    gafnum <- gaf_lookup %>%
+      filter(grepl(user_pcode, !!as.symbol(colname))) %>%
+      pull()
+    
+    if (length(gafnum) > 0) {
+      i <- pcode_length
+    }
+  }
+  
+  # Finding appropriate GAF based on correct number of postal code digits
+  user_pcode <- substr(toupper(user_input_pcode), 1, i)
+  colname <- noquote(paste0('pcode_',i,'_digit'))
+  
+  gaf <- gaf_lookup %>%
+    filter(!!as.symbol(colname) == user_pcode) %>% 
+    select(gaf) %>% 
+    pull()
+  
+return(gaf)
+}  
+
+# Calculate the inflated cost of construction of one or more facilities based on time horizon
+construction_cost <- function(user_input_inflation, user_input_scenario_year, currency_year, current_year, new_facility_list) {
+  '
+  This function calculates the annualized, inflated construction cost for a list of new facilities, and sums the 
+  inflated costs together. The function assumes total capital cost is split equally over construction years, and
+  that inflation is constant throughout the time horizon. The total cost presented is a sum of nominal dollars from
+  each year, in keeping with Treasury Board budget estimates, though in reality the unit of currency is therefore an
+  amalgam of dollars belonging to each year in the time horizon.
+
+  inputs: user provided inflation rate; year of scenario being tested; base year of cost estimates; current year upon
+    which construction timelines are set; list of new facilities to be built
+  output: list of spending in nominal dollars per year, and in total, to build the new facilities
+  '
+
+  # Determine min and max years for building inflation index
+  min_year = min(user_input_scenario_year, current_year) 
+  max_year = max(user_input_scenario_year, current_year)
+  
+  # "current_year + 1" is used assuming construction wouldn't begin until next year for any FUTURE scenarios
+  if (user_input_scenario_year > current_year) {
+    min_year = min(user_input_scenario_year, current_year+1) 
+    max_year = max(user_input_scenario_year, current_year+1)
+  }
+  
+  # Number of years to use in 'amortization' calc below
+  year_count = max_year - min_year + 1
+  
+  # Calculate inflation index, cost factors
+  compounded_inflation <- tibble(index_year = c(seq(min_year,max_year,1))) %>% 
+    mutate(inflation_factor = (1 + user_input_inflation)^(index_year - currency_year)) %>% 
+    mutate(annual_cost_index_uninflated = 1 / year_count) %>% 
+    mutate(annual_cost_index_inflated = inflation_factor / year_count) %>%
+    mutate(total_cost_index_inflated = sum(annual_cost_index_inflated))
+  
+  # Assign cost index to each new facility for each year in the scenario
+  scen_cost <- crossing(new_facility_list, compounded_inflation)
+  
+  # Calculate actual annualized inflated costs, and sum of same
+  annualized_inflated_cost <- scen_cost %>% 
+    mutate(annual_cost_inflated = cost_2018 * annual_cost_index_inflated) %>% 
+    group_by(index_year) %>% 
+    mutate(total_yearly_cost_inflated = sum(annual_cost_inflated)) %>%
+    ungroup() %>% 
+    mutate(total_cost = sum(annual_cost_inflated))
+  
+  return(annualized_inflated_cost)
+} 
+
+# EDU Model -----
+create_pos_vector <- function(df, full_vector, year_id, panel_id, board_id) {
+  #' Creates a POS vector from the input dataframe
+  #' 
+  #' @param df The input dataframe, expects the master school list
+  #' @param full_vector The full list of TRESO zones in order
+  #' @param year_id Integer indicating the modelling year
+  #' @param panel_id String indicating the modelling panel
+  #' @param board_id String indicating the modelling board type
+  #' @return a data matrix
+  #' 
+  pos <- df %>% 
+    filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
+    select(treso.id.pos, otg) %>%
+    group_by(treso.id.pos) %>%
+    summarise(otg = sum(otg)) %>%
+    right_join(full_vector, by=c("treso.id.pos" = "dest")) %>%
+    replace_na(list(otg = 0)) %>%
+    arrange(treso.id.pos) %>%
+    column_to_rownames(var = "treso.id.pos") %>%
+    data.matrix()
+
+  return(pos)
+}
+
+create_por_forecast_vector <- function(df, full_vector, panel_id, board_id) {
+  #' Creates a POR vecotr from the input dataframe
+  #' 
+  #' @param df The input dataframe, expects the forecasted treso population
+  #' @param full_vector The full list of TRESo zones in order
+  #' @param panel_id String indicating the modelling panel
+  #' @param board_id String indicating the modelling board type
+  #' @return a data matrix
+  #' 
+  por <- df %>% 
+    filter(panel == panel_id, board_type_name == board_id) %>% 
+    select(treso.id.por, enrolment) %>% 
+    right_join(full_vector, by=c("treso.id.por" = "orig")) %>% 
+    replace_na(list(enrolment = 0)) %>% 
+    arrange(treso.id.por) %>% 
+    column_to_rownames(var = "treso.id.por") %>% 
+    data.matrix()
+  
+  return(por)
+}
+
+apply_sampling_to_population <- function(forecast_population, board_type_sample) {
+  #' Apply the board type sample to the forecasted population dataframe
+  #' 
+  #' @param forecast_population The dataframe with forecasted population information
+  #' @param board_type_sample The dataframe with the board type sampling probabilities for each CSD and Panel
+  #' @return A dataframe with population segmented by panel and board type
+  #' 
+  forecast_population_by_board <- forecast_population %>%
+    left_join(select(board_type_sample, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
+    group_by(treso.id.por, panel) %>%
+    summarise(
+      csduid = first(csduid),
+      csdname = first(csdname),
+      enrolment = sum(enrolment),
+      `English Catholic` = mean(`English Catholic`),
+      `English Public` = mean(`English Public`),
+      `French Catholic` = mean(`French Catholic`),
+      `French Public` = mean(`French Public`)
+    ) %>%
+    filter(!is.na(csdname)) %>%
+    # Create probability list for sample
+    unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
+    rowwise() %>%
+    mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
+    # Sample the different board types 
+    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
+    mutate(`English Catholic` = sum(sample.result == "EC"),
+           `English Public` = sum(sample.result == "EP"),
+           `French Catholic` = sum(sample.result == "FC"),
+           `French Public` = sum(sample.result == "FP")) %>% 
+    select(treso.id.por, panel, csduid, csdname, `English Catholic`:`French Public`) %>%
+    gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`)
+  
+  return(forecast_population_by_board)
+}
+  
+forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL, year_id, panel_id, board_id) {
+  #' Produce a dataframe with the summary of the school's forecasted ADE
+  #'
+  #' @param prop_matrix
+  #' @param trip_list The trip list from the balanced matrix
+  #' @param school_master
+  #' @param eqao_2017
+  #' @param new_school
+  #' @param year_id
+  #' @param panel_id
+  #' @param board_id
+  #' @return A dataframe of schools with forecasted ADE
+  #' 
+  # Calculate the school weight
+  pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, new_school = new_school,
+                                                           year_id, panel_id, board_id)
+  print(paste0("For ", panel_id, "-", board_id, ", there are ",
+               nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
+               " TRESO zones with a single school, and ",
+               nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
+               " TRESO zones with multiple schools."))
+  
+  # Apply bucket rounding to chunks of data by TRESO POS
+  results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
+  
+  # Convert the output of by() to a dataframe
+  results2 <- sapply(results, I)
+  colnames(results2) <- colnames(prop_matrix)
+  rownames(results2) <- rownames(prop_matrix)
+  
+  df <- reshape2::melt(results2) %>%
+    arrange(Var1, Var2)
+  colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
+  
+  # After combining with travel time, trip list can be shortened
+  df <- filter(df, enrolment.rounded != 0)
+  
+  # Combine the school weight and sample using the weight
+  trip_list <- left_join(df, pos_school_weight, by=c("treso.id.pos"))
+  
+  # Apply sampling procedure to assign students to schools in the same TRESO zone
+  plan(multiprocess)
+  results <- future_apply(trip_list, 1, sample_by_row)
+  results_tb <- t(as.data.table(results))
+  trip_list_schools <- cbind(trip_list, results_tb)
+  
+  schools_summary <- trip_list_schools %>% 
+    unnest(results_tb) %>%
+    mutate(enrol.value = 1) %>%
+    rename(sfis = results_tb) %>% 
+    group_by(sfis) %>% 
+    summarise(simulated.ade = sum(enrol.value))
+  
+  return(schools_summary)
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
