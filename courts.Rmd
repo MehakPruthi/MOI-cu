@@ -25,11 +25,10 @@ source("helpers.R")
 ```{r import data}
 # TRESO 
 treso_shp <- readOGR(dsn ="input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
-treso_tb <- readRDS("cache/treso_tb.rds")
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
 
 # TRESO Travel TIme Skims to distribute demand to courts
-travel_time_skim <- readRDS("output/treso_travel_time.rds")
+travel_time_skim <- readRDS("output/treso/treso_travel_time.rds")
 
 # TRESO projection population with MAG related segmentations
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
@@ -229,10 +228,6 @@ print(paste0("The calculated court hours is: ", (sum(filter(future_cases_bl_tres
 saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
 ```
 
-### Projecting for CD level demand - 2 approaches used for WSP to choose one
-#### Approach 1: CD is assumed as 1 large courthouse
-
-
 # Courtroom Required
 
 ```{r courtroom required}
@@ -316,7 +311,7 @@ cd_utilization_appr2 <- future_needs_cd_casetypes %>%
 
 ## Approach 3 - create a new 'general' operational utilization chart and assume each CD is one large courthouse:: comments: generates resonable estimates and close to the by casetype approach, however very slightly underestimates the results.
 
-###create a general rate using weighted means of the total sums of BL CDs
+### create a general rate using weighted means of the total sums of BL CDs
 cd_utilization_appr3_utilization_chart <- future_needs_cd_casetypes %>% 
   group_by(casetypes) %>% 
   summarise(courthours.needed = sum(courthours.needed)) %>% 
@@ -348,9 +343,11 @@ cd_utilization_appr3 <- readRDS("cache/mag/future_cases_bl.rds") %>%
   
 ```
 
-
-
 # Demand Distribution
+
+- NOTE: this may not be necessary anymore after MAG Workshop
+- All cases are assigned to a single courthouse because the buisness lines do NOT compete with each other
+- Upon confirmation, the distribution of demand to competing courthouses can be removed.
 
 ```{r demand distribution}
 CLOSEST_PERCENTAGE = 0.8
@@ -553,9 +550,9 @@ treso_2016_population <- readRDS("input/mag/treso_2016_population_mag.rds") %>%
   mutate(minor = child + youth + young.adult) %>% 
   mutate(total = majority + minor)
 
-court_hours_2016 <- court_hours %>%
-  select(-lat, -long, -csduid, -csdname, -area, -region, -courthouse.lat, -courthouse.long) %>% 
+court_hours_2016 <- court_hours %>%rthouse.long) %>% 
   filter(year == 2016) %>% 
+  select(-lat, -long, -csduid, -csdname, -area, -region, -courthouse.lat, -cou
   group_by(cduid, cdname, casetypes) %>%
   summarise(value = sum(value)) %>% 
   ungroup() %>% 
