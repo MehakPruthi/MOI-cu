@@ -15,8 +15,12 @@ source("helpers.R")
 ```
 
 
-# Import data
-```{r import, include=FALSE}
+# Import Data
+
+## EDU Import 
+
+```{r edu import, include=FALSE}
+
 # TRESO data
 hhld_df <- data.table::fread("input/treso/households_2011.csv.gz")
 pop_df <- data.table::fread("input/treso/persons_2011.csv.gz")
@@ -29,9 +33,518 @@ schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", strin
 schoolAssetsSFIS.BID <- read.csv("input/edu/dbo_AssetInventoryEDULatLong.csv", stringsAsFactors = FALSE)
 studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
 eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
-
 pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 ```
+
+## Health Import
+
+```{r health import, include=FALSE}
+
+# Import Bed Census Data
+dailybedcensus <- read_csv('input/moh/cap.MOH_DailyBedCensus_Summary.csv')
+
+# Hospital Locations & HBAM
+hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv')
+hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv')
+HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv')
+HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv')
+
+#ALC Datasets
+ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv')
+ALCannualvolume <- read_csv('input/moh/cap.ALCAnnualVolumeAndTOtalDays.csv')
+ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('VOL' = col_character()))
+
+#LTC Facility Data
+ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv')
+
+##TRESO Data Input
+#Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
+treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
+
+```
+
+## MAG Import
+```{r mag impor, include=FASLE}
+courthouse_asset <- read_csv("input/mag/Court asset data.csv") 
+courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv")
+
+#TRESO Import for Court Overlay
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
+treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
+```
+
+
+# EDU Data Cleaning
+
+# Health Data Cleaning
+
+## Health Input Data Prep.
+
+  - Clean and organize provided data to maintain variable-name consistency across all datasets and filter for data entry errors
+  - Age group filters exclude agegroup index "9 (total)" to prevent double counting
+  - Age group filters exclude "7 (Missing)"
+  - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
+  - Filter HBAM CSDs to remove origin CSDs not in Ontario
+  - Join HBAM with Asset data to establish master ID list (loss of 1,151,954 cases to join)
+  
+```{r}
+# Bed Census Data Initial Data Preparation
+dailybedcensus1 <- dailybedcensus %>% 
+  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
+  select(facilityid = FACILITY_NO,
+         siteid = INST,
+         type = TYPE,
+         year = FISCALYEAR,
+         censusdate = CENSUSDATE,
+         admission = ADMISSION,
+         discharge = DISCHARGE,
+         death = DEATHS,
+         atbeds = INACUTEBEDS,
+         mhbeds = INMHBEDS,
+         cccbeds = INCCCBEDS,
+         grbeds = INGRBEDS,
+         srbeds = INSRBEDS,
+         patientbeds = PATIENTSINDESIGNATEDBEDS,
+         staffedbeds = BEDSWITHSTAFFAVAILABLE,
+         erstretchers = ERSTRETCHERSUSED,
+         uncovnentionalbeds = UNCONVENTIONALBEDSUSED,
+         overflowpatients = OVERFLOWPATIENTS,
+         totalpatients = TOTALPATIENTS) %>% 
+  mutate(type = replace(type, type == 'SR', 'GR'))
+
+# Hospital Discharge Data Preparation
+hospitaldischarges1 <- hospitaldischarges %>%
+  replace_na(list(Discharges = 0), list(Total_Days = 0)) %>% 
+  mutate(ATSEPARATIONS = ifelse(ATSEPARATIONS == 'NULL', '0', ATSEPARATIONS),
+         ATSEPARATIONS = as.integer(ATSEPARATIONS),
+         TOTAL_DAYS1 = ifelse(TOTAL_DAYS1 == 'NULL', '0', TOTAL_DAYS1),
+         TOTAL_DAYS1 = as.integer(TOTAL_DAYS1),
+         ALC_DAYS = ifelse(ALC_DAYS == 'NULL', '0', ALC_DAYS),
+         ALC_DAYS = as.integer(ALC_DAYS),
+         agegroup = as.character(AGE_GROUP)) %>% 
+  mutate(totaldays = TOTAL_DAYS1 + Total_Days,
+         discharges = Discharges + ATSEPARATIONS) %>% 
+  select(year = FY, 
+         hospitalcorporation = HOSPITAL_CORPORATION,
+         hospitalname = HOSPITAL_NAME, 
+         facilityid = FACILITY_NO,
+         siteid = SITE_ID,
+         agegroup,
+         bedtype = 'Bed Type',
+         discharges,
+         totaldays,
+         ALCdays = ALC_DAYS) %>% 
+  mutate(agegroup = substring(agegroup, 0, 1)) %>%
+  mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
+  filter(agegroup != 7)
+
+# Health Asset Inventory
+hospitallocations1 <- hospitallocations %>%
+  spread(key = DatasetId, value = 'Master Number') %>% 
+  select(lhin = LHIN,
+         lhinlocation = Location,
+         name = Name,
+         caretype = Type,
+         facilityid = 'Facility Number',
+         hospitalcorp = 'Provider Legal Name',
+         address = 'Address Line 1',
+         city = City,
+         pcode = 'Postal Code',
+         lat = latitude,
+         long = longitude,
+         datasetID1.siteid = '1',
+         datasetID2.siteid = '2',
+         datasetID3.siteid = '3',
+         datasetID4.siteid = '4',
+         datasetID5.siteid = '5',
+         datasetID6.siteid = '6') %>%
+  mutate(datasetID1.siteid = as.numeric(replace_na(datasetID1.siteid, 0)), 
+         datasetID2.siteid = as.numeric(replace_na(datasetID2.siteid, 0)), 
+         datasetID3.siteid = as.numeric(replace_na(datasetID3.siteid, 0)), 
+         datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
+         datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
+         datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
+  group_by(pcode) %>% 
+  mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
+  ungroup() %>% 
+  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
+  # Choose first name in list for each hospital
+  group_by(id) %>% 
+  mutate(name = first(name)) %>% 
+  ungroup() %>% 
+  # Lat/long incorrect in raw input data for Providence Care Hospital
+  mutate(lat = replace(lat, id == 33, 44.217317),
+         long = replace(long, id == 33, -76.527267))
+```
+
+
+## Manipulating Input Data Sets for Cleaning Stage
+
+```{r postal code and lat/long prep, include=FALSE, eval=TRUE}
+# Join postal code centroids to hospital postal code data
+pccfSlimHosp <- pccf %>%
+  filter(SLI == 1) %>%
+  select(postal.code = PostalCode,
+         lat = LAT,
+         long = LONG,
+         retirement.date = Ret_Date,
+         csduid = CSDuid,
+         csdname = CSDname) %>%
+  group_by(postal.code) %>%
+  filter(retirement.date == max(retirement.date))
+
+# Create a list of postal codes with SLI == 1 but different lat/long
+pccfSlimHosp[duplicated(pccfSlimHosp$postal.code) | duplicated(pccfSlimHosp$postal.code, fromLast = TRUE), ] %>%
+  arrange(postal.code) %>%
+  group_by(postal.code, lat, long, retirement.date) %>%
+  summarise(n = n()) %>%
+  filter(n == 1)
+
+# Fill in unknown lat/long
+hospitallocations <- hospitallocations1 %>% 
+  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
+  left_join(select(pccfSlimHosp, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
+  mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
+         long = ifelse(is.na(long), hospital.long, long)) %>% 
+  select(-pcode.clean, -hospital.lat, -hospital.long)
+
+#output cache hospital location dataset: hospitallocations for use in hospital.rmd
+saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
+
+```
+
+```{r manipulate historical & projected HBAM data, include=FALSE, eval=TRUE}
+# HBAM Historical
+HBAMhistorical1 <- HBAMhistorical %>% 
+  select(year = Year, 
+         siteid = Hospital_Site_ID,
+         hospitalname = Hospital_Site_Name,
+         caretype = Care_Type,
+         agegroup = Age_Group, 
+         cases = Number_of_Cases,
+         orig_csd = CSD) %>% 
+  # filter(year == 2016) %>% 
+  # select(-year) %>% 
+  filter(orig_csd < 4600000,
+         orig_csd > 3501000) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
+         agegroup = replace(agegroup, agegroup == '18-44', 2),
+         agegroup = replace(agegroup, agegroup == '45-64', 3),
+         agegroup = replace(agegroup, agegroup == '65-74', 4),
+         agegroup = replace(agegroup, agegroup == '75-84', 5),
+         agegroup = replace(agegroup, agegroup == '>85', 6),
+         agegroup = replace(agegroup, agegroup == '<1', 1),
+         agegroup = replace(agegroup, agegroup == '1-7', 1),
+         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         caretype = replace(caretype, caretype == 'IP', 'AT'),
+         caretype = replace(caretype, caretype == 'CCC', 'CR'),
+         caretype = replace(caretype, caretype == 'Rehab', 'GR')) %>% 
+  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  mutate(id = replace(id, id == 0, -9999))
+
+# Historical HBAM Master Dataset
+HBAMhistorical_master <- HBAMhistorical1 %>% 
+  mutate(caretype = replace(caretype, caretype == "ER", "AM"),
+         caretype = replace(caretype, caretype == "DS", "AM")) %>% 
+  left_join(distinct(hospitallocations, id, name, facilityid, pcode, lat, long), by = c('id'))
+
+#output cache HBAM historical master dataset: HBAMhistorical_master for use hospitals.rmd
+saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
+
+# HBAM Projected
+HBAMprojected1 <- HBAMprojected %>% 
+  select(year = Year, 
+         siteid = Hospital_Site_ID, 
+         hospitalname = Hospital_Site_Name,
+         caretype = Care_Type,
+         agegroup = Age_Group, 
+         cases = Number_of_Cases,
+         lengthofstay = Length_of_Stay) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
+         agegroup = replace(agegroup, agegroup == '18-44', 2),
+         agegroup = replace(agegroup, agegroup == '45-64', 3),
+         agegroup = replace(agegroup, agegroup == '65-74', 4),
+         agegroup = replace(agegroup, agegroup == '75-84', 5),
+         agegroup = replace(agegroup, agegroup == '>85', 6),
+         agegroup = replace(agegroup, agegroup == '<1', 1),
+         agegroup = replace(agegroup, agegroup == '1-7', 1),
+         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         caretype = replace(caretype, caretype == 'IP', 'AT'),
+         caretype = replace(caretype, caretype == 'CCC', 'CR'),
+         caretype = replace(caretype, caretype == 'Rehab', 'GR'),
+         caretype = replace(caretype, caretype == 'ER', 'AM'),
+         caretype = replace(caretype, caretype == 'DS', 'AM')) %>% 
+  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  mutate(id = replace(id, id == 0, -9999))
+
+# Projected HBAM Master Dataset
+HBAMprojected_master <- HBAMprojected1 %>% 
+  group_by(year, id, caretype, agegroup) %>% 
+  summarise(cases = sum(cases),
+            los = sum(lengthofstay)) %>% 
+  mutate(beddays = (cases*los)) %>% 
+  left_join(distinct(hospitallocations, id, name, facilityid, pcode, lat, long), by = c('id')) %>% 
+  filter(!is.na(pcode))
+
+#output cache HBAM projected master dataset: HBAMprojected_master for use in hospitals.rmd
+saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
+
+
+```
+
+
+```{r ALC & ltc dataset prep, include=FALSE, eval=TRUE}
+
+#ALC Datasets
+#CCO Linkage Table
+# DO WE STILL NEED THIS TABLE? IF SO, FIX CODE
+
+ALC_idcrosswalk1 <- ALC_idcrosswalk %>%
+  filter(!is.na(WTISSiteNum)) %>% 
+  select(lhin = WTISLHINNum,
+         name = MNSName,
+         alcname = WTISSiteName,
+         type = MNSType,
+         siteid = MNSMaster,
+         ALCsite_id = WTISSiteNum,
+         facilityid = MNSFacNum) %>%
+  # join to hospital locations on all possible historical datasetID values
+  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>%
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y, -alcname, -facilityid, -siteid, -type) %>% 
+  # Bring in postal code from hospital locations
+  distinct() %>% 
+  left_join(distinct(hospitallocations, id, pcode), by = 'id') %>% 
+  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
+  left_join(select(pccfSlimHosp, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  select(-pcode.clean, -alc.lat, -alc.long) %>% 
+  select(lhin, name, pcode, id, ALCsite_id, csduid, csdname) %>% 
+  # Clean dataset
+  group_by(id) %>%
+  # Remove duplicate entries where ALCsite_id is NA
+  mutate(duplicate_count = n(), remove = ifelse((duplicate_count > 1) & (is.na(ALCsite_id)) & id > 0, 1, 0)) %>%
+  filter(remove != 1) %>%
+  # Remove rows where ALCsite_id is duplicated in another row but CSD info is missing
+  group_by(ALCsite_id) %>%
+  mutate(duplicate_count = n(), id_check = max(id), remove = ifelse((duplicate_count > 1) & (is.na(id_check) == FALSE) & (is.na(csduid)), 1, 0)) %>%
+  filter(remove != 1) %>%
+  select(-duplicate_count, -remove, -id_check) %>% 
+  # Remove truly duplicate entries
+  group_by(id, ALCsite_id) %>%
+  arrange(id, name) %>%
+  filter(row_number()==1) %>% 
+  ungroup()
+
+saveRDS(ALC_idcrosswalk1, file = 'cache/moh/ALC_crosswalk.rds')
+
+ALCannualvolume1 <- ALCannualvolume %>%
+  select(year = Year,
+         siteid = SiteNumber,
+         casetype = CaseType,
+         bedtype = InPatientBedType,
+         agegroup = AgeGroup,
+         dd = DischargeDestination,
+         freq = Frequency,
+         losmean = Mean,
+         losmed = Median,
+         los90thp = '90thP',
+         totalALCdays = TotalALCDays) %>% 
+  filter(casetype == 9, 
+         agegroup != 9,
+         agegroup != 7,
+         bedtype == 'AP',
+         dd != "ALL")
+
+
+
+
+#Most recent updated ALC Data from CCO w/ MADD and DD typeflags
+ALC_madd_raw1 <- ALC_madd_raw %>%
+  filter(INPATIENTBEDTYPE == 'AP',
+         casetype == 9,
+         TYPEFLAG == 'MADD')%>% 
+  select(year = period,
+         number,
+         siteid = sitenumber,
+         madd,
+         agegroup = Agerange,
+         patients = '_FREQ_',
+         avg.los = MEAN,
+         alcdays = SUM) %>% 
+  mutate(year = replace(year, year == '1112', 2011),
+         year = replace(year, year == '1213', 2012),
+         year = replace(year, year == '1314', 2013),
+         year = replace(year, year == '1415', 2014),
+         year = replace(year, year == '1516', 2015),
+         year = replace(year, year == '1617', 2016),
+         year = replace(year, year == '1718', 2017))
+
+saveRDS(ALC_madd_raw1, file = 'cache/moh/ALC_madd_raw.rds')
+
+
+
+
+
+#LTC Facility Data
+ltc_homes1 <- ltc_homes %>% 
+  select(sector = Sector,
+         city = 'Homes City',
+         postal.code = 'Homes Postal Code',
+         beds = 'Total Beds') %>% 
+  mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
+  left_join(select(pccfSlimHosp, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  select(-pcode.clean, -ltc.lat, -ltc.long) 
+
+saveRDS(ltc_homes1, file = 'cache/moh/ltc_homes.rds')
+
+```
+
+
+## Data Cleaning
+
+### Daily Bed Census Data Cleaning and Aggregation
+  - Simplify and aggregate daily census to annual figures
+  - Calculate the number of daily entries available for each site id
+  - Calculate Annualization factor
+  - Calculate Operational and Physical Capacity
+```{r}
+#Count Daily Entries by Year: 2017:294 / 2018: 324
+dailybedcensus2 <- dailybedcensus1 %>%
+  filter(year == 2017) %>% 
+  group_by(censusdate) %>% 
+  mutate(sumbeds = sum()) 
+  group_by(year) %>%
+  distinct(censusdate) %>%
+  count(censusdate) %>%
+  summarise(totaldays = sum(n, na.rm = TRUE))
+
+#Total Daily Entries by SiteID
+dailyentrycount <- dailybedcensus2 %>% 
+  group_by(siteid, year) %>% 
+  count(siteid) %>% 
+  rename('entrycount' = 'n')
+
+# Total bed counts by year by care type, province-wide, for reference only - not used in downstream calculations
+num_beds_province <- dailybedcensus2 %>%
+  mutate(siteid = as.numeric(siteid)) %>%
+  group_by(year, censusdate, type) %>%
+  mutate(totstaffbeds = sum(staffedbeds)) %>%
+  ungroup() %>%
+  group_by(year, type) %>%
+  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
+  distinct(year, type, maxstaffedbeds)
+
+# Bed counts by year by caretype by siteid
+num_beds <- dailybedcensus2 %>%
+  mutate(siteid = as.numeric(siteid)) %>%
+  group_by(year, censusdate, type) %>%
+  mutate(totstaffbeds = sum(staffedbeds)) %>%
+  ungroup() %>%
+  group_by(year, type) %>%
+  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
+  # Take the census day which has the highest staffed beds
+  filter(totstaffbeds == maxstaffedbeds) %>% 
+  # Filter data since there may be more than one census day tied for having max staffed beds - this occurs for one care type in 2018
+  filter(censusdate == first(censusdate)) %>% 
+  distinct(year, type, siteid, censusdate, staffedbeds, totstaffedbeds) %>% 
+  group_by(year) %>%
+  mutate(maxbeds.annual = sum(staffedbeds))
+
+saveRDS(num_beds, file = 'cache/moh/num_beds.rds')
+
+#Annual Bed-Days Observed
+beddaysobserved <- dailybedcensus2 %>% 
+  group_by(siteid,
+           type,
+           year) %>% 
+  summarise(atbedsobs = sum(atbeds, na.rm = TRUE),
+            mhbedsobs = sum(mhbeds, na.rm = TRUE),
+            cccbedsobs = sum(cccbeds, na.rm = TRUE),
+            grbedsobs = sum(grbeds, na.rm = TRUE),
+            srbedsobs = sum(grbeds, na.rm = TRUE),
+            patientbedsobs = sum(patientbeds, na.rm = TRUE),
+            staffedbedsobs = sum(staffedbeds, na.rm = TRUE))
+
+#Annualization Factor from Residual Day-Count
+annualizationfactor <- dailybedcensus2 %>% 
+  group_by(siteid,
+           type,
+           year) %>% 
+  left_join(dailyentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
+  mutate(remainingdays = 365 - entrycount,
+         atbedsaf = mean(atbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         mhbedsaf = mean(mhbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         cccbedsaf = mean(cccbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         grbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         srbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         patientbedsaf = mean(patientbeds, na.rm = TRUE, trim =1)*remainingdays,
+         staffedbedsaf = mean(staffedbeds, na.rm = TRUE, trim = 1)*remainingdays) %>% 
+  distinct(siteid,type, year, atbedsaf, mhbedsaf, cccbedsaf, grbedsaf, srbedsaf, patientbedsaf, staffedbedsaf)
+
+#Operational Capacity by Hospital
+hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid', 'type', 'year')) %>% 
+  mutate(atbeds = atbedsobs + atbedsaf,
+         mhbeds = mhbedsobs + mhbedsaf,
+         cccbeds = cccbedsobs + cccbedsaf,
+         grbeds = grbedsobs + grbedsaf,
+         srbeds = srbedsobs + srbedsaf,
+         patientbeds = patientbedsobs + patientbedsaf,
+         staffedbeds = staffedbedsobs + staffedbedsaf) %>% 
+  select(siteid,
+         type,
+         year,
+         atbeds,
+         mhbeds,
+         cccbeds,
+         grbeds,
+         srbeds,
+         patientbeds,
+         staffedbeds)
+
+#Physcial Capacity
+Hospitalphyscap <- dailybedcensus2 %>% 
+  group_by(siteid, type, year) %>% 
+  summarise(maxatbeds = max(atbeds, na.rm = TRUE)*365,
+            maxmhbeds = max(cccbeds, na.rm= TRUE)*365,
+            maxcccbeds = max(cccbeds, na.rm = TRUE)*365,
+            maxgrbeds = max(grbeds, na.rm = TRUE)*365,
+            maxsrbeds = max(srbeds, na.rm = TRUE)*365,
+            maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
+            maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
+
+#Count Total Site IDs: 448
+dailybedcensus2 %>% 
+  distinct(siteid) %>% 
+  tally
+
+#List of Care-Types
+dailybedcensus2 %>% 
+  group_by(type) %>% 
+  distinct(type)
+```
+
 
 # TRESO Data cleaning 
 ```{r treso data cleaning, echo=FALSE}
@@ -701,595 +1214,7 @@ saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
 
 # Health Data Cleaning
 
-## Import Health Data
 
-```{r, include=FALSE}
-healthRodbc <-odbcConnect("NourDSN")
-
-#Bed Census Data
-dailybedhistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
-dailybedcensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
-hospitaldischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
-
-#HBAM Data
-HBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIST")
-HBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_PROJECT")
-
-#LHIN Data
-populationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
-healthbeddays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
-
-#ALC Data
-ALCage <- sqlFetch(healthRodbc, "cap.ALCAge")
-ALCannualvolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
-ALCcases <- sqlFetch(healthRodbc, "cap.ALCCases")
-ALCdesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
-ALCdischargedest <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
-ALCinpatientbedtype <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
-ALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/moh/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
-
-#CIHI Data
-CIHIhospitalbeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
-
-#Health Asset Inventory
-hospitallocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
-
-#Lookup Tables
-hospitalsitelookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
-LHINlookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
-
-#Sample Population Extraction by LHIN
-healthPopulationLHIN %>%
-  filter(LHIN=='South West') %>%
-  arrange(Year, Gender, Age)
-
-#List of Care-Types
-caretypes <- healthHBAMprojected %>%
-  distinct(Care_Type)
-```
-
-##Import Health Data from CSVs
-  - Clean and organize provided data to maintain variable-name consistency across all datasets and filter for data entry errors
-  - Age group filters exclude agegroup index "9 (total)" to prevent double counting
-  - Age group filters exclude "7 (Missing)"
-  - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
-  - Filter HBAM CSDs to remove origin CSDs not in Ontario
-  - Join HBAM with Asset data to establish master ID list (loss of 1,151,954 cases to join)
-  
-```{r, include=FALSE, eval=TRUE}
-# Bed Census Data
-dailybedcensus <- read_csv('input/moh/cap.MOH_DailyBedCensus_Summary.csv') %>% 
-  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
-  select(facilityid = FACILITY_NO,
-         siteid = INST,
-         type = TYPE,
-         year = FISCALYEAR,
-         censusdate = CENSUSDATE,
-         admission = ADMISSION,
-         discharge = DISCHARGE,
-         death = DEATHS,
-         atbeds = INACUTEBEDS,
-         mhbeds = INMHBEDS,
-         cccbeds = INCCCBEDS,
-         grbeds = INGRBEDS,
-         srbeds = INSRBEDS,
-         patientbeds = PATIENTSINDESIGNATEDBEDS,
-         staffedbeds = BEDSWITHSTAFFAVAILABLE,
-         erstretchers = ERSTRETCHERSUSED,
-         uncovnentionalbeds = UNCONVENTIONALBEDSUSED,
-         overflowpatients = OVERFLOWPATIENTS,
-         totalpatients = TOTALPATIENTS) %>% 
-  mutate(type = replace(type, type == 'SR', 'GR'))
-
-
-hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
-  replace_na(list(Discharges = 0)) %>% 
-  replace_na(list(Total_Days = 0)) %>% 
-  mutate(ATSEPARATIONS = ifelse(ATSEPARATIONS == 'NULL', '0', ATSEPARATIONS),
-         ATSEPARATIONS = as.integer(ATSEPARATIONS),
-         TOTAL_DAYS1 = ifelse(TOTAL_DAYS1 == 'NULL', '0', TOTAL_DAYS1),
-         TOTAL_DAYS1 = as.integer(TOTAL_DAYS1),
-         ALC_DAYS = ifelse(ALC_DAYS == 'NULL', '0', ALC_DAYS),
-         ALC_DAYS = as.integer(ALC_DAYS),
-         agegroup = as.character(AGE_GROUP)) %>% 
-  mutate(totaldays = TOTAL_DAYS1 + Total_Days,
-         discharges = Discharges + ATSEPARATIONS) %>% 
-  select(year = FY, 
-         hospitalcorporation = HOSPITAL_CORPORATION,
-         hospitalname = HOSPITAL_NAME, 
-         facilityid = FACILITY_NO,
-         siteid = SITE_ID,
-         agegroup,
-         bedtype = 'Bed Type',
-         discharges,
-         totaldays,
-         ALCdays = ALC_DAYS) %>% 
-  mutate(agegroup = substring(agegroup, 0, 1)) %>%
-  mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
-  filter(agegroup != 7)
-
-# Health Asset Inventory
-hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
-  spread(key = DatasetId, value = 'Master Number') %>% 
-  select(lhin = LHIN,
-         lhinlocation = Location,
-         name = Name,
-         caretype = Type,
-         facilityid = 'Facility Number',
-         hospitalcorp = 'Provider Legal Name',
-         address = 'Address Line 1',
-         city = City,
-         pcode = 'Postal Code',
-         lat = latitude,
-         long = longitude,
-         datasetID1.siteid = '1',
-         datasetID2.siteid = '2',
-         datasetID3.siteid = '3',
-         datasetID4.siteid = '4',
-         datasetID5.siteid = '5',
-         datasetID6.siteid = '6') %>%
-  mutate(datasetID1.siteid = as.numeric(replace_na(datasetID1.siteid, 0)), 
-         datasetID2.siteid = as.numeric(replace_na(datasetID2.siteid, 0)), 
-         datasetID3.siteid = as.numeric(replace_na(datasetID3.siteid, 0)), 
-         datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
-         datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
-         datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
-  group_by(pcode) %>% 
-  mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
-  ungroup() %>% 
-  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
-  # Choose first name in list for each hospital
-  group_by(id) %>% 
-  mutate(name = first(name)) %>% 
-  ungroup() %>% 
-  # Lat/long incorrect in raw input data for Providence Care Hospital
-  mutate(lat = replace(lat, id == 33, 44.217317),
-         long = replace(long, id == 33, -76.527267))
-
-# TODO: Delete when code working
-# a <- 3949
-# hosploc <- hospitallocations %>%
-#   filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
-
-# Join postal code centroids to hospital postal code data
-pccfSlimHosp <- pccf %>%
-  filter(SLI == 1) %>%
-  select(postal.code = PostalCode,
-         lat = LAT,
-         long = LONG,
-         retirement.date = Ret_Date,
-         csduid = CSDuid,
-         csdname = CSDname) %>%
-  group_by(postal.code) %>%
-  filter(retirement.date == max(retirement.date))
-
-# Create a list of postal codes with SLI == 1 but different lat/long
-pccfSlimHosp[duplicated(pccfSlimHosp$postal.code) | duplicated(pccfSlimHosp$postal.code, fromLast = TRUE), ] %>%
-  arrange(postal.code) %>%
-  group_by(postal.code, lat, long, retirement.date) %>%
-  summarise(n = n()) %>%
-  filter(n == 1)
-
-# Fill in unknown lat/long
-hospitallocations <- hospitallocations %>% 
-  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlimHosp, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
-  mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
-         long = ifelse(is.na(long), hospital.long, long)) %>% 
-  select(-pcode.clean, -hospital.lat, -hospital.long)
-
-saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
-
-# HBAM Historical
-HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv') %>% 
-  select(year = Year, 
-         siteid = Hospital_Site_ID,
-         hospitalname = Hospital_Site_Name,
-         caretype = Care_Type,
-         agegroup = Age_Group, 
-         cases = Number_of_Cases,
-         orig_csd = CSD) %>% 
-  # filter(year == 2016) %>% 
-  # select(-year) %>% 
-  filter(orig_csd < 4600000,
-         orig_csd > 3501000) %>% 
-  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
-         agegroup = replace(agegroup, agegroup == '18-44', 2),
-         agegroup = replace(agegroup, agegroup == '45-64', 3),
-         agegroup = replace(agegroup, agegroup == '65-74', 4),
-         agegroup = replace(agegroup, agegroup == '75-84', 5),
-         agegroup = replace(agegroup, agegroup == '>85', 6),
-         agegroup = replace(agegroup, agegroup == '<1', 1),
-         agegroup = replace(agegroup, agegroup == '1-7', 1),
-         agegroup = replace(agegroup, agegroup == '8-17', 1),
-         caretype = replace(caretype, caretype == 'IP', 'AT'),
-         caretype = replace(caretype, caretype == 'CCC', 'CR'),
-         caretype = replace(caretype, caretype == 'Rehab', 'GR')) %>% 
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
-  mutate(id = replace(id, id == 0, -9999))
-
-saveRDS(HBAMhistorical, file = 'cache/moh/HBAMhistorical.rds')
-
-# HBAM Projected
-HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv') %>% 
-  select(year = Year, 
-         siteid = Hospital_Site_ID, 
-         hospitalname = Hospital_Site_Name,
-         caretype = Care_Type,
-         agegroup = Age_Group, 
-         cases = Number_of_Cases,
-         lengthofstay = Length_of_Stay) %>% 
-  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
-         agegroup = replace(agegroup, agegroup == '18-44', 2),
-         agegroup = replace(agegroup, agegroup == '45-64', 3),
-         agegroup = replace(agegroup, agegroup == '65-74', 4),
-         agegroup = replace(agegroup, agegroup == '75-84', 5),
-         agegroup = replace(agegroup, agegroup == '>85', 6),
-         agegroup = replace(agegroup, agegroup == '<1', 1),
-         agegroup = replace(agegroup, agegroup == '1-7', 1),
-         agegroup = replace(agegroup, agegroup == '8-17', 1),
-         caretype = replace(caretype, caretype == 'IP', 'AT'),
-         caretype = replace(caretype, caretype == 'CCC', 'CR'),
-         caretype = replace(caretype, caretype == 'Rehab', 'GR'),
-         caretype = replace(caretype, caretype == 'ER', 'AM'),
-         caretype = replace(caretype, caretype == 'DS', 'AM')) %>% 
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
-  mutate(id = replace(id, id == 0, -9999))
-
-saveRDS(HBAMprojected, file = 'cache/moh/hbamprojected.rds')
-
-# Historical HBAM Master Dataset
-HBAMhistorical_master <- HBAMhistorical %>% 
-  mutate(caretype = replace(caretype, caretype == "ER", "AM"),
-         caretype = replace(caretype, caretype == "DS", "AM")) %>% 
-  left_join(distinct(hospitallocations, id, name, facilityid, pcode, lat, long), by = c('id'))
-
-saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
-
-# Projected HBAM Master Dataset
-HBAMprojected_master <- HBAMprojected %>% 
-  group_by(year, id, caretype, agegroup) %>% 
-  summarise(cases = sum(cases),
-            los = sum(lengthofstay)) %>% 
-  mutate(beddays = (cases*los)) %>% 
-  left_join(distinct(hospitallocations, id, name, facilityid, pcode, lat, long), by = c('id')) %>% 
-  filter(!is.na(pcode))
-
-saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
-
-## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.) --> NO MORE MISSING DATA
-# unmatched_hosp <- HBAMprojected %>% 
-#   group_by(year, id, caretype, agegroup) %>% 
-#   summarise(cases = sum(cases),
-#             los = sum(lengthofstay)) %>% 
-#   mutate(beddays = (cases*los)) %>% 
-#   left_join(distinct(hospitallocations, id, caretype, pcode), by = c('id')) %>% 
-#   filter(is.na(pcode))
-
-#LHIN Data
-populationLHIN <- read_csv('input/moh/dbo.Population_LHIN.csv')
-
-#ALC Data
-##Reference Files
-ALCage <- read_csv('input/moh/cap.ALCAge.csv')
-ALCcases <- read_csv('input/moh/cap.ALCCases.csv')
-ALCdesignations <- read_csv('input/moh/cap.ALCDesignations.csv')
-ALCdischargedest <- read_csv('input/moh/cap.ALCDischargeDestination.csv')
-ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
-
-#ALC Datasets
-#CCO Linkage Table
-# DO WE STILL NEED THIS TABLE? IF SO, FIX CODE
-
-ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>%
-  filter(!is.na(WTISSiteNum)) %>% 
-  select(lhin = WTISLHINNum,
-         name = MNSName,
-         alcname = WTISSiteName,
-         type = MNSType,
-         siteid = MNSMaster,
-         ALCsite_id = WTISSiteNum,
-         facilityid = MNSFacNum) %>%
-  # join to hospital locations on all possible historical datasetID values
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>%
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y, -alcname, -facilityid, -siteid, -type) %>% 
-  # Bring in postal code from hospital locations
-  distinct() %>% 
-  left_join(distinct(hospitallocations, id, pcode), by = 'id') %>% 
-  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlimHosp, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
-  select(-pcode.clean, -alc.lat, -alc.long) %>% 
-  select(lhin, name, pcode, id, ALCsite_id, csduid, csdname) %>% 
-  # Clean dataset
-  group_by(id) %>%
-  # Remove duplicate entries where ALCsite_id is NA
-  mutate(duplicate_count = n(), remove = ifelse((duplicate_count > 1) & (is.na(ALCsite_id)) & id > 0, 1, 0)) %>%
-  filter(remove != 1) %>%
-  # Remove rows where ALCsite_id is duplicated in another row but CSD info is missing
-  group_by(ALCsite_id) %>%
-  mutate(duplicate_count = n(), id_check = max(id), remove = ifelse((duplicate_count > 1) & (is.na(id_check) == FALSE) & (is.na(csduid)), 1, 0)) %>%
-  filter(remove != 1) %>%
-  select(-duplicate_count, -remove, -id_check) %>% 
-  # Remove truly duplicate entries
-  group_by(id, ALCsite_id) %>%
-  arrange(id, name) %>%
-  filter(row_number()==1) %>% 
-  ungroup()
-
-saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
-
-ALCannualvolume <- read_csv('input/moh/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
-  select(year = Year,
-         siteid = SiteNumber,
-         casetype = CaseType,
-         bedtype = InPatientBedType,
-         agegroup = AgeGroup,
-         dd = DischargeDestination,
-         freq = Frequency,
-         losmean = Mean,
-         losmed = Median,
-         los90thp = '90thP',
-         totalALCdays = TotalALCDays) %>% 
-  filter(casetype == 9, 
-         agegroup != 9,
-         agegroup != 7,
-         bedtype == 'AP',
-         dd != "ALL")
-
-ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv') %>% 
-  separate(period, c("year", "month"), sep = "_") %>%
-  select(year,
-         month,
-         siteid = sitenumber,
-         casetype,
-         bedtype = INPATIENTBEDTYPE,
-         agegroup = Agerange,
-         tag = TYPEFLAG,
-         dd = DD,
-         madd,
-         freq = '_FREQ_',
-         losmean = MEAN,
-         losmedian = MEDIAN,
-         los90thp = P90,
-         totalALCdays = SUM) %>% 
-  mutate(totalALCdays = as.numeric(totalALCdays),
-         losmean = as.numeric(losmean),
-         losmedian = as.numeric(losmedian),
-         los90thp = as.numeric(los90thp)) %>% 
-  filter(tag == 'MADD', 
-         madd != 'ALL', #filter out sum values for DD
-         agegroup != 9,
-         casetype == 9,
-         bedtype == 'AP') 
-
-#Most recent updated ALC Data from CCO w/ MADD and DD typeflags
-ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('VOL' = col_character())) %>%
-  filter(INPATIENTBEDTYPE == 'AP',
-         casetype == 9,
-         TYPEFLAG == 'MADD')%>% 
-  select(year = period,
-         number,
-         siteid = sitenumber,
-         madd,
-         agegroup = Agerange,
-         patients = '_FREQ_',
-         avg.los = MEAN,
-         alcdays = SUM) %>% 
-  mutate(year = replace(year, year == '1112', 2011),
-         year = replace(year, year == '1213', 2012),
-         year = replace(year, year == '1314', 2013),
-         year = replace(year, year == '1415', 2014),
-         year = replace(year, year == '1516', 2015),
-         year = replace(year, year == '1617', 2016),
-         year = replace(year, year == '1718', 2017))
-
-saveRDS(ALC_madd_raw, file = 'cache/moh/ALC_madd_raw.rds')
-
-ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
-  group_by(year) %>% 
-  distinct(month) %>% 
-  count()
-
-ALCmostappropriate <- ALCmostappropriate %>% 
-  group_by(year, siteid, agegroup, madd) %>%
-  summarise(freq = sum(freq),
-            totalALCdays = sum(totalALCdays))
-
-#CIHI Data
-CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>% 
-  select(year = Year,
-         prov = Province,
-         name = 'Hospital Name',
-         hosp_type = 'Type of Hospital',
-         cihi_total = Total) %>%  
-  mutate(name = toupper(name))
-
-saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
-
-#Test SiteID/Fac ID Linkages
-#ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
-
-#Identify Mismatched Site IDs
-# ALC_mismatchedids <- ALC_idlinkage %>% 
-#   filter(is.na(type))
-# 
-# ALC_mismatchedids %>% 
-#   group_by(type) %>%
-#   count()
-# 
-# ALC_idlinkage %>% 
-#   count(type %in% lhin.moh)
-# 
-# #Filter out Mismatched IDs
-# hospital_ALC_master <- ALC_idlinkage %>% 
-#   filter(!is.na(type)) %>% 
-#   group_by(siteid, facilityid, type, name.moh) %>% 
-#   distinct()
-
-#LTC Facility Data
-ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
-  select(sector = Sector,
-         city = 'Homes City',
-         postal.code = 'Homes Postal Code',
-         beds = 'Total Beds') %>% 
-  mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
-  left_join(select(pccfSlimHosp, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
-  select(-pcode.clean, -ltc.lat, -ltc.long) 
-
-saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
-```
-
-##TRESO Data Input
-  - Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
-```{r}
-
-treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
-
-```
-
-##Daily Bed Census Data Cleaning and Aggregation
-  - Simplify and aggregate daily census to annual figures
-  - Calculate the number of daily entries available for each site id
-  - Calculate Annualization factor
-  - Calculate Operational and Physical Capacity
-```{r}
-#Count Daily Entries by Year: 2017:294 / 2018: 324
-dailybedcensus %>%
-  filter(year == 2017) %>% 
-  group_by(censusdate) %>% 
-  mutate(sumbeds = sum())
-  group_by(year) %>% 
-  distinct(censusdate) %>% 
-  count(censusdate) %>% 
-  summarise(totaldays = sum(n, na.rm = TRUE))
-
-#Total Daily Entries by SiteID
-dailyentrycount <- dailybedcensus %>% 
-  group_by(siteid, year) %>% 
-  count(siteid) %>% 
-  rename('entrycount' = 'n')
-
-# Total bed counts by year by care type, province-wide, for reference only - not used in downstream calculations
-num_beds_province <- dailybedcensus %>%
-  mutate(siteid = as.numeric(siteid)) %>%
-  group_by(year, censusdate, type) %>%
-  mutate(totstaffbeds = sum(staffedbeds)) %>%
-  ungroup() %>%
-  group_by(year, type) %>%
-  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
-  distinct(year, type, maxstaffedbeds)
-
-# Bed counts by year by caretype by siteid
-num_beds <- dailybedcensus %>%
-  mutate(siteid = as.numeric(siteid)) %>%
-  group_by(year, censusdate, type) %>%
-  mutate(totstaffbeds = sum(staffedbeds)) %>%
-  ungroup() %>%
-  group_by(year, type) %>%
-  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
-  # Take the census day which has the highest staffed beds
-  filter(totstaffbeds == maxstaffedbeds) %>% 
-  # Filter data since there may be more than one census day tied for having max staffed beds - this occurs for one care type in 2018
-  filter(censusdate == first(censusdate)) %>% 
-  distinct(year, type, siteid, censusdate, staffedbeds, totstaffedbeds) %>% 
-  group_by(year) %>%
-  mutate(maxbeds.annual = sum(staffedbeds))
-
-saveRDS(num_beds, file = 'cache/moh/num_beds.rds')
-
-#Annual Bed-Days Observed
-beddaysobserved <- dailybedcensus %>% 
-  group_by(siteid,
-           type,
-           year) %>% 
-  summarise(atbedsobs = sum(atbeds, na.rm = TRUE),
-            mhbedsobs = sum(mhbeds, na.rm = TRUE),
-            cccbedsobs = sum(cccbeds, na.rm = TRUE),
-            grbedsobs = sum(grbeds, na.rm = TRUE),
-            srbedsobs = sum(grbeds, na.rm = TRUE),
-            patientbedsobs = sum(patientbeds, na.rm = TRUE),
-            staffedbedsobs = sum(staffedbeds, na.rm = TRUE))
-
-#Annualization Factor from Residual Day-Count
-annualizationfactor <- dailybedcensus %>% 
-  group_by(siteid,
-           type,
-           year) %>% 
-  left_join(dailyentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
-  mutate(remainingdays = 365 - entrycount,
-         atbedsaf = mean(atbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         mhbedsaf = mean(mhbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         cccbedsaf = mean(cccbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         grbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         srbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         patientbedsaf = mean(patientbeds, na.rm = TRUE, trim =1)*remainingdays,
-         staffedbedsaf = mean(staffedbeds, na.rm = TRUE, trim = 1)*remainingdays) %>% 
-  distinct(siteid,type, year, atbedsaf, mhbedsaf, cccbedsaf, grbedsaf, srbedsaf, patientbedsaf, staffedbedsaf)
-
-#Operational Capacity by Hospital
-hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid', 'type', 'year')) %>% 
-  mutate(atbeds = atbedsobs + atbedsaf,
-         mhbeds = mhbedsobs + mhbedsaf,
-         cccbeds = cccbedsobs + cccbedsaf,
-         grbeds = grbedsobs + grbedsaf,
-         srbeds = srbedsobs + srbedsaf,
-         patientbeds = patientbedsobs + patientbedsaf,
-         staffedbeds = staffedbedsobs + staffedbedsaf) %>% 
-  select(siteid,
-         type,
-         year,
-         atbeds,
-         mhbeds,
-         cccbeds,
-         grbeds,
-         srbeds,
-         patientbeds,
-         staffedbeds)
-
-#Physcial Capacity
-Hospitalphyscap <- dailybedcensus %>% 
-  group_by(siteid, type, year) %>% 
-  summarise(maxatbeds = max(atbeds, na.rm = TRUE)*365,
-            maxmhbeds = max(cccbeds, na.rm= TRUE)*365,
-            maxcccbeds = max(cccbeds, na.rm = TRUE)*365,
-            maxgrbeds = max(grbeds, na.rm = TRUE)*365,
-            maxsrbeds = max(srbeds, na.rm = TRUE)*365,
-            maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
-            maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
-
-#Count Total Site IDs: 448
-dailybedcensus %>% 
-  distinct(siteid) %>% 
-  tally
-
-#List of Care-Types
-dailybedcensus %>% 
-  group_by(type) %>% 
-  distinct(type)
-```
 
 ##HBAM Data and Caserate Caculations
   - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
@@ -1538,7 +1463,7 @@ provincial_caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by
   - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
 ```{r}
 #Isolate all 3-digit ALC-Site IDs (assuming single address/location)
-three_digit_ALC <- ALCannualvolume %>%
+three_digit_ALC <- ALCannualvolume1 %>%
   filter(siteid < 999,
          siteid > 99) %>% 
   select (-casetype,
@@ -1569,7 +1494,7 @@ facilityid_ALC <- left_join(unique_facilityids, three_digit_ALC, by = c('facilit
 facilityid_ALC %>% filter(facilityid == 927, year ==1112) %>% summarise(n = sum(totalALCdays))
 
 #Isolate all 4-digit ALC-Site IDs
-four_digit_ALC <- ALCannualvolume %>% 
+four_digit_ALC <- ALCannualvolume1 %>% 
   filter(siteid > 999) %>% 
   select(-casetype,
           -bedtype)
@@ -1601,7 +1526,7 @@ ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalA
 ## Import Court Data
 
 ```{r import court data}
-courthouse_asset <- read_csv("input/mag/Court asset data.csv") %>% 
+courthouse_asset%>% 
   select(year = Collection_Year, bid = BID, name = BuildingName, address = Address1,
          postal.code = PostalCode, city = City, courthouse.lat = Latitude, courthouse.long = Longitude,
          building.type = BuildingType, courtrooms = Courtrooms, region = Region, 
@@ -1633,7 +1558,7 @@ courthouse_asset <- read_csv("input/mag/Court asset data.csv") %>%
   mutate(city = replace(city, name == "Toronto Courthouse", "Toronto"))
   
 
-courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>% 
+courthouse_hours %>% 
   rename(year = Year, region = REGION, city = LOCATION, address = ADDRESS) %>% 
   rename_at(vars(contains("CJ"), contains("COURT"), contains("TOTAL"), contains("CIVIL")), tolower) %>% 
   rename_at(vars(contains(",_")), funs(sub(",_", "_", .))) %>% 
@@ -1710,8 +1635,6 @@ courthouse_hours_wide_location <- courthouse_hours_wide %>%
          -courthouse.lat.x, -courthouse.lat.y, -courthouse.long.x, -courthouse.long.y)
 
 # Overlay on TRESO zones to get the CDUID
-treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
-treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 courthouse_hours_xy <- create_court_xy(courthouse_hours_wide_location)
 courthouse_hours_overlay <- create_overlay(courthouse_hours_xy, treso_shp, type = "court")
 courthouse_hours_overlay <- courthouse_hours_overlay %>% 
@@ -1843,3 +1766,157 @@ courthouse_asset_casetypes <- left_join(courthouse_asset_distributed, courthouse
 
 saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
 ```
+
+
+# Referenced Code - Not Used/Potential Future Use
+##Health Data Import
+### SQL Health Data Import
+```{r sql health data import, include=FALSE}
+healthRodbc <-odbcConnect("NourDSN")
+
+#Bed Census Data
+dailybedhistory <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Historical")
+dailybedcensus <- sqlFetch(healthRodbc, "cap.MOH_DailyBedCensus_Summary")
+hospitaldischarges <- sqlFetch(healthRodbc, "cap.MOH_Discharges")
+
+#HBAM Data
+HBAMhistorical <- sqlFetch(healthRodbc, "cap.MOH_HBAM_HIST")
+HBAMprojected <- sqlFetch(healthRodbc, "cap.MOH_HBAM_PROJECT")
+
+#LHIN Data
+populationLHIN <- sqlFetch(healthRodbc, "dbo.Population_LHIN")
+healthbeddays <- sqlFetch(healthRodbc, "cap.MOH_Pat_Bed_Days")
+
+#ALC Data
+ALCage <- sqlFetch(healthRodbc, "cap.ALCAge")
+ALCannualvolume <- sqlFetch(healthRodbc, "cap.ALCAnnualVolumeAndTotalDays")
+ALCcases <- sqlFetch(healthRodbc, "cap.ALCCases")
+ALCdesignations <- sqlFetch(healthRodbc, "cap.ALCDesignations")
+ALCdischargedest <- sqlFetch(healthRodbc, "cap.ALCDischargeDestination")
+ALCinpatientbedtype <- sqlFetch(healthRodbc, "cap.ALCInpatientBedType")
+ALCmostappropriate <- read_csv('P:/Y362/2019/191-00826-00 MOI Capacity and Demand Model/3. Modelling/moi_cu_project/input/moh/ALC.MostAppropriateDischage from CCO_2019-06-28.csv')
+
+#CIHI Data
+CIHIhospitalbeds <- sqlFetch(healthRodbc, "cap.CIHI_Hospital_Beds")
+
+#Health Asset Inventory
+hospitallocations <- sqlFetch(healthRodbc, "dbo.MOH_Hospital_Locations")
+
+#Lookup Tables
+hospitalsitelookup <- sqlFetch(healthRodbc, "xRef.HC_HospitalSite_Lookup")
+LHINlookup <- sqlFetch(healthRodbc, "xRef.HC_LHIN_Lookup")
+```
+
+### Unused Import Files
+```{r unused health import, include=FALSE}
+#LHIN Data
+populationLHIN <- read_csv('input/moh/dbo.Population_LHIN.csv')
+
+#ALC Data
+##Reference Files
+ALCage <- read_csv('input/moh/cap.ALCAge.csv')
+ALCcases <- read_csv('input/moh/cap.ALCCases.csv')
+ALCdesignations <- read_csv('input/moh/cap.ALCDesignations.csv')
+ALCdischargedest <- read_csv('input/moh/cap.ALCDischargeDestination.csv')
+ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
+
+ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv')
+
+#CIHI Data
+CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
+```
+
+##Unused Data Cleaning Code
+### Health Data Cleaning
+```{r unused health data cleaning}
+
+# TODO: Test code for comparing ALC siteID to regular siteID linkages - ##Move to end
+# a <- 3949
+# hosploc <- hospitallocations %>%
+#   filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
+
+## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.) --> NO MORE MISSING DATA
+# unmatched_hosp <- HBAMprojected %>% 
+#   group_by(year, id, caretype, agegroup) %>% 
+#   summarise(cases = sum(cases),
+#             los = sum(lengthofstay)) %>% 
+#   mutate(beddays = (cases*los)) %>% 
+#   left_join(distinct(hospitallocations, id, caretype, pcode), by = c('id')) %>% 
+#   filter(is.na(pcode))
+
+
+#Test SiteID/Fac ID Linkages
+#ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+
+#Identify Mismatched Site IDs
+# ALC_mismatchedids <- ALC_idlinkage %>% 
+#   filter(is.na(type))
+# 
+# ALC_mismatchedids %>% 
+#   group_by(type) %>%
+#   count()
+# 
+# ALC_idlinkage %>% 
+#   count(type %in% lhin.moh)
+# 
+# #Filter out Mismatched IDs
+# hospital_ALC_master <- ALC_idlinkage %>% 
+#   filter(!is.na(type)) %>% 
+#   group_by(siteid, facilityid, type, name.moh) %>% 
+#   distinct()
+
+##ALC Most Appropriate
+# ALCmostappropriate %>% 
+#   separate(period, c("year", "month"), sep = "_") %>%
+#   select(year,
+#          month,
+#          siteid = sitenumber,
+#          casetype,
+#          bedtype = INPATIENTBEDTYPE,
+#          agegroup = Agerange,
+#          tag = TYPEFLAG,
+#          dd = DD,
+#          madd,
+#          freq = '_FREQ_',
+#          losmean = MEAN,
+#          losmedian = MEDIAN,
+#          los90thp = P90,
+#          totalALCdays = SUM) %>% 
+#   mutate(totalALCdays = as.numeric(totalALCdays),
+#          losmean = as.numeric(losmean),
+#          losmedian = as.numeric(losmedian),
+#          los90thp = as.numeric(los90thp)) %>% 
+#   filter(tag == 'MADD', 
+#          madd != 'ALL', #filter out sum values for DD
+#          agegroup != 9,
+#          casetype == 9,
+#          bedtype == 'AP') 
+
+# ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
+#   group_by(year) %>% 
+#   distinct(month) %>% 
+#   count()
+
+# ALCmostappropriate <- ALCmostappropriate %>% 
+#   group_by(year, siteid, agegroup, madd) %>%
+#   summarise(freq = sum(freq),
+#             totalALCdays = sum(totalALCdays))
+
+# #CIHI Data
+# CIHIhospitalbeds %>% 
+#   select(year = Year,
+#          prov = Province,
+#          name = 'Hospital Name',
+#          hosp_type = 'Type of Hospital',
+#          cihi_total = Total) %>%  
+#   mutate(name = toupper(name))
+
+
+```
+
+## Output Tables/Files Not Used
+### Health Unused Outputs
+```{r health outputs not used}
+saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
+```
+
