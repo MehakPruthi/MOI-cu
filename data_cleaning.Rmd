@@ -875,7 +875,10 @@ hospitallocations <- hospitallocations %>%
   mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
   left_join(select(pccfSlimHosp, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
   mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
-         long = ifelse(is.na(long), hospital.long, long)) %>% 
+         long = ifelse(is.na(long), hospital.long, long)) %>%
+  group_by(id) %>% 
+  mutate(lat = first(lat), long = first(long), address = first(address)) %>% 
+  ungroup() %>% 
   select(-pcode.clean, -hospital.lat, -hospital.long)
 
 saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
