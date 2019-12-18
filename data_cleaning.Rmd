@@ -769,16 +769,6 @@ hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
   mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
   filter(agegroup != 7)
 
-# ## Identifying Duplicated Site IDs
-# duplicated_siteid <- HBAMhistorical %>% 
-#   filter(year == 2016) %>%
-#   group_by(siteid, caretype) %>%
-#   distinct(siteid) %>% 
-#   ungroup(caretype) %>% 
-#   add_count(siteid) %>% 
-#   filter(n > 1) %>% 
-#   distinct(siteid)
-
 # Health Asset Inventory
 hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
   spread(key = DatasetId, value = 'Master Number') %>% 
@@ -805,28 +795,37 @@ hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
          datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
          datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
          datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
-  group_by(pcode, name) %>% 
+  group_by(pcode) %>% 
   mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
   ungroup() %>% 
-  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>% 
-  # Omit from location data any hospitals not found in HBAM data
-  #inner_join(distinct(HBAMhistorical, siteid, caretype), by = c('datasetID1.siteid' = 'siteid', 'caretype')) %>%
-  #inner_join(distinct(HBAMprojected, siteid, caretype), by = c('datasetID1.siteid' = 'siteid', 'caretype')) %>%
-  # left_join(select(ALC_idcrosswalk, siteid, ALCsite_id, type), by = c('siteid', 'caretype' = 'type')) %>% 
-  distinct()
+  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
+  # Choose first name in list for each hospital
+  group_by(id) %>% 
+  mutate(name = first(name)) %>% 
+  ungroup() %>% 
+  # Lat/long incorrect in raw input data for Providence Care Hospital
+  mutate(lat = replace(lat, id == 33, 44.217317),
+         long = replace(long, id == 33, -76.527267))
 
-# Join postal code centroids to student's postal code data
-pccfSlim <- pccf %>%
+# TODO: Delete when code working
+# a <- 3949
+# hosploc <- hospitallocations %>%
+#   filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
+
+# Join postal code centroids to hospital postal code data
+pccfSlimHosp <- pccf %>%
   filter(SLI == 1) %>%
   select(postal.code = PostalCode,
          lat = LAT,
          long = LONG,
-         retirement.date = Ret_Date) %>%
+         retirement.date = Ret_Date,
+         csduid = CSDuid,
+         csdname = CSDname) %>%
   group_by(postal.code) %>%
   filter(retirement.date == max(retirement.date))
 
 # Create a list of postal codes with SLI == 1 but different lat/long
-pccfSlim[duplicated(pccfSlim$postal.code) | duplicated(pccfSlim$postal.code, fromLast = TRUE), ] %>%
+pccfSlimHosp[duplicated(pccfSlimHosp$postal.code) | duplicated(pccfSlimHosp$postal.code, fromLast = TRUE), ] %>%
   arrange(postal.code) %>%
   group_by(postal.code, lat, long, retirement.date) %>%
   summarise(n = n()) %>%
@@ -835,7 +834,7 @@ pccfSlim[duplicated(pccfSlim$postal.code) | duplicated(pccfSlim$postal.code, fro
 # Fill in unknown lat/long
 hospitallocations <- hospitallocations %>% 
   mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlim, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
+  left_join(select(pccfSlimHosp, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
   mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
          long = ifelse(is.na(long), hospital.long, long)) %>% 
   select(-pcode.clean, -hospital.lat, -hospital.long)
@@ -958,14 +957,17 @@ ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
 #ALC Datasets
 #CCO Linkage Table
 # DO WE STILL NEED THIS TABLE? IF SO, FIX CODE
-ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>% 
+
+ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>%
+  filter(!is.na(WTISSiteNum)) %>% 
   select(lhin = WTISLHINNum,
          name = MNSName,
          alcname = WTISSiteName,
          type = MNSType,
          siteid = MNSMaster,
          ALCsite_id = WTISSiteNum,
-         facilityid = MNSFacNum) %>% 
+         facilityid = MNSFacNum) %>%
+  # join to hospital locations on all possible historical datasetID values
   left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
   left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
   left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
@@ -974,12 +976,29 @@ ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>%
   left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>%
   ungroup() %>% 
   mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
-  left_join(select(hospitallocations, id, pcode), by = 'id') %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y, -alcname, -facilityid, -siteid, -type) %>% 
+  # Bring in postal code from hospital locations
+  distinct() %>% 
+  left_join(distinct(hospitallocations, id, pcode), by = 'id') %>% 
   mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlim, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  left_join(select(pccfSlimHosp, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
   select(-pcode.clean, -alc.lat, -alc.long) %>% 
-  select(lhin, name, alcname, caretype = type, pcode, id, ALCsite_id, csduid, csdname)
+  select(lhin, name, pcode, id, ALCsite_id, csduid, csdname) %>% 
+  # Clean dataset
+  group_by(id) %>%
+  # Remove duplicate entries where ALCsite_id is NA
+  mutate(duplicate_count = n(), remove = ifelse((duplicate_count > 1) & (is.na(ALCsite_id)) & id > 0, 1, 0)) %>%
+  filter(remove != 1) %>%
+  # Remove rows where ALCsite_id is duplicated in another row but CSD info is missing
+  group_by(ALCsite_id) %>%
+  mutate(duplicate_count = n(), id_check = max(id), remove = ifelse((duplicate_count > 1) & (is.na(id_check) == FALSE) & (is.na(csduid)), 1, 0)) %>%
+  filter(remove != 1) %>%
+  select(-duplicate_count, -remove, -id_check) %>% 
+  # Remove truly duplicate entries
+  group_by(id, ALCsite_id) %>%
+  arrange(id, name) %>%
+  filter(row_number()==1) %>% 
+  ungroup()
 
 saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
 
@@ -1048,6 +1067,8 @@ ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('
          year = replace(year, year == '1617', 2016),
          year = replace(year, year == '1718', 2017))
 
+saveRDS(ALC_madd_raw, file = 'cache/moh/ALC_madd_raw.rds')
+
 ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
   group_by(year) %>% 
   distinct(month) %>% 
@@ -1070,24 +1091,24 @@ CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>%
 saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
 
 #Test SiteID/Fac ID Linkages
-ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+#ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
 
 #Identify Mismatched Site IDs
-ALC_mismatchedids <- ALC_idlinkage %>% 
-  filter(is.na(type))
-
-ALC_mismatchedids %>% 
-  group_by(type) %>%
-  count()
-
-ALC_idlinkage %>% 
-  count(type %in% lhin.moh)
-
-#Filter out Mismatched IDs
-hospital_ALC_master <- ALC_idlinkage %>% 
-  filter(!is.na(type)) %>% 
-  group_by(siteid, facilityid, type, name.moh) %>% 
-  distinct()
+# ALC_mismatchedids <- ALC_idlinkage %>% 
+#   filter(is.na(type))
+# 
+# ALC_mismatchedids %>% 
+#   group_by(type) %>%
+#   count()
+# 
+# ALC_idlinkage %>% 
+#   count(type %in% lhin.moh)
+# 
+# #Filter out Mismatched IDs
+# hospital_ALC_master <- ALC_idlinkage %>% 
+#   filter(!is.na(type)) %>% 
+#   group_by(siteid, facilityid, type, name.moh) %>% 
+#   distinct()
 
 #LTC Facility Data
 ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
@@ -1096,7 +1117,7 @@ ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>%
          postal.code = 'Homes Postal Code',
          beds = 'Total Beds') %>% 
   mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
-  left_join(select(pccfSlim, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  left_join(select(pccfSlimHosp, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
   select(-pcode.clean, -ltc.lat, -ltc.long) 
 
 saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
