@@ -311,7 +311,8 @@ saveRDS(courthouse_asset_with_projected_cd, "output/mag/courthouse_asset_with_pr
 
 
 
-# Calculating utilization for CD level - 3 approaches tested
+# Calculating CD utilization level - 3 approaches tested
+# Utilization at this stage refers to the ratio of needed courtrooms to current number of courtrooms
 # Approach most realistic and accurate is summing business line courtroom needs by CD
 
 ## Approach 1 - Calculate an average utilization by CD and model year
@@ -341,25 +342,25 @@ cd_utilization_appr1 <- courthouse_asset_with_projected_cd %>%
 
 
 ###Apply the general rate to the sum of CD courthr totals
-cd_utilization_appr3 <- readRDS("cache/mag/future_cases_bl.rds") %>%
-  filter(year == MODEL_YEAR) %>% 
-  group_by(cduid, cdname, year) %>% 
-  summarise(court.hours = sum(court.hours)) %>% 
-  crossing(cd_utilization_appr3_utilization_chart) %>% 
-  mutate(op.utilization = 0) %>% 
-  mutate(op.utilization = ifelse(court.hours <= inflect.hours,
-                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours,
-                              op.utilization)) %>% 
-  mutate(op.utilization = ifelse(court.hours > inflect.hours & court.hours <= max.hours,
-                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours - inflect.hours)                                                       / (max.hours - inflect.hours)),
-                                 op.utilization)) %>% 
-  mutate(op.utilization = ifelse(court.hours > max.hours,
-                                 max.hours.dy,
-                                 op.utilization)) %>% 
-  mutate(courtrooms.needed = round(court.hours / (op.utilization * OP_DAYS), digits = 2)) %>% 
-  left_join(select(courthouse_asset_with_projected_cd, number.of.courtrooms.2018, cduid), by = "cduid") %>% 
-  mutate(utilization_appr3 =courtrooms.needed/number.of.courtrooms.2018) %>% 
-  left_join(select(cd_utilization_appr1, utilization_appr1, cduid), by="cduid")
+# cd_utilization_appr3 <- readRDS("cache/mag/future_cases_bl.rds") %>%
+#   filter(year == MODEL_YEAR) %>% 
+#   group_by(cduid, cdname, year) %>% 
+#   summarise(court.hours = sum(court.hours)) %>% 
+#   crossing(cd_utilization_appr3_utilization_chart) %>% 
+#   mutate(op.utilization = 0) %>% 
+#   mutate(op.utilization = ifelse(court.hours <= inflect.hours,
+#                               base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours,
+#                               op.utilization)) %>% 
+#   mutate(op.utilization = ifelse(court.hours > inflect.hours & court.hours <= max.hours,
+#                                  inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours - inflect.hours)                                                       / (max.hours - inflect.hours)),
+#                                  op.utilization)) %>% 
+#   mutate(op.utilization = ifelse(court.hours > max.hours,
+#                                  max.hours.dy,
+#                                  op.utilization)) %>% 
+#   mutate(courtrooms.needed = round(court.hours / (op.utilization * OP_DAYS), digits = 2)) %>% 
+#   left_join(select(courthouse_asset_with_projected_cd, number.of.courtrooms.2018, cduid), by = "cduid") %>% 
+#   mutate(utilization_appr3 =courtrooms.needed/number.of.courtrooms.2018) %>% 
+#   left_join(select(cd_utilization_appr1, utilization_appr1, cduid), by="cduid")
 
   
 ```
@@ -555,84 +556,86 @@ saveRDS(courthouse_2018_observed, "output/mag/courthouse_2018_observed.rds")
 
 # Linear Regression
 
-- Explore whether there are any linear relationships between age groups and certain court hours
+- Commented out due to being non-essential to current modelling approach, but can be used for further exploration
+- Conducted to test whether there are any linear relationships between age groups and certain court hours
 
 ```{r explore linear regression}
-library(perturb)
+# library(perturb)
 
-treso_2016_population <- readRDS("input/mag/treso_2016_population_mag.rds") %>% 
-  left_join(treso_zone_system, by = c("treso_zone" = "treso_id")) %>% 
-  select(treso_zone, age.group, population, cduid, cdname) %>% 
-  mutate(cdname = as.character(cdname)) %>% 
-  group_by(cduid, cdname, age.group) %>% 
-  summarise(population = sum(population)) %>% 
-  ungroup() %>% 
-  spread(key = "age.group", value = "population") %>% 
-  mutate(adult = adult.20s + adult.30s + adult.40s + adult.50s + adult.60s) %>% 
-  mutate(senior = senior.70s + senior.80s) %>% 
-  mutate(majority = adult + senior) %>% 
-  mutate(minor = child + youth + young.adult) %>% 
-  mutate(total = majority + minor)
-
-court_hours_2016 <- court_hours %>% 
-  filter(year == 2016) %>% 
-  select(-lat, -long, -csduid, -csdname, -area, -region, -courthouse.lat, -courthouse.long) %>% 
-  group_by(cduid, cdname, casetypes) %>%
-  summarise(value = sum(value)) %>% 
-  ungroup() %>% 
-  spread(key = "casetypes", value = "value") %>% 
-  left_join(treso_2016_population, by = c("cduid", "cdname")) %>% 
-  select(-cduid, -cdname) %>% 
-  mutate_if(is.numeric, list(ln = log1p, sqrt = sqrt, log = log10, sq = ~.^2, scale = scale)) 
+# treso_2016_population <- readRDS("input/mag/treso_2016_population_mag.rds") %>% 
+#   left_join(treso_zone_system, by = c("treso_zone" = "treso_id")) %>% 
+#   select(treso_zone, age.group, population, cduid, cdname) %>% 
+#   mutate(cdname = as.character(cdname)) %>% 
+#   group_by(cduid, cdname, age.group) %>% 
+#   summarise(population = sum(population)) %>% 
+#   ungroup() %>% 
+#   spread(key = "age.group", value = "population") %>% 
+#   mutate(adult = adult.20s + adult.30s + adult.40s + adult.50s + adult.60s) %>% 
+#   mutate(senior = senior.70s + senior.80s) %>% 
+#   mutate(majority = adult + senior) %>% 
+#   mutate(minor = child + youth + young.adult) %>% 
+#   mutate(total = majority + minor)
+# 
+# court_hours_2016 <- court_hours %>% 
+#   filter(year == 2016) %>% 
+#   select(-lat, -long, -csduid, -csdname, -area, -region, -courthouse.lat, -courthouse.long) %>% 
+#   group_by(cduid, cdname, casetypes) %>%
+#   summarise(value = sum(value)) %>% 
+#   ungroup() %>% 
+#   spread(key = "casetypes", value = "value") %>% 
+#   left_join(treso_2016_population, by = c("cduid", "cdname")) %>% 
+#   select(-cduid, -cdname) %>% 
+#   mutate_if(is.numeric, list(ln = log1p, sqrt = sqrt, log = log10, sq = ~.^2, scale = scale)) 
 
 ```
 
 ```{r building models - OCJcrim}
-r1 <- resid(lm(young.adult_ln ~ adult.20s_ln, data = court_hours_2016))
-summary(mod)
-
-plot(mod)
+# r1 <- resid(lm(young.adult_ln ~ adult.20s_ln, data = court_hours_2016))
+# mod <- lm(OCJcrim_sqrt ~ adult.20s_ln + r1, data = court_hours_2016)
+# summary(mod)
+# 
+# plot(mod)
 ```
 
 ```{r building models - SCJcrim}
-r1 <- resid(lm(adult.30s_sqrt ~ adult.20s_sqrt, data = court_hours_2016))
-mod <- lm(SCJcrim_sqrt ~ adult.20s_sqrt + r1, data = court_hours_2016)
-summary(mod)
-plot(mod)
+# r1 <- resid(lm(adult.30s_sqrt ~ adult.20s_sqrt, data = court_hours_2016))
+# mod <- lm(SCJcrim_sqrt ~ adult.20s_sqrt + r1, data = court_hours_2016)
+# summary(mod)
+# plot(mod)
 ```
 
 ```{r building models - OCJfam}
-mod <- lm(OCJfam ~ adult.30s_sqrt + adult.50s_sqrt + child, data = court_hours_2016)
-summary(mod)
-plot(mod)
-
-# Comment - it was found that to have a high R^2 and proper signs with the `child` term, the only transformation is the non-transformed version.
+# mod <- lm(OCJfam ~ adult.30s_sqrt + adult.50s_sqrt + child, data = court_hours_2016)
+# summary(mod)
+# plot(mod)
+# 
+# # Comment - it was found that to have a high R^2 and proper signs with the `child` term, the only transformation is the non-transformed version.
 ```
 
 ```{r building models - SCJfam}
-mod <- lm(SCJfam ~ youth_sqrt + senior.70s, data = court_hours_2016)
-summary(mod)
-plot(mod)
+# mod <- lm(SCJfam ~ youth_sqrt + senior.70s, data = court_hours_2016)
+# summary(mod)
+# plot(mod)
 ```
 
 ```{r building models - civil}
 
-mod <- lm(civil_sqrt ~ young.adult_sqrt + adult.20s_sqrt + senior.80s_sqrt, data = court_hours_2016)
-summary(mod)
-print(colldiag(mod))
-plot(mod)
+# mod <- lm(civil_sqrt ~ young.adult_sqrt + adult.20s_sqrt + senior.80s_sqrt, data = court_hours_2016)
+# summary(mod)
+# print(colldiag(mod))
+# plot(mod)
 ```
 
 ```{r building models - smac}
-rMod <- residuals(lm(adult.30s ~ adult.20s, data = court_hours_2016))
-mod <- lm(smac ~ adult.20s_sqrt + rMod, data = court_hours_2016)
-cd <- colldiag(mod)
-cd
-
-mod <- lm(smac ~ adult.20s_sqrt + adult.30s_sqrt, data = court_hours_2016)
-cd <- colldiag(mod)
-cd
-
-#plot(mod)
+# rMod <- residuals(lm(adult.30s ~ adult.20s, data = court_hours_2016))
+# mod <- lm(smac ~ adult.20s_sqrt + rMod, data = court_hours_2016)
+# cd <- colldiag(mod)
+# cd
+# 
+# mod <- lm(smac ~ adult.20s_sqrt + adult.30s_sqrt, data = court_hours_2016)
+# cd <- colldiag(mod)
+# cd
+# 
+# #plot(mod)
 
 ```
