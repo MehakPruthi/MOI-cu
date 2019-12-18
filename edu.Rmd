@@ -82,52 +82,44 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
 board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
 
-school_board_list <- c("English Public", "English Catholic", "French Public", "French Catholic")
-panel_list <- c("Elementary", "Secondary")
+board_id <- "English Public"
+panel_id <- "Elementary"
 year_id <- 2017
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
   select(treso.id.por = treso_zone, panel = age.group, csduid, enrolment = paste0("population.", year_id)) %>%
   filter(panel != "other")
 
-for (board_id in school_board_list) {
-  for (panel_id in panel_list) {
-    segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
-                        str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
-                        str_split(panel_id, "")[[1]][1])
-    print(segment_id)
-    
-    # Read the propensity matrix
-    prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
-    
-    # Create pos vector
-    pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
-    
-    # Apply the board sampling probabilities to the student population from TRESO
-    treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
-                                                                    board_type_sample = board_type_sample_spread) 
-    # Create forecast por vector
-    por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
-                                      panel_id=panel_id, board_id=board_id)
-    
-    print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
-    
-    # 1D balancing
-    prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
-    
-    trip_list <- reshape2::melt(prop_matrix_balanced) %>%
-        arrange(Var1, Var2)
-    colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
-    
-    # Produce the simulated ADE for each school
-    school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
-                                               year_id = year_id, panel_id = panel_id, board_id = board_id)
-    
-   break 
-  }
-  break
-}
+segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
+                    str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
+                    str_split(panel_id, "")[[1]][1])
+print(segment_id)
 
+# Read the propensity matrix
+prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
+
+# Create pos vector
+pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+
+# Apply the board sampling probabilities to the student population from TRESO
+treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                board_type_sample = board_type_sample_spread) 
+# Create forecast por vector
+por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
+                                  panel_id=panel_id, board_id=board_id)
+
+print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
+
+# 1D balancing
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
+
+trip_list <- reshape2::melt(prop_matrix_balanced) %>%
+    arrange(Var1, Var2)
+colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+
+# Produce the simulated ADE for each school
+school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
+                                           year_id = year_id, panel_id = panel_id, board_id = board_id)
 
 ```
 
@@ -143,49 +135,42 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
 board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
 
-school_board_list <- c("English Public", "English Catholic", "French Public", "French Catholic")
-panel_list <- c("Elementary", "Secondary")
 year_id <- 2025
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
   select(treso.id.por = treso_zone, panel = age.group, csduid, enrolment = paste0("population.", year_id)) %>%
   filter(panel != "other")
 
-for (board_id in school_board_list) {
-  for (panel_id in panel_list) {
-    segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
-                        str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
-                        str_split(panel_id, "")[[1]][1])
-    print(segment_id)
-    
-    # Read the propensity matrix
-    prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
-    
-    # Create pos vector
-    pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
-    
-    # Apply the board sampling probabilities to the student population from TRESO
-    treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
-                                                                    board_type_sample = board_type_sample_spread) 
-    
-    por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
-                                      panel_id=panel_id, board_id=board_id)
-    
-    print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
-    
-    # 1D balancing
-    prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
-    trip_list <- reshape2::melt(prop_matrix_balanced) %>%
-        arrange(Var1, Var2)
-    colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
-    
-    # Produce the simulated ADE for each school
-    school_summary_20xx <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
-                                               year_id = year_id, panel_id = panel_id, board_id = board_id)
-   break 
-  }
-  break
-}
+segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
+                    str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
+                    str_split(panel_id, "")[[1]][1])
+print(segment_id)
+
+# Read the propensity matrix
+prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
+
+# Create pos vector
+pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+
+# Apply the board sampling probabilities to the student population from TRESO
+treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                board_type_sample = board_type_sample_spread) 
+
+por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
+                                  panel_id=panel_id, board_id=board_id)
+
+print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
+
+# 1D balancing
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
+trip_list <- reshape2::melt(prop_matrix_balanced) %>%
+    arrange(Var1, Var2)
+colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+
+# Produce the simulated ADE for each school
+school_summary_20xx <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
+                                           year_id = year_id, panel_id = panel_id, board_id = board_id)
+
 
 ```
 
@@ -271,15 +256,16 @@ print(paste0("Compare that with the sum of first column of prop_matrix_balanced:
 print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which should be the same as the overfill_ade: ", overfill_ade))
 ```
 
-### Step 5 - Re-balance, and Summarize Results from Iteration
-- TODO: reblance with 2D? and scale the OTG leftover to the ADE overfill?
+### Step 5 - Re-balance with ADE overfill and OTG leftover
 
 ```{r application of gravity model - step 5}
 # Balance the por_overfill against pos_underfill schools to redistribute the overfilled ADE
 print(paste0("ADE is: ", sum(por_overfill), ". OTG is: ", sum(pos_underfill), "."))
     
-# 1D balancing
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, constrained=TRUE)
+# # 1D balancing
+# prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, constrained=TRUE)
+# 2D balancing
+prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por_overfill, pos_underfill, totals_to_use = "rows", max_iterations = 1000)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
@@ -297,7 +283,7 @@ school_summary_ade_overfill <- school_forecast %>%
   select(sfis, overfill.ade)
 
 school_summary_20xx <- full_join(school_summary_20xx, school_summary_20xx_iterated,
-                                                  by="sfis", suffix=c("", ".iteration")) %>% 
+                                 by="sfis", suffix=c("", ".iteration")) %>% 
   replace_na(list(simulated.ade = 0, simulated.ade.iteration = 0)) %>% 
   mutate(simulated.ade = simulated.ade + simulated.ade.iteration) %>% 
   select(-simulated.ade.iteration) %>% 
@@ -311,15 +297,15 @@ school_summary_20xx <- full_join(school_summary_20xx, school_summary_20xx_iterat
 
 ```{r application of gravity model - step 6}
 # Take the difference between the simulated ADEs
-school_summary_difference <- full_join(school_summary_2017, school_summary_20xx, 
-                                                  by="sfis", suffix=c(".2017", ".20xx")) %>%
+trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, 
+                                                  by="sfis", suffix=c(".2017", ".20xx")) %>% 
   replace_na(list(simulated.ade.2017 = 0, simulated.ade.20xx = 0)) %>% 
   mutate(change.ade = simulated.ade.20xx - simulated.ade.2017)
 
 school_forecast_final <- filter(school_master, year == 2017) %>% 
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0) %>% 
   filter(panel == panel_id, board_type_name == board_id) %>% 
-  full_join(select(school_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), 
+  full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), 
             by="sfis") %>% 
   replace_na(list(ade = 0, change.ade = 0)) %>% 
   mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>% 
@@ -343,7 +329,7 @@ pos <- school_forecast_final %>%
     data.matrix()
 
 # 2D balancing, scale the total to the POS side 
-prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="columns", rel_error = 0.01)
+prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="columns", max_iterations = 1000)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
