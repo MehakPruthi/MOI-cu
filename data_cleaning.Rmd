@@ -745,8 +745,8 @@ ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv')
   # Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
 treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
-# PCCF - NEEDS A COPY IN HEALTH
-pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
+# PCCF
+pccf <- read.csv('input/moh/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 
 ```
 
