@@ -1013,26 +1013,6 @@ ALC_idcrosswalkprep <- ALC_idcrosswalk %>%
 # Output ALC ID Crosswalk cache for input into hospitals.rmd
 saveRDS(ALC_idcrosswalkprep, file = 'cache/moh/ALC_crosswalk.rds')
 
-ALCannualvolumeprep <- ALCannualvolume %>%
-  select(year = Year,
-         siteid = SiteNumber,
-         casetype = CaseType,
-         bedtype = InPatientBedType,
-         agegroup = AgeGroup,
-         dd = DischargeDestination,
-         freq = Frequency,
-         losmean = Mean,
-         losmed = Median,
-         los90thp = '90thP',
-         totalALCdays = TotalALCDays) %>% 
-  filter(casetype == 9, 
-         agegroup != 9,
-         agegroup != 7,
-         bedtype == 'AP',
-         dd != "ALL")
-
-
-
 #Most recent updated ALC Data from CCO w/ MADD and DD typeflags
 ALC_madd_rawprep <- ALC_madd_raw %>%
   filter(INPATIENTBEDTYPE == 'AP',
@@ -1182,315 +1162,6 @@ dailybedcensusprepagg %>%
   group_by(type) %>%
   distinct(type)
 ```
-
-##HBAM Data and Caserate Caculations
-  - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
-  - Aggregate TRESO population data to CSD level
-  
-###CSD Caserate Calculations
-```{r}
-HBAMhistorical_csd <- HBAMhistorical_master %>% 
-  select(year,
-         siteid,
-         caretype,
-         agegroup,
-         cases,
-         orig_csd) %>% 
-  ungroup() %>% 
-  group_by(year, orig_csd, caretype, agegroup) %>% 
-  summarise(cases = sum(cases))
-
-csd_pop <- treso_population_moh %>% 
-  group_by(csduid, age_group) %>%
-  summarise(population.2041 = sum(population.2041))
-
-for (target in 2011:2031) {
-  pop_var <- paste0('population.',target)
-  temp_pop <- treso_population_moh %>%
-    group_by(csduid, age_group) %>% 
-    summarise(!!pop_var := sum(get(paste0('population.',target))))
-  
-  csd_pop <- left_join(csd_pop, temp_pop, by = c('csduid', 'age_group')) %>% 
-    select(-population.2041, population.2041) # to move 2041 to the last column
-
-}
-
-rm(temp_pop)
-
-#Convert TRESO-CSD Population data to long format
-csd_pop_long <- gather(csd_pop, year, population, population.2011:population.2041, -age_group) %>% 
-  separate(year, into = c('pop', 'year'), sep = "n.") %>% 
-  mutate(year = as.numeric(year)) %>% 
-  select(-pop)
-
-#Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
-csd_caserates <- left_join(HBAMhistorical_csd, csd_pop_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
-  mutate(csd_caserate = cases/population) %>% 
-  select(-cases, 
-         -population) %>% 
-  mutate(orig_cd = as.numeric(substring(orig_csd, 0,4)),
-         csd_caserate = replace(csd_caserate, csd_caserate == Inf, 0)) #CSD populations w/ 0 (as summed TRESO zones w/ 0 population) result in Inf case-rates; replace with 0
-
-# #FOR INFO - Deselect cases & population from csd_caserates code above for use
-# #Calculte Mismatched CSDs
-# mismatched_csd <- csd_caserates %>% 
-#   filter(is.na(population)) %>% 
-#   summarise(sum(cases)) #total of 57,951 mismatched cases from 89 CSDs
-
-#Output for use in hospitals.rmd
-saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
-```
-
-###Census Division (CD) Caserate Calculations
-  - Convert HBAM data back to long format
-  - Calculate caserates per care-type disaggregated by age group
-  - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
-  - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
-      - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
-
-```{r}
-HBAMhistorical_cd <- HBAMhistorical_master %>% 
-  mutate(orig_cd = substring(orig_csd, 0,4)) %>% 
-  select(year, 
-         siteid,
-         caretype,
-         agegroup,
-         cases,
-         orig_cd) %>% 
-  group_by(year, orig_cd, caretype, agegroup) %>% 
-  summarise(cases = sum(cases))
-
-cd_pop_long <- csd_pop_long %>% 
-  mutate(cd = substring(csduid, 0,4)) %>% 
-  group_by(year, cd, age_group) %>% 
-  summarise(population = sum(population))
-
-cd_caserates <- left_join(HBAMhistorical_cd, cd_pop_long, by = c('year', 'orig_cd'= 'cd', 'agegroup'='age_group')) %>% 
-  ungroup() %>% 
-  mutate(cd_caserate = cases/population,
-         orig_cd = as.numeric(orig_cd)) %>% 
-  select(-cases,
-         -population)
-
-# #FOR INFO - TEST: To use, deselect cases & population from cd_caserates above
-# mismatched_cd <- cd_caserates %>% 
-#   filter(is.na(population)) %>% 
-#   summarise(sum(cases))
-
-saveRDS(cd_caserates, file = 'cache/moh/cd_caserates.rds')
-
-```
-
-###Combined Case-rates
-```{r}
-#Compile caserates into one df (CD and CSD)
-caserates_comp <- full_join(csd_caserates, cd_caserates, by = c('year', 'agegroup', 'caretype', 'orig_cd')) %>% 
-  select(year, caretype, agegroup,orig_csd, csd_caserate, orig_cd, cd_caserate)
-
-saveRDS(caserates_comp, file = 'cache/moh/caserates_comp.rds')
-
-####Plotting Caserates
-ct <- 'AM'
-csd_caserates_plot <- csd_caserates %>% 
-  filter(caretype == ct,
-         !csd_caserate == 'Inf') %>%
-  group_by(year, agegroup, caretype) %>% 
-  summarise(avg_cr = mean(csd_caserate)) %>% 
-  ungroup()
-
-ggplot(csd_caserates_plot, aes(x=year, y=avg_cr, color=as.factor(agegroup))) +
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE)
-
-```
-
-
-###Provincial Caserate Calculations
-  - Calculate caserates by care types for provincial level disaggregated by age group
-```{r}
-#Provincial Caserates
-cases_total <- HBAMhistorical_csd_spread %>% 
-  ungroup(csd) %>%
-  summarise(cases_total = sum(cases_tot))
-
-pop_total <- csd_pop %>%
-  summarise(total_pop = sum(pop_tot))
-
-provincial_caserate = cases_total/pop_total
-
-#Provincial Caserate by CT
-cases_ct <- HBAMhistorical_csd_spread %>% 
-  ungroup(csd) %>% 
-  group_by(caretype) %>% 
-  summarise(cases_total = sum(cases_tot)) %>% 
-  mutate(index_link = 1)
-
-pop_total <- pop_total %>%
-  mutate(index_link = 1) 
-  
-provincial_caserate_ct <- left_join(cases_ct, pop_total, by = 'index_link') %>% 
-  mutate(caserate_ct = cases_total/total_pop) %>% 
-  select(-index_link,
-         caretype,
-         caserate_ct)
-
-#Provincial Caserate by Age Group
-pop_agegroup <- csd_pop %>% 
-  ungroup(csd) %>% 
-  summarise(pop_tot = sum(pop_tot),
-            pop_ag1 = sum(pop_ag1),
-            pop_ag2 = sum(pop_ag2),
-            pop_ag3 = sum(pop_ag3),
-            pop_ag4 = sum(pop_ag4),
-            pop_ag5 = sum(pop_ag5),
-            pop_ag6 = sum(pop_ag6),
-            pop_ped1 = sum(pop_ped1),
-            pop_ped2 = sum(pop_ped2),
-            pop_ped3 = sum(pop_ped3)) %>% 
-  mutate(index_link = 1)
-
-cases_agegoup <- HBAMhistorical_csd_spread %>% 
-  ungroup(csd) %>%
-  summarise(cases_tot = sum(cases_tot),
-            cases_ag1 = sum(cases_ag1),
-            cases_ag2 = sum(cases_ag2),
-            cases_ag3 = sum(cases_ag3),
-            cases_ag4 = sum(cases_ag4),
-            cases_ag5 = sum(cases_ag5),
-            cases_ag6 = sum(cases_ag6),
-            cases_ped1 = sum(cases_ped1),
-            cases_ped2 = sum(cases_ped2),
-            cases_ped3 = sum(cases_ped3)) %>% 
-  mutate(index_link = 1)
-  
-provincial_caserate_agegroup <- left_join(cases_agegoup, pop_agegroup, by = 'index_link') %>% 
-  mutate(caserate_tot = cases_tot/pop_tot,
-         caserate_ag1 = cases_ag1/pop_ag1,
-         caserate_ag2 = cases_ag2/pop_ag2,
-         caserate_ag3 = cases_ag3/pop_ag3,
-         caserate_ag4 = cases_ag4/pop_ag4,
-         caserate_ag5 = cases_ag5/pop_ag5,
-         caserate_ag6 = cases_ag6/pop_ag6,
-         caserate_ped1 = cases_ped1/pop_ped1,
-         caserate_ped2 = cases_ped2/pop_ped2,
-         caserate_ped3 = cases_ped3/pop_ped3) %>% 
-  select(caserate_tot,
-         caserate_ag1,
-         caserate_ag2,
-         caserate_ag3,
-         caserate_ag4,
-         caserate_ag5,
-         caserate_ag6,
-         caserate_ped1,
-         caserate_ped2,
-         caserate_ped3)
-
-#Provincial Caserate by Caretype by Age Group
-cases_ct_agegroup <- HBAMhistorical_csd_spread %>% 
-  ungroup(csd) %>% 
-  group_by(caretype) %>% 
-    summarise(cases_tot = sum(cases_tot),
-            cases_ag1 = sum(cases_ag1),
-            cases_ag2 = sum(cases_ag2),
-            cases_ag3 = sum(cases_ag3),
-            cases_ag4 = sum(cases_ag4),
-            cases_ag5 = sum(cases_ag5),
-            cases_ag6 = sum(cases_ag6),
-            cases_ped1 = sum(cases_ped1),
-            cases_ped2 = sum(cases_ped2),
-            cases_ped3 = sum(cases_ped3)) %>% 
-  mutate(index_link = 1)
-
-provincial_caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by = 'index_link') %>% 
-  mutate(caserate_tot = cases_tot/pop_tot,
-         caserate_ag1 = cases_ag1/pop_ag1,
-         caserate_ag2 = cases_ag2/pop_ag2,
-         caserate_ag3 = cases_ag3/pop_ag3,
-         caserate_ag4 = cases_ag4/pop_ag4,
-         caserate_ag5 = cases_ag5/pop_ag5,
-         caserate_ag6 = cases_ag6/pop_ag6,
-         caserate_ped1 = cases_ped1/pop_ped1,
-         caserate_ped2 = cases_ped2/pop_ped2,
-         caserate_ped3 = cases_ped3/pop_ped3) %>% 
-  select(caretype,
-         caserate_tot,
-         caserate_ag1,
-         caserate_ag2,
-         caserate_ag3,
-         caserate_ag4,
-         caserate_ag5,
-         caserate_ag6,
-         caserate_ped1,
-         caserate_ped2,
-         caserate_ped3)
-
-
-```
-
-## ALC Data
-  - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD)
-  - Given ALC data with multiple Site ID types (1-4-digit codes), each unique volume needs to be stripped out in order to get accurate totals
-  - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
-```{r}
-#Isolate all 3-digit ALC-Site IDs (assuming single address/location)
-three_digit_ALC <- ALCannualvolumeprep %>%
-  filter(siteid < 999,
-         siteid > 99) %>% 
-  select (-casetype,
-          -bedtype) 
-
-unique_facilityids <- hospital_id_master %>% 
-  mutate(pcode = as.character(pcode)) %>% 
-  group_by(facilityid) %>%
-  summarise(pcodecount = n_distinct(pcode)) %>%
-  right_join(hospital_id_master, by=c('facilityid')) %>% 
-  filter(pcodecount == 1) %>% 
-  distinct()
-
-site_id_count <- unique_facilityids %>% 
-  group_by(facilityid) %>% 
-  distinct(siteid) %>% 
-  count()
-
-facilityid_ALC <- left_join(unique_facilityids, three_digit_ALC, by = c('facilityid' = 'siteid')) %>% 
-  filter(!is.na(pcode)) %>% 
-  select(-pcodecount) %>% 
-  # rename('facilityid' = 'siteid',
-  #        'siteid' = 'siteid.y') %>%
-  left_join(site_id_count, by=c('facilityid')) %>% 
-  mutate(totalALCdays = (totalALCdays/n)) %>% 
-  select(-n)
-
-facilityid_ALC %>% filter(facilityid == 927, year ==1112) %>% summarise(n = sum(totalALCdays))
-
-#Isolate all 4-digit ALC-Site IDs
-four_digit_ALC <- ALCannualvolume %>% 
-  filter(siteid > 999) %>% 
-  select(-casetype,
-          -bedtype)
-
-siteid_ALC <-left_join(four_digit_ALC, hospital_id_master, by = c('siteid' = 'ALCsite_id')) %>% 
-  filter(!is.na(pcode)) %>% 
-  rename('ALCsite_id' = 'siteid',
-         'siteid' = 'siteid.y')
-
-ALCsite_id_count <- siteid_ALC %>% 
-  group_by(ALCsite_id) %>% 
-  summarise(duplicates = n_distinct(siteid))
-
-siteid_ALC <- left_join(siteid_ALC, ALCsite_id_count, by = c('ALCsite_id')) %>%
-  mutate(totalALCdays = (totalALCdays/duplicates)) %>% 
-  select(-duplicates)
-
-siteid_ALC %>%  filter(ALCsite_id == 4414, year == 1112) %>% summarise(sum(totalALCdays))
-
-ALC_master <- rbind(siteid_ALC, facilityid_ALC)
-
-#TEST
-ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalALCdays))
-
-```
-
 
 
 
@@ -1751,7 +1422,6 @@ saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
 
 # Unused Code - Potential for Future Need
 ## EDU Unused Code
-
 ## Health Unused Code
 
 ```{r sql health code, include=FALSE, eval=FALSE}
@@ -1953,4 +1623,341 @@ Hospitalphyscap <- dailybedcensusprepagg %>%
             maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
             maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
 ```
+
+
+```{r obsolete}
+  # - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
+  # - Aggregate TRESO population data to CSD level
+  
+###CSD Caserate Calculations
+
+HBAMhistorical_csd <- HBAMhistorical_master %>% 
+  select(year,
+         siteid,
+         caretype,
+         agegroup,
+         cases,
+         orig_csd) %>% 
+  ungroup() %>% 
+  group_by(year, orig_csd, caretype, agegroup) %>% 
+  summarise(cases = sum(cases))
+
+csd_pop <- treso_population_moh %>% 
+  group_by(csduid, age_group) %>%
+  summarise(population.2041 = sum(population.2041))
+
+for (target in 2011:2031) {
+  pop_var <- paste0('population.',target)
+  temp_pop <- treso_population_moh %>%
+    group_by(csduid, age_group) %>% 
+    summarise(!!pop_var := sum(get(paste0('population.',target))))
+  
+  csd_pop <- left_join(csd_pop, temp_pop, by = c('csduid', 'age_group')) %>% 
+    select(-population.2041, population.2041) # to move 2041 to the last column
+
+}
+
+rm(temp_pop)
+
+#Convert TRESO-CSD Population data to long format
+csd_pop_long <- gather(csd_pop, year, population, population.2011:population.2041, -age_group) %>% 
+  separate(year, into = c('pop', 'year'), sep = "n.") %>% 
+  mutate(year = as.numeric(year)) %>% 
+  select(-pop)
+
+#Join CSD and HBAM-CSD Origin Data and remove NA CSD values (outside of Ontario)
+csd_caserates <- left_join(HBAMhistorical_csd, csd_pop_long, by = c('year', 'orig_csd' = 'csduid', 'agegroup' = 'age_group')) %>% 
+  mutate(csd_caserate = cases/population) %>% 
+  select(-cases, 
+         -population) %>% 
+  mutate(orig_cd = as.numeric(substring(orig_csd, 0,4)),
+         csd_caserate = replace(csd_caserate, csd_caserate == Inf, 0)) #CSD populations w/ 0 (as summed TRESO zones w/ 0 population) result in Inf case-rates; replace with 0
+
+# #FOR INFO - Deselect cases & population from csd_caserates code above for use
+# #Calculte Mismatched CSDs
+# mismatched_csd <- csd_caserates %>% 
+#   filter(is.na(population)) %>% 
+#   summarise(sum(cases)) #total of 57,951 mismatched cases from 89 CSDs
+
+#Output for use in hospitals.rmd
+saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
+```
+
+
+
+
+```{r obsolete cont.}
+  # - Convert HBAM data back to long format
+  # - Calculate caserates per care-type disaggregated by age group
+  # - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
+  # - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
+  #     - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
+
+
+HBAMhistorical_cd <- HBAMhistorical_master %>% 
+  mutate(orig_cd = substring(orig_csd, 0,4)) %>% 
+  select(year, 
+         siteid,
+         caretype,
+         agegroup,
+         cases,
+         orig_cd) %>% 
+  group_by(year, orig_cd, caretype, agegroup) %>% 
+  summarise(cases = sum(cases))
+
+cd_pop_long <- csd_pop_long %>% 
+  mutate(cd = substring(csduid, 0,4)) %>% 
+  group_by(year, cd, age_group) %>% 
+  summarise(population = sum(population))
+
+cd_caserates <- left_join(HBAMhistorical_cd, cd_pop_long, by = c('year', 'orig_cd'= 'cd', 'agegroup'='age_group')) %>% 
+  ungroup() %>% 
+  mutate(cd_caserate = cases/population,
+         orig_cd = as.numeric(orig_cd)) %>% 
+  select(-cases,
+         -population)
+
+# #FOR INFO - TEST: To use, deselect cases & population from cd_caserates above
+# mismatched_cd <- cd_caserates %>% 
+#   filter(is.na(population)) %>% 
+#   summarise(sum(cases))
+
+saveRDS(cd_caserates, file = 'cache/moh/cd_caserates.rds')
+
+```
+
+
+```{r obsolete cont.2}
+#Compile caserates into one df (CD and CSD)
+caserates_comp <- full_join(csd_caserates, cd_caserates, by = c('year', 'agegroup', 'caretype', 'orig_cd')) %>% 
+  select(year, caretype, agegroup,orig_csd, csd_caserate, orig_cd, cd_caserate)
+
+saveRDS(caserates_comp, file = 'cache/moh/caserates_comp.rds')
+
+####Plotting Caserates
+ct <- 'AM'
+csd_caserates_plot <- csd_caserates %>% 
+  filter(caretype == ct,
+         !csd_caserate == 'Inf') %>%
+  group_by(year, agegroup, caretype) %>% 
+  summarise(avg_cr = mean(csd_caserate)) %>% 
+  ungroup()
+
+ggplot(csd_caserates_plot, aes(x=year, y=avg_cr, color=as.factor(agegroup))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+
+```
+
+
+```{r obsolete cont. 3}
+  # - Calculate caserates by care types for provincial level disaggregated by age group
+
+#Provincial Caserates
+cases_total <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>%
+  summarise(cases_total = sum(cases_tot))
+
+pop_total <- csd_pop %>%
+  summarise(total_pop = sum(pop_tot))
+
+provincial_caserate = cases_total/pop_total
+
+#Provincial Caserate by CT
+cases_ct <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>% 
+  group_by(caretype) %>% 
+  summarise(cases_total = sum(cases_tot)) %>% 
+  mutate(index_link = 1)
+
+pop_total <- pop_total %>%
+  mutate(index_link = 1) 
+  
+provincial_caserate_ct <- left_join(cases_ct, pop_total, by = 'index_link') %>% 
+  mutate(caserate_ct = cases_total/total_pop) %>% 
+  select(-index_link,
+         caretype,
+         caserate_ct)
+
+#Provincial Caserate by Age Group
+pop_agegroup <- csd_pop %>% 
+  ungroup(csd) %>% 
+  summarise(pop_tot = sum(pop_tot),
+            pop_ag1 = sum(pop_ag1),
+            pop_ag2 = sum(pop_ag2),
+            pop_ag3 = sum(pop_ag3),
+            pop_ag4 = sum(pop_ag4),
+            pop_ag5 = sum(pop_ag5),
+            pop_ag6 = sum(pop_ag6),
+            pop_ped1 = sum(pop_ped1),
+            pop_ped2 = sum(pop_ped2),
+            pop_ped3 = sum(pop_ped3)) %>% 
+  mutate(index_link = 1)
+
+cases_agegoup <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>%
+  summarise(cases_tot = sum(cases_tot),
+            cases_ag1 = sum(cases_ag1),
+            cases_ag2 = sum(cases_ag2),
+            cases_ag3 = sum(cases_ag3),
+            cases_ag4 = sum(cases_ag4),
+            cases_ag5 = sum(cases_ag5),
+            cases_ag6 = sum(cases_ag6),
+            cases_ped1 = sum(cases_ped1),
+            cases_ped2 = sum(cases_ped2),
+            cases_ped3 = sum(cases_ped3)) %>% 
+  mutate(index_link = 1)
+  
+provincial_caserate_agegroup <- left_join(cases_agegoup, pop_agegroup, by = 'index_link') %>% 
+  mutate(caserate_tot = cases_tot/pop_tot,
+         caserate_ag1 = cases_ag1/pop_ag1,
+         caserate_ag2 = cases_ag2/pop_ag2,
+         caserate_ag3 = cases_ag3/pop_ag3,
+         caserate_ag4 = cases_ag4/pop_ag4,
+         caserate_ag5 = cases_ag5/pop_ag5,
+         caserate_ag6 = cases_ag6/pop_ag6,
+         caserate_ped1 = cases_ped1/pop_ped1,
+         caserate_ped2 = cases_ped2/pop_ped2,
+         caserate_ped3 = cases_ped3/pop_ped3) %>% 
+  select(caserate_tot,
+         caserate_ag1,
+         caserate_ag2,
+         caserate_ag3,
+         caserate_ag4,
+         caserate_ag5,
+         caserate_ag6,
+         caserate_ped1,
+         caserate_ped2,
+         caserate_ped3)
+
+#Provincial Caserate by Caretype by Age Group
+cases_ct_agegroup <- HBAMhistorical_csd_spread %>% 
+  ungroup(csd) %>% 
+  group_by(caretype) %>% 
+    summarise(cases_tot = sum(cases_tot),
+            cases_ag1 = sum(cases_ag1),
+            cases_ag2 = sum(cases_ag2),
+            cases_ag3 = sum(cases_ag3),
+            cases_ag4 = sum(cases_ag4),
+            cases_ag5 = sum(cases_ag5),
+            cases_ag6 = sum(cases_ag6),
+            cases_ped1 = sum(cases_ped1),
+            cases_ped2 = sum(cases_ped2),
+            cases_ped3 = sum(cases_ped3)) %>% 
+  mutate(index_link = 1)
+
+provincial_caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by = 'index_link') %>% 
+  mutate(caserate_tot = cases_tot/pop_tot,
+         caserate_ag1 = cases_ag1/pop_ag1,
+         caserate_ag2 = cases_ag2/pop_ag2,
+         caserate_ag3 = cases_ag3/pop_ag3,
+         caserate_ag4 = cases_ag4/pop_ag4,
+         caserate_ag5 = cases_ag5/pop_ag5,
+         caserate_ag6 = cases_ag6/pop_ag6,
+         caserate_ped1 = cases_ped1/pop_ped1,
+         caserate_ped2 = cases_ped2/pop_ped2,
+         caserate_ped3 = cases_ped3/pop_ped3) %>% 
+  select(caretype,
+         caserate_tot,
+         caserate_ag1,
+         caserate_ag2,
+         caserate_ag3,
+         caserate_ag4,
+         caserate_ag5,
+         caserate_ag6,
+         caserate_ped1,
+         caserate_ped2,
+         caserate_ped3)
+
+
+```
+
+
+```{r obsolete cont. 4}
+
+# <!-- ## ALC Data -->
+# <!--   - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD) -->
+# <!--   - Given ALC data with multiple Site ID types (1-4-digit codes), each unique volume needs to be stripped out in order to get accurate totals -->
+# <!--   - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169       -->
+
+
+#Isolate all 3-digit ALC-Site IDs (assuming single address/location)
+three_digit_ALC <- ALCannualvolumeprep %>%
+  filter(siteid < 999,
+         siteid > 99) %>% 
+  select (-casetype,
+          -bedtype) 
+
+unique_facilityids <- hospital_id_master %>% 
+  mutate(pcode = as.character(pcode)) %>% 
+  group_by(facilityid) %>%
+  summarise(pcodecount = n_distinct(pcode)) %>%
+  right_join(hospital_id_master, by=c('facilityid')) %>% 
+  filter(pcodecount == 1) %>% 
+  distinct()
+
+site_id_count <- unique_facilityids %>% 
+  group_by(facilityid) %>% 
+  distinct(siteid) %>% 
+  count()
+
+facilityid_ALC <- left_join(unique_facilityids, three_digit_ALC, by = c('facilityid' = 'siteid')) %>% 
+  filter(!is.na(pcode)) %>% 
+  select(-pcodecount) %>% 
+  # rename('facilityid' = 'siteid',
+  #        'siteid' = 'siteid.y') %>%
+  left_join(site_id_count, by=c('facilityid')) %>% 
+  mutate(totalALCdays = (totalALCdays/n)) %>% 
+  select(-n)
+
+facilityid_ALC %>% filter(facilityid == 927, year ==1112) %>% summarise(n = sum(totalALCdays))
+
+#Isolate all 4-digit ALC-Site IDs
+four_digit_ALC <- ALCannualvolume %>% 
+  filter(siteid > 999) %>% 
+  select(-casetype,
+          -bedtype)
+
+siteid_ALC <-left_join(four_digit_ALC, hospital_id_master, by = c('siteid' = 'ALCsite_id')) %>% 
+  filter(!is.na(pcode)) %>% 
+  rename('ALCsite_id' = 'siteid',
+         'siteid' = 'siteid.y')
+
+ALCsite_id_count <- siteid_ALC %>% 
+  group_by(ALCsite_id) %>% 
+  summarise(duplicates = n_distinct(siteid))
+
+siteid_ALC <- left_join(siteid_ALC, ALCsite_id_count, by = c('ALCsite_id')) %>%
+  mutate(totalALCdays = (totalALCdays/duplicates)) %>% 
+  select(-duplicates)
+
+siteid_ALC %>%  filter(ALCsite_id == 4414, year == 1112) %>% summarise(sum(totalALCdays))
+
+ALC_master <- rbind(siteid_ALC, facilityid_ALC)
+
+#TEST
+ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalALCdays))
+
+```
+
+```{r obsolete cont. 5}
+ALCannualvolumeprep <- ALCannualvolume %>%
+  select(year = Year,
+         siteid = SiteNumber,
+         casetype = CaseType,
+         bedtype = InPatientBedType,
+         agegroup = AgeGroup,
+         dd = DischargeDestination,
+         freq = Frequency,
+         losmean = Mean,
+         losmed = Median,
+         los90thp = '90thP',
+         totalALCdays = TotalALCDays) %>% 
+  filter(casetype == 9, 
+         agegroup != 9,
+         agegroup != 7,
+         bedtype == 'AP',
+         dd != "ALL")
+```
+
 
