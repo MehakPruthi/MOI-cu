@@ -218,7 +218,6 @@ num_beds <- num_beds_siteid %>%
   ungroup()
 
 dbc_beds_2018 <- num_beds %>% 
-  filter(year == 2018) %>% 
   select(-count, -year) %>% 
   spread(key = caretype, value = staffedbeds) %>% 
   rename(at_beds_2018 = AT,
