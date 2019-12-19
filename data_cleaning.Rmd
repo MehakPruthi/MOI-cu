@@ -1082,30 +1082,30 @@ saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
 ```
 
 
-##Daily Bed Census Data Cleaning and Aggregation
+##Daily Bed Census Data Cleaning and Aggregation W/ Output
   - Simplify and aggregate daily census to annual figures
   - Calculate the number of daily entries available for each site id
   - Calculate Annualization factor
   - Calculate Operational and Physical Capacity
 ```{r}
 #Count Daily Entries by Year: 2017:294 / 2018: 324
-dailybedcensus %>%
+dailybedcensusprepagg <- dailybedcensusprep %>%
   filter(year == 2017) %>% 
   group_by(censusdate) %>% 
   mutate(sumbeds = sum())
-  group_by(year) %>% 
-  distinct(censusdate) %>% 
-  count(censusdate) %>% 
-  summarise(totaldays = sum(n, na.rm = TRUE))
+  # group_by(year) %>% 
+  # distinct(censusdate) %>% 
+  # count(censusdate) %>% 
+  # summarise(totaldays = sum(n, na.rm = TRUE))
 
 #Total Daily Entries by SiteID
-dailyentrycount <- dailybedcensus %>% 
+dailyentrycount <- dailybedcensusprepagg %>% 
   group_by(siteid, year) %>% 
   count(siteid) %>% 
   rename('entrycount' = 'n')
 
 # Total bed counts by year by care type, province-wide, for reference only - not used in downstream calculations
-num_beds_province <- dailybedcensus %>%
+num_beds_province <- dailybedcensusprepagg %>%
   mutate(siteid = as.numeric(siteid)) %>%
   group_by(year, censusdate, type) %>%
   mutate(totstaffbeds = sum(staffedbeds)) %>%
@@ -1115,7 +1115,7 @@ num_beds_province <- dailybedcensus %>%
   distinct(year, type, maxstaffedbeds)
 
 # Bed counts by year by caretype by siteid
-num_beds <- dailybedcensus %>%
+num_beds <- dailybedcensusprepagg %>%
   mutate(siteid = as.numeric(siteid)) %>%
   group_by(year, censusdate, type) %>%
   mutate(totstaffbeds = sum(staffedbeds)) %>%
@@ -1130,10 +1130,11 @@ num_beds <- dailybedcensus %>%
   group_by(year) %>%
   mutate(maxbeds.annual = sum(staffedbeds))
 
+#Output num_beds to cache for input into hospitals.rmd
 saveRDS(num_beds, file = 'cache/moh/num_beds.rds')
 
 #Annual Bed-Days Observed
-beddaysobserved <- dailybedcensus %>% 
+beddaysobserved <- dailybedcensusprepagg %>% 
   group_by(siteid,
            type,
            year) %>% 
@@ -1146,7 +1147,7 @@ beddaysobserved <- dailybedcensus %>%
             staffedbedsobs = sum(staffedbeds, na.rm = TRUE))
 
 #Annualization Factor from Residual Day-Count
-annualizationfactor <- dailybedcensus %>% 
+annualizationfactor <- dailybedcensusprepagg %>% 
   group_by(siteid,
            type,
            year) %>% 
@@ -1161,45 +1162,16 @@ annualizationfactor <- dailybedcensus %>%
          staffedbedsaf = mean(staffedbeds, na.rm = TRUE, trim = 1)*remainingdays) %>% 
   distinct(siteid,type, year, atbedsaf, mhbedsaf, cccbedsaf, grbedsaf, srbedsaf, patientbedsaf, staffedbedsaf)
 
-#Operational Capacity by Hospital
-hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid', 'type', 'year')) %>% 
-  mutate(atbeds = atbedsobs + atbedsaf,
-         mhbeds = mhbedsobs + mhbedsaf,
-         cccbeds = cccbedsobs + cccbedsaf,
-         grbeds = grbedsobs + grbedsaf,
-         srbeds = srbedsobs + srbedsaf,
-         patientbeds = patientbedsobs + patientbedsaf,
-         staffedbeds = staffedbedsobs + staffedbedsaf) %>% 
-  select(siteid,
-         type,
-         year,
-         atbeds,
-         mhbeds,
-         cccbeds,
-         grbeds,
-         srbeds,
-         patientbeds,
-         staffedbeds)
 
-#Physcial Capacity
-Hospitalphyscap <- dailybedcensus %>% 
-  group_by(siteid, type, year) %>% 
-  summarise(maxatbeds = max(atbeds, na.rm = TRUE)*365,
-            maxmhbeds = max(cccbeds, na.rm= TRUE)*365,
-            maxcccbeds = max(cccbeds, na.rm = TRUE)*365,
-            maxgrbeds = max(grbeds, na.rm = TRUE)*365,
-            maxsrbeds = max(srbeds, na.rm = TRUE)*365,
-            maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
-            maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
-
-#Count Total Site IDs: 448
-dailybedcensus %>% 
-  distinct(siteid) %>% 
+#FOR INFO
+##Count Total Site IDs: 448
+dailybedcensusprepagg %>%
+  distinct(siteid) %>%
   tally
 
-#List of Care-Types
-dailybedcensus %>% 
-  group_by(type) %>% 
+##List of Care-Types
+dailybedcensusprepagg %>%
+  group_by(type) %>%
   distinct(type)
 ```
 
@@ -1251,11 +1223,13 @@ csd_caserates <- left_join(HBAMhistorical_csd, csd_pop_long, by = c('year', 'ori
   mutate(orig_cd = as.numeric(substring(orig_csd, 0,4)),
          csd_caserate = replace(csd_caserate, csd_caserate == Inf, 0)) #CSD populations w/ 0 (as summed TRESO zones w/ 0 population) result in Inf case-rates; replace with 0
 
+#FOR INFO - Deselect cases & population from csd_caserates code above for use
 #Calculte Mismatched CSDs
 mismatched_csd <- csd_caserates %>% 
   filter(is.na(population)) %>% 
   summarise(sum(cases)) #total of 57,951 mismatched cases from 89 CSDs
 
+#Output for use in hospitals.rmd
 saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
 ```
 
@@ -1290,6 +1264,7 @@ cd_caserates <- left_join(HBAMhistorical_cd, cd_pop_long, by = c('year', 'orig_c
   select(-cases,
          -population)
 
+#FOR INFO - TEST: To use, deselect cases & population from cd_caserates above
 mismatched_cd <- cd_caserates %>% 
   filter(is.na(population)) %>% 
   summarise(sum(cases))
@@ -1927,5 +1902,38 @@ ALCmostappropriateprep <- ALCmostappropriateprep %>%
   group_by(year, siteid, agegroup, madd) %>%
   summarise(freq = sum(freq),
             totalALCdays = sum(totalALCdays))
+
+#From daily bed census data cleaning section
+#Operational Capacity by Hospital
+hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid', 'type', 'year')) %>% 
+  mutate(atbeds = atbedsobs + atbedsaf,
+         mhbeds = mhbedsobs + mhbedsaf,
+         cccbeds = cccbedsobs + cccbedsaf,
+         grbeds = grbedsobs + grbedsaf,
+         srbeds = srbedsobs + srbedsaf,
+         patientbeds = patientbedsobs + patientbedsaf,
+         staffedbeds = staffedbedsobs + staffedbedsaf) %>% 
+  select(siteid,
+         type,
+         year,
+         atbeds,
+         mhbeds,
+         cccbeds,
+         grbeds,
+         srbeds,
+         patientbeds,
+         staffedbeds)
+
+#From daily bed census data cleaning section
+#Physcial Capacity
+Hospitalphyscap <- dailybedcensusprepagg %>% 
+  group_by(siteid, type, year) %>% 
+  summarise(maxatbeds = max(atbeds, na.rm = TRUE)*365,
+            maxmhbeds = max(cccbeds, na.rm= TRUE)*365,
+            maxcccbeds = max(cccbeds, na.rm = TRUE)*365,
+            maxgrbeds = max(grbeds, na.rm = TRUE)*365,
+            maxsrbeds = max(srbeds, na.rm = TRUE)*365,
+            maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
+            maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
 ```
 
