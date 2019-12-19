@@ -505,8 +505,8 @@ schoolCatchment <- anti_join(schoolCatchment, temp_tb, by = 'bsid')
 
 # Calculate straight-line home-to-school distances
 schoolCatchment <- schoolCatchment %>%
-  mutate(dist = haverFunction(school.lat, school.long, student.lat, student.long)) %>% 
-  mutate(man.dist = manhattan(school.lat, school.long, student.lat, student.long))
+  mutate(dist = haverFunctionEuclidean(school.lat, school.long, student.lat, student.long)) %>% 
+  mutate(man.dist = haverFunctionManhattan(school.lat, school.long, student.lat, student.long))
 ```
 
 ### Remove outlier students
