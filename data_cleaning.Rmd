@@ -15,8 +15,11 @@ source("helpers.R")
 ```
 
 
-# Import data
-```{r import, include=FALSE}
+
+
+# EDU Data Import
+
+```{r edu mport, include=FALSE}
 # TRESO data
 hhld_df <- data.table::fread("input/treso/households_2011.csv.gz")
 pop_df <- data.table::fread("input/treso/persons_2011.csv.gz")
@@ -33,8 +36,9 @@ eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileE
 pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 ```
 
-# TRESO Data Structuring 
-```{r treso data structuring, echo=FALSE}
+# EDU Data Cleaning
+## TRESO Data cleaning 
+```{r treso data cleaning, echo=FALSE}
 # Clean hhld_df
 hhld_tb <- select(hhld_df, hhid, treso_zone, income) %>%
   as_tibble()
@@ -112,15 +116,13 @@ treso_tb <- socio_economic_tb %>%
     deg_na = length(treso_zone[hdgree == 88 | hdgree == 99])
   ) %>%
   left_join(hhld_structure, by = "treso_zone") %>%
-  saveRDS("cache/treso/treso_tb.rds")
+  saveRDS("cache/treso_tb.rds")
 
 # Clean global variables
 rm(hhld_tb, socio_economic_tb, hhld_structure)
 ```
 
-# Compile master list of schools, portables, sfis ID, geo coordinates, TRESO zone
-
-## Clean and Simplify Portables Data
+### Clean and Simplify Portables Data
 
 - Assume that portable units are rounded at 0.75. So a protable with 1.8 units is rounded 2 units and a portable with
 1.7 units is rounded to 1 unit
@@ -148,16 +150,32 @@ schoolAssetsPortablesSlim <- schoolAssetsPortables %>%
   ) %>%
   ungroup() %>%
   # TODO check this is rounding to 0.75
-  mutate(num.units.calculated.part1 = trunc(area.m2 / PORTABLE_UNIT_SIZE)) %>% 
-  mutate(num.units.calculated.part2 = ifelse((area.m2 / PORTABLE_UNIT_SIZE) - num.units.calculated.part1 >= 0.75,
-         1, 0)) %>% 
-  mutate(num.units.calculated = num.units.calculated.part1 + num.units.calculated.part2) %>% 
-  select(-num.units.calculated.part1, -num.units.calculated.part2)
+  mutate(num.units.calculated = round(area.m2 / PORTABLE_UNIT_SIZE, 0))
 
+# schoolSFIS <- readRDS('output/school_sfis_2017.rds') %>%
+#   select(-area.m2, -num.units.calculated)
+
+# Join Portables Data to School Data and recalculate utilization based on the size of portable
+# schoolSFIS <- left_join(schoolSFIS, select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated), by = 'sfis') %>%
+#   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
+#   mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
+#                                     num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
+#   mutate(capacity.total = otg + capacity.portable) %>%
+#   mutate(utilization.total = ade / capacity.total)
+
+# Utilization above 1 at this point could be erroneous data
+# TODO check with Alec regarding this.
+#print(paste0('There are ', length(filter(schoolSFIS, utilization.total > 1)$sfis), ' schools with utilization greater than 1.2.'))
+
+#saveRDS(schoolSFIS, file = 'cache/school_sfis_2017.rds')
 ```
 
-## Add FCI, renewal to asset data
-```{r add fci, echo=FALSE}
+## Compile master list of schools, portables, sfis ID, geo coordinates, TRESO zone
+
+- Produce dataframe with geocoordinates for all schools (past & present)
+
+### Add FCI, renewal to asset data
+```{r clean school assets, echo=FALSE}
 # Retrieve FCI and renewal values
 schoolAssetsSlim <- schoolAssets %>%
   filter(DataSetId == 2, Status == 'Open', Panel == 'School') %>%
@@ -172,9 +190,7 @@ schoolAssetsSlim <- schoolAssets %>%
 
 ```
 
-## Create School Master List (past & present)
-
-```{r create school master list}
+```{r}
 # Read in geocoordinates for schools with missing data
 # Geocoordinates were found using separate program and stored in CSV
 missingCoords <- read_csv('input/edu/school_missing_geocoordinates.csv')
@@ -232,22 +248,24 @@ schoolForecastSimple <- schoolForecast %>%
   mutate_if(is.factor, as.character) -> schoolForecastSimple
 
 # Join board type, lat, long, otg to school forecast dataset
+
 school_recent_data <- schoolLocClean %>%
   group_by(sfis) %>%
   filter(year == max(year), status == 'Open' | status == 'Holding' | status == 'Under Construction') %>%
   ungroup()
 
 schoolForecastSimpleJoin <- schoolForecastSimple %>% 
-  left_join(select(school_recent_data, sfis, board_type_name, board.name, school.lat, school.long, otg), 
-            by = c('sfis')) %>% 
+  left_join(select(school_recent_data, sfis, board_type_name, board.name, school.lat, school.long, otg), by = c('sfis')) %>% 
   mutate(school.lat = ifelse(is.na(school.lat), latitude, school.lat)) %>% 
   mutate(school.long = ifelse(is.na(school.long), longitude, school.long)) %>%
   mutate(panel = ifelse(panel == 'E', 'Elementary', ifelse(panel == 'S', 'Secondary', 'ERROR')))
 
 # Bind Historical school data to forecast school data
+
 schoolLocCombined <- bind_rows(schoolLocClean, schoolForecastSimpleJoin)
 
 # Choose single most common lat/long for schools to avoid row duplication and conflicts
+
 schoolLatMode <- schoolLocCombined %>% 
   group_by(sfis) %>%
   count(school.lat, sort=TRUE) %>%
@@ -298,11 +316,11 @@ school_treso_master <- school_treso_data %>%
   left_join(schoolAssetsSlim, by = 'sfis')
 
 # Export to RDS
-saveRDS(school_treso_master, 'cache/edu/school_treso_master.rds')
+saveRDS(school_treso_master, 'output/school_treso_master.rds')
 
 ```
 
-# Education Data cleaning
+## Data Structuring
  
 - Clean the school asset data
 - Clean the school forecast data
@@ -310,7 +328,7 @@ saveRDS(school_treso_master, 'cache/edu/school_treso_master.rds')
 - Combine together 
 - Clean the student postal code data
 
-## Clean school capacity dataset
+### Clean school capacity dataset
 ```{r education data cleaning, echo=FALSE}
 # The school capacity dataset contains the correct lat/long for schools
 schoolCapSlim <- schoolCap %>%
@@ -355,9 +373,6 @@ schoolSFIS <- left_join(schoolCapSlim, schoolForecastSlim, by = c('sfis')) %>%
   rename(school.name = school.name.x, dsb.index = dsb.index.x) %>%
   arrange(sfis)
 
-# Save to cache
-saveRDS(schoolSFIS, "cache/edu/school_sfis_2017")
-
 # Drop any school that does not have a corresponding forecast
 unmatched_schools <- sum(is.na(schoolSFIS$bsid))                       
 print(paste0('A total of ', unmatched_schools, ' schools are unmatched between capacity and forecast'))
@@ -387,8 +402,36 @@ print(paste0('A total of ', num_schools_from_school_sfis, ' unique schools are c
 rm(num_schools_from_student_post, num_schools_from_school_sfis)
 ```
 
+### Create historical education dataset
 
-## Calculate School Catchment Lengths
+- The historical trends of ADE is a valuable
+
+```{r historical education data, echo=FALSE}
+# The school capacity dataset contains the correct lat/long for schools
+schoolCapHistorical <- schoolCap %>%
+  select(year = Sch_yr, 
+         dsb.index = DSB_Index, 
+         board.name = BoardName, 
+         panel = Panel, 
+         sfis = `SFIS_ID`,
+         school.name = `FacilityName`, 
+         ade = ADE,
+         otg = OTG,
+         status = Status, 
+         dataset.id = dataSetID) %>%
+  mutate(utilization = ifelse(otg != 0, ade / otg, 0)) %>%
+  filter(status == "Open", dataset.id == 2) %>%
+  # Remove schools with capacity of 0
+  filter(otg != 0, ade != 0) %>%
+  # Remove schools with ADE that is less than 50
+  filter(ade >= 50) %>%
+  select(year, sfis, ade, otg, utilization) %>%
+  saveRDS("input/edu/school_historical_capacity.rds")
+
+```
+
+
+### Calculate School Catchment Lengths
 
 - First, join the school and student's together into one table based on `bsid`
 - Then, join the postal code centroids with lat/long information to each student based on `postal.code`
@@ -466,7 +509,7 @@ schoolCatchment <- schoolCatchment %>%
   mutate(man.dist = manhattan(school.lat, school.long, student.lat, student.long))
 ```
 
-## Remove outlier students
+### Remove outlier students
 
 The data provided contains students travelling extremely far distances. This can be a source of error when calculating
 the catchment areas for schools. For each school, the students outside of the whiskers of a typical boxplot are removed. 
@@ -546,13 +589,13 @@ for (catchment_dist in percentileList){
     left_join(select(schoolCatchmentDistPercent, sfis, perc.dist, perc.value), by = c('sfis' = 'sfis')) %>%
     filter(perc.value == catchment_dist) %>%
     filter(man.dist <= perc.dist) %>%
-    saveRDS(file = paste0('cache/edu/student_travel_', as.character(catchment_dist), '.rds'))
+    saveRDS(file = paste0('cache/student_travel_', as.character(catchment_dist), '.rds'))
 }
 
 rm(schoolCatchment, schoolCatchmentDistPercent, schoolCatchmentThreshold, percentileList, temp_tb)
 ```
 
-### Quick Check of ADE vs Enrollment
+#### Quick Check of ADE vs Enrollment
 
 ```{r quick check, fig.height = 50, fig.width = 10}
 # Check the enrollment total vs ADE numbers
@@ -584,10 +627,10 @@ rm(temp1, temp2, temp)
 ```
 
 
-### Visualization of percentile travel distance
+#### Visualization of percentile travel distance
 
 ```{r visualize travel distance}
-student_travel <- readRDS(file = 'cache/edu/student_travel_0.9.rds') %>%
+student_travel <- readRDS(file = 'cache/student_travel_0.9.rds') %>%
   as_tibble() %>%
   group_by(sfis, school.name, school.lat, school.long) %>%
   summarise(distance = first(perc.dist))
@@ -599,7 +642,7 @@ ggplot(data = student_travel, aes(distance)) +
 
 ```
 
-## Clean EQAO Data
+### Clean EQAO Data
 
 - Remove not reported (N/R) and no data (N/D)
 - Remove suppressed (SP)
@@ -657,15 +700,732 @@ eqao_standardized <- left_join(eqaoSlim, eqao_distribution, by = c("School.Type"
   mutate(eqao.standardized = eqao.normalized * 10) %>%
   select(School.Name, School.Number, School.Type, School.Language, School.Level, eqao.standardized)
 
-saveRDS(eqao_standardized, file = 'cache/edu/eqao_standardized_2017.rds')
+saveRDS(eqao_standardized, file = 'cache/eqao_standardized_2017.rds')
+
+```
+
+
+
+
+
+
+
+
+# Health Data Import
+```{r health import, include=FALSE}
+# Bed Census data
+dailybedcensus <- read_csv('input/moh/cap.MOH_DailyBedCensus_Summary.csv')
+
+# Health Asset Inventory
+hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv')
+
+# HBAM Historical
+HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv')
+
+# HBAM Projected
+HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv')
+
+#LHIN Data
+populationLHIN <- read_csv('input/moh/dbo.Population_LHIN.csv')
+
+#ALC Datasets
+#For CCO Linkage Table
+ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv')
+ALCannualvolume <- read_csv('input/moh/cap.ALCAnnualVolumeAndTOtalDays.csv')
+
+#Most recent updated ALC Data from CCO w/ MADD and DD typeflags
+ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('VOL' = col_character()))
+
+#CIHI Data
+CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
+
+#LTC Facility Data
+ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv')
+
+##TRESO Data Input
+  # Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
+treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
+
+# PCCF
+pccf <- read.csv('input/moh/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 
 ```
 
 # Health Data Cleaning
 
-## Import Health Data
+Preparation of Health Import Data
+  - Clean and organize provided data to maintain variable-name consistency across all datasets and filter for data entry errors
+  - Age group filters exclude agegroup index "9 (total)" to prevent double counting
+  - Age group filters exclude "7 (Missing)"
+  - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
+  - Filter HBAM CSDs to remove origin CSDs not in Ontario
+  - Join HBAM with Asset data to establish master ID list (loss of 1,151,954 cases to join)
+  
+## Bed & Asset Import Prep for Data Cleaning Use
+```{r health bed & discharge & asset import data prep, include=FALSE, eval=TRUE}
+# Bed Census Data
 
-```{r, include=FALSE}
+dailybedcensusprep <- dailybedcensus %>% 
+  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
+  select(facilityid = FACILITY_NO,
+         siteid = INST,
+         type = TYPE,
+         year = FISCALYEAR,
+         censusdate = CENSUSDATE,
+         admission = ADMISSION,
+         discharge = DISCHARGE,
+         death = DEATHS,
+         atbeds = INACUTEBEDS,
+         mhbeds = INMHBEDS,
+         cccbeds = INCCCBEDS,
+         grbeds = INGRBEDS,
+         srbeds = INSRBEDS,
+         patientbeds = PATIENTSINDESIGNATEDBEDS,
+         staffedbeds = BEDSWITHSTAFFAVAILABLE,
+         erstretchers = ERSTRETCHERSUSED,
+         uncovnentionalbeds = UNCONVENTIONALBEDSUSED,
+         overflowpatients = OVERFLOWPATIENTS,
+         totalpatients = TOTALPATIENTS) %>% 
+  mutate(type = replace(type, type == 'SR', 'GR'))
+
+# Health Asset Inventory
+hospitallocationsprep <- hospitallocations %>%
+  spread(key = DatasetId, value = 'Master Number') %>% 
+  select(lhin = LHIN,
+         lhinlocation = Location,
+         name = Name,
+         caretype = Type,
+         facilityid = 'Facility Number',
+         hospitalcorp = 'Provider Legal Name',
+         address = 'Address Line 1',
+         city = City,
+         pcode = 'Postal Code',
+         lat = latitude,
+         long = longitude,
+         datasetID1.siteid = '1',
+         datasetID2.siteid = '2',
+         datasetID3.siteid = '3',
+         datasetID4.siteid = '4',
+         datasetID5.siteid = '5',
+         datasetID6.siteid = '6') %>%
+  mutate(datasetID1.siteid = as.numeric(replace_na(datasetID1.siteid, 0)), 
+         datasetID2.siteid = as.numeric(replace_na(datasetID2.siteid, 0)), 
+         datasetID3.siteid = as.numeric(replace_na(datasetID3.siteid, 0)), 
+         datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
+         datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
+         datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
+  group_by(pcode) %>% 
+  mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
+  ungroup() %>% 
+  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
+  # Choose first name in list for each hospital
+  group_by(id) %>% 
+  mutate(name = first(name)) %>% 
+  ungroup() %>% 
+  # Lat/long incorrect in raw input data for Providence Care Hospital
+  mutate(lat = replace(lat, id == 33, 44.217317),
+         long = replace(long, id == 33, -76.527267))
+```
+
+## Asset Location Prep W/Output
+```{r asset location prep, include=FALSE, eval=TRUE}
+
+# Join postal code centroids to hospital postal code data
+pccfSlimHosp <- pccf %>%
+  filter(SLI == 1) %>%
+  select(postal.code = PostalCode,
+         lat = LAT,
+         long = LONG,
+         retirement.date = Ret_Date,
+         csduid = CSDuid,
+         csdname = CSDname) %>%
+  group_by(postal.code) %>%
+  filter(retirement.date == max(retirement.date))
+
+# Create a list of postal codes with SLI == 1 but different lat/long
+pccfSlimHosp[duplicated(pccfSlimHosp$postal.code) | duplicated(pccfSlimHosp$postal.code, fromLast = TRUE), ] %>%
+  arrange(postal.code) %>%
+  group_by(postal.code, lat, long, retirement.date) %>%
+  summarise(n = n()) %>%
+  filter(n == 1)
+
+# Fill in unknown lat/long
+hospitallocationsapp <- hospitallocationsprep %>% 
+  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
+  left_join(select(pccfSlimHosp, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
+  mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
+         long = ifelse(is.na(long), hospital.long, long)) %>%
+  group_by(id) %>% 
+  mutate(lat = first(lat), long = first(long), address = first(address)) %>%
+  ungroup() %>% 
+  select(-pcode.clean, -hospital.lat, -hospital.long)
+
+#Output cach hospital location data file (hospitallocationsapp) for import into hospitals.rmd
+saveRDS(hospitallocationsapp, file = 'cache/moh/hospitallocations.rds')
+```
+
+## HBAM Historical and Projected Data Prep W/Output
+```{r hbam cleaning, include=FALSE, eval=TRUE}
+
+# HBAM Historical
+HBAMhistoricalprep <- HBAMhistorical %>% 
+  select(year = Year, 
+         siteid = Hospital_Site_ID,
+         hospitalname = Hospital_Site_Name,
+         caretype = Care_Type,
+         agegroup = Age_Group, 
+         cases = Number_of_Cases,
+         orig_csd = CSD) %>% 
+  # filter(year == 2016) %>% 
+  # select(-year) %>% 
+  filter(orig_csd < 4600000,
+         orig_csd > 3501000) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
+         agegroup = replace(agegroup, agegroup == '18-44', 2),
+         agegroup = replace(agegroup, agegroup == '45-64', 3),
+         agegroup = replace(agegroup, agegroup == '65-74', 4),
+         agegroup = replace(agegroup, agegroup == '75-84', 5),
+         agegroup = replace(agegroup, agegroup == '>85', 6),
+         agegroup = replace(agegroup, agegroup == '<1', 1),
+         agegroup = replace(agegroup, agegroup == '1-7', 1),
+         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         caretype = replace(caretype, caretype == 'IP', 'AT'),
+         caretype = replace(caretype, caretype == 'CCC', 'CR'),
+         caretype = replace(caretype, caretype == 'Rehab', 'GR')) %>% 
+  left_join(select(hospitallocationsapp, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  mutate(id = replace(id, id == 0, -9999))
+
+# Historical HBAM Master Dataset
+HBAMhistorical_master <- HBAMhistoricalprep %>% 
+  mutate(caretype = replace(caretype, caretype == "ER", "AM"),
+         caretype = replace(caretype, caretype == "DS", "AM")) %>% 
+  left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id'))
+
+#Output cache historical HBAM for use in hospitals.rmd
+saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
+
+
+
+
+# HBAM Projected
+HBAMprojectedprep <- HBAMprojected %>% 
+  select(year = Year, 
+         siteid = Hospital_Site_ID, 
+         hospitalname = Hospital_Site_Name,
+         caretype = Care_Type,
+         agegroup = Age_Group, 
+         cases = Number_of_Cases,
+         lengthofstay = Length_of_Stay) %>% 
+  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
+         agegroup = replace(agegroup, agegroup == '18-44', 2),
+         agegroup = replace(agegroup, agegroup == '45-64', 3),
+         agegroup = replace(agegroup, agegroup == '65-74', 4),
+         agegroup = replace(agegroup, agegroup == '75-84', 5),
+         agegroup = replace(agegroup, agegroup == '>85', 6),
+         agegroup = replace(agegroup, agegroup == '<1', 1),
+         agegroup = replace(agegroup, agegroup == '1-7', 1),
+         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         caretype = replace(caretype, caretype == 'IP', 'AT'),
+         caretype = replace(caretype, caretype == 'CCC', 'CR'),
+         caretype = replace(caretype, caretype == 'Rehab', 'GR'),
+         caretype = replace(caretype, caretype == 'ER', 'AM'),
+         caretype = replace(caretype, caretype == 'DS', 'AM')) %>% 
+  left_join(select(hospitallocationsapp, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
+  mutate(id = replace(id, id == 0, -9999))
+
+# Projected HBAM Master Dataset
+HBAMprojected_master <- HBAMprojectedprep %>% 
+  group_by(year, id, caretype, agegroup) %>% 
+  summarise(cases = sum(cases),
+            los = sum(lengthofstay)) %>% 
+  mutate(beddays = (cases*los)) %>% 
+  left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id')) %>% 
+  filter(!is.na(pcode))
+
+#Output cache historical HBAM for use in hospitals.rmd
+saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
+
+```
+
+## ALC Data Cleaning W/Output
+```{r alc data cleaning, include=FALSE, eval=TRUE}
+
+#ALC Datasets
+#CCO Linkage Table
+
+ALC_idcrosswalkprep <- ALC_idcrosswalk %>%
+  filter(!is.na(WTISSiteNum)) %>% 
+  select(lhin = WTISLHINNum,
+         name = MNSName,
+         alcname = WTISSiteName,
+         type = MNSType,
+         siteid = MNSMaster,
+         ALCsite_id = WTISSiteNum,
+         facilityid = MNSFacNum) %>%
+  # join to hospital locations on all possible historical datasetID values
+  left_join(select(hospitallocationsapp, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
+  left_join(select(hospitallocationsapp, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>%
+  ungroup() %>% 
+  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
+  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y, -alcname, -facilityid, -siteid, -type) %>% 
+  # Bring in postal code from hospital locations
+  distinct() %>% 
+  left_join(distinct(hospitallocationsapp, id, pcode), by = 'id') %>% 
+  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
+  left_join(select(pccfSlimHosp, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  select(-pcode.clean, -alc.lat, -alc.long) %>% 
+  select(lhin, name, pcode, id, ALCsite_id, csduid, csdname) %>% 
+  # Clean dataset
+  group_by(id) %>%
+  # Remove duplicate entries where ALCsite_id is NA
+  mutate(duplicate_count = n(), remove = ifelse((duplicate_count > 1) & (is.na(ALCsite_id)) & id > 0, 1, 0)) %>%
+  filter(remove != 1) %>%
+  # Remove rows where ALCsite_id is duplicated in another row but CSD info is missing
+  group_by(ALCsite_id) %>%
+  mutate(duplicate_count = n(), id_check = max(id), remove = ifelse((duplicate_count > 1) & (is.na(id_check) == FALSE) & (is.na(csduid)), 1, 0)) %>%
+  filter(remove != 1) %>%
+  select(-duplicate_count, -remove, -id_check) %>% 
+  # Remove truly duplicate entries
+  group_by(id, ALCsite_id) %>%
+  arrange(id, name) %>%
+  filter(row_number()==1) %>% 
+  ungroup()
+
+# Output ALC ID Crosswalk cache for input into hospitals.rmd
+saveRDS(ALC_idcrosswalkprep, file = 'cache/moh/ALC_crosswalk.rds')
+
+#Most recent updated ALC Data from CCO w/ MADD and DD typeflags
+ALC_madd_rawprep <- ALC_madd_raw %>%
+  filter(INPATIENTBEDTYPE == 'AP',
+         casetype == 9,
+         TYPEFLAG == 'MADD')%>% 
+  select(year = period,
+         number,
+         siteid = sitenumber,
+         madd,
+         agegroup = Agerange,
+         patients = '_FREQ_',
+         avg.los = MEAN,
+         alcdays = SUM) %>% 
+  mutate(year = replace(year, year == '1112', 2011),
+         year = replace(year, year == '1213', 2012),
+         year = replace(year, year == '1314', 2013),
+         year = replace(year, year == '1415', 2014),
+         year = replace(year, year == '1516', 2015),
+         year = replace(year, year == '1617', 2016),
+         year = replace(year, year == '1718', 2017))
+
+#output to cache for use in hospitals.rmd
+saveRDS(ALC_madd_rawprep, file = 'cache/moh/ALC_madd_raw.rds')
+
+
+
+```
+
+## CIHI & LTC Prep W/Output
+```{r}
+#CIHI Data
+CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>% 
+  select(year = Year,
+         prov = Province,
+         name = 'Hospital Name',
+         hosp_type = 'Type of Hospital',
+         cihi_total = Total) %>%  
+  mutate(name = toupper(name))
+
+#output for hospitals.rmd use
+saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
+
+#LTC Facility Data
+ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
+  select(sector = Sector,
+         city = 'Homes City',
+         postal.code = 'Homes Postal Code',
+         beds = 'Total Beds') %>% 
+  mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
+  left_join(select(pccfSlimHosp, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
+  select(-pcode.clean, -ltc.lat, -ltc.long) 
+
+#output for hospitals.rmd use
+saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
+```
+
+
+##Daily Bed Census Data Cleaning and Aggregation W/ Output
+  - Simplify and aggregate daily census to annual figures
+  - Calculate the number of daily entries available for each site id
+  - Calculate Annualization factor
+  - Calculate Operational and Physical Capacity
+```{r}
+#Count Daily Entries by Year: 2017:294 / 2018: 324
+dailybedcensusprepagg <- dailybedcensusprep %>%
+  filter(year == 2017) %>% 
+  group_by(censusdate) %>% 
+  mutate(sumbeds = sum())
+  # group_by(year) %>% 
+  # distinct(censusdate) %>% 
+  # count(censusdate) %>% 
+  # summarise(totaldays = sum(n, na.rm = TRUE))
+
+#Total Daily Entries by SiteID
+dailyentrycount <- dailybedcensusprepagg %>% 
+  group_by(siteid, year) %>% 
+  count(siteid) %>% 
+  rename('entrycount' = 'n')
+
+# Total bed counts by year by care type, province-wide, for reference only - not used in downstream calculations
+num_beds_province <- dailybedcensusprepagg %>%
+  mutate(siteid = as.numeric(siteid)) %>%
+  group_by(year, censusdate, type) %>%
+  mutate(totstaffbeds = sum(staffedbeds)) %>%
+  ungroup() %>%
+  group_by(year, type) %>%
+  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
+  distinct(year, type, maxstaffedbeds)
+
+# Bed counts by year by caretype by siteid
+num_beds <- dailybedcensusprepagg %>%
+  mutate(siteid = as.numeric(siteid)) %>%
+  group_by(year, censusdate, type) %>%
+  mutate(totstaffbeds = sum(staffedbeds)) %>%
+  ungroup() %>%
+  group_by(year, type) %>%
+  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
+  # Take the census day which has the highest staffed beds
+  filter(totstaffbeds == maxstaffedbeds) %>% 
+  # Filter data since there may be more than one census day tied for having max staffed beds - this occurs for one care type in 2018
+  filter(censusdate == first(censusdate)) %>% 
+  distinct(year, type, siteid, censusdate, staffedbeds, totstaffedbeds) %>% 
+  group_by(year) %>%
+  mutate(maxbeds.annual = sum(staffedbeds))
+
+#Output num_beds to cache for input into hospitals.rmd
+saveRDS(num_beds, file = 'cache/moh/num_beds.rds')
+
+#Annual Bed-Days Observed
+beddaysobserved <- dailybedcensusprepagg %>% 
+  group_by(siteid,
+           type,
+           year) %>% 
+  summarise(atbedsobs = sum(atbeds, na.rm = TRUE),
+            mhbedsobs = sum(mhbeds, na.rm = TRUE),
+            cccbedsobs = sum(cccbeds, na.rm = TRUE),
+            grbedsobs = sum(grbeds, na.rm = TRUE),
+            srbedsobs = sum(grbeds, na.rm = TRUE),
+            patientbedsobs = sum(patientbeds, na.rm = TRUE),
+            staffedbedsobs = sum(staffedbeds, na.rm = TRUE))
+
+#Annualization Factor from Residual Day-Count
+annualizationfactor <- dailybedcensusprepagg %>% 
+  group_by(siteid,
+           type,
+           year) %>% 
+  left_join(dailyentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
+  mutate(remainingdays = 365 - entrycount,
+         atbedsaf = mean(atbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         mhbedsaf = mean(mhbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         cccbedsaf = mean(cccbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         grbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         srbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
+         patientbedsaf = mean(patientbeds, na.rm = TRUE, trim =1)*remainingdays,
+         staffedbedsaf = mean(staffedbeds, na.rm = TRUE, trim = 1)*remainingdays) %>% 
+  distinct(siteid,type, year, atbedsaf, mhbedsaf, cccbedsaf, grbedsaf, srbedsaf, patientbedsaf, staffedbedsaf)
+
+
+#FOR INFO
+##Count Total Site IDs: 448
+dailybedcensusprepagg %>%
+  distinct(siteid) %>%
+  tally
+
+##List of Care-Types
+dailybedcensusprepagg %>%
+  group_by(type) %>%
+  distinct(type)
+```
+
+
+
+# MAG Data Import
+```{r mag import, include=FALSE}
+courthouse_asset <- read_csv("input/mag/Court asset data.csv")
+courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv")
+```
+
+# MAG Data Cleaning
+
+## Import Data Prep
+```{r import court data prepping}
+courthouse_asset <- courthouse_asset %>% 
+  select(year = Collection_Year, bid = BID, name = BuildingName, address = Address1,
+         postal.code = PostalCode, city = City, courthouse.lat = Latitude, courthouse.long = Longitude,
+         building.type = BuildingType, courtrooms = Courtrooms, region = Region, 
+         rentable.square.feet = Rentable_square_feet,
+         gross.square.feet = Gross_square_feet) %>% 
+  mutate(gross.square.feet = as.numeric(gross.square.feet), courtrooms = as.numeric(courtrooms)) %>% 
+  replace_na(list(gross.square.feet = 0, courtrooms = 0)) %>% 
+  # Remove entries which are not base court or satelite court
+  filter(building.type %in% c("Base Court", "Satellite Court") | name == "Napanee OCJ Courthouse + VWAP Office" |
+           name == "Timmins OCJ Courthouse" | name == "Toronto SCJ + Family Courthouse") %>%
+  # Assume satellite courthouses with 0 courtrooms to be 1
+  mutate(courtrooms = ifelse(building.type == "Satellite Court" & courtrooms == 0, 1, courtrooms)) %>% 
+  mutate(courtrooms = replace(courtrooms, name == "Smith Falls Satellite Court", 1)) %>% 
+  # Remove entries manually after the base court and satellite court filters
+  filter(name != "Milton Courthouse (Double with 18784)") %>% 
+  filter(name != "Sarnia Courthouse- Land Registry Office Building") %>% 
+  filter(name != "Newmarket Courthouse - Modular Addition") %>% 
+  filter(name != "Parry Sound Jail - Holding Cells") %>% 
+  filter(name != "Temp Swing Space for 361 University Ave relocation for Firepanel Project") %>% 
+  filter(name != "OPP Sally Port") %>% 
+  filter(name != "Elliot Lake Victim Witness Assiatance Program Office") %>% 
+  filter(name != "Renfrew SCJ Small Claims Administration Office") %>% 
+  filter(!(city == "St. Thomas" & courtrooms == 0)) %>% 
+  filter(!(city == "Barrie" & courtrooms == 0)) %>% 
+  filter(!(city == "Sault Ste. Marie" & courtrooms == 0)) %>% 
+  filter(!(city == "Sudbury" & courtrooms == 0)) %>% 
+  # Misaligned data for city entry
+  mutate(city = replace(city, name == "Toronto SCJ + Family Courthouse", "Toronto")) %>% 
+  mutate(city = replace(city, name == "Toronto Courthouse", "Toronto"))
+  
+
+courthouse_hours <- courthouse_hours %>% 
+  rename(year = Year, region = REGION, city = LOCATION, address = ADDRESS) %>% 
+  rename_at(vars(contains("CJ"), contains("COURT"), contains("TOTAL"), contains("CIVIL")), tolower) %>% 
+  rename_at(vars(contains(",_")), funs(sub(",_", "_", .))) %>% 
+  rename(number_of_courtrooms = "number of courtrooms") %>% 
+  mutate(SCJfam = family_court_branch + scj_family, smac = divisional_court+small_claims_court) %>% 
+  select(-family_court_branch, -scj_family, -divisional_court, -small_claims_court) %>%
+  rename(OCJcrim= 'ocj_criminal', OCJfam= 'ocj_family', SCJcrim= 'scj_criminal') %>% 
+  mutate(year = as.numeric(substr(year, 1, 4))) %>% 
+  mutate(city = stringr::str_to_title(city),
+         region = toupper(tolower(region))) %>% 
+  mutate(city = replace(city, city == "L'orignal", "L'Orignal")) %>% 
+  mutate(address = ifelse(is.na(address), address, paste0(address, " St"))) %>% 
+  mutate(address = replace(address, address == "36 Wyndham St", "36 Wyndham St S")) %>% 
+  mutate(address = replace(address, address == "245 Windsor St", "245 Windsor Ave")) %>% 
+  mutate(address = replace(address, address == "48 Spruce St", "48 Spruce Street North")) %>% 
+  mutate(address = replace(address, address == "1023 King St", "1023-1025 King St")) %>% 
+  mutate(address = replace(address, address == "97 Thomas St", "97 Thomas St E")) %>% 
+  mutate(address = replace(address, address == "49 Place D'Armes St", "49 Place D'Armes")) %>% 
+  mutate(address = replace(address, address == "55 Main St", "55 Main St W")) %>% 
+  mutate(address = replace(address, address == "45 Main St", "45 Main Street E")) %>% 
+  mutate(address = replace(address, address == "70 Simcoe St", "70-110 Simcoe St")) %>% 
+  mutate(address = replace(address, address == "1000 FINCH St", "1000 Finch Ave W")) %>% 
+  mutate(address = replace(address, address == "2201 FINCH St", "2201 Finch Ave W")) %>% 
+  mutate(address = replace(address, address == "361 UNIVERSITY St", "361 University Ave")) %>%
+  mutate(address = replace(address, address == "130 QUEEN, 330/393 UNIVERSITY St", "393 University Ave")) %>% 
+  mutate(address = replace(address, address == "311 JARVIS St", "311 Jarvis St")) %>% 
+  mutate(address = replace(address, address == "COLLEGE PARK St", "444 Yonge Street")) %>% 
+  mutate(address = replace(address, address == "OLD CITY HALL St", "60 Queen St W")) %>% 
+  mutate(address = replace(address, address == "38 Pine St", "38 Pine St N")) %>% 
+  mutate(address = replace(address, address == "41 Dundas St", "41 Dundas St W")) %>% 
+  mutate(address = replace(address, address == "1911 EGLINTON St", "1911 Eglinton Ave E")) %>% 
+  mutate(address = replace(address, address == "47 SHEPPARD St", "47 Sheppard Ave E"))
+```
+
+## Data Cleaning Court Master List W/ Output
+- Combine the asset data (`courthouse_asset`) with the 5 year historical court-hour data (`courthouse_hours`) to give location informaiton
+- It is assumed that the dataset with historical court-hour is the source of truth
+  - There is a mismatch between asset data and historical data, the asset data splits up the satellite courthouses while the historical data combines them as one entry. Since the source of truth is in the court-hour data, it is assumed that all satellite courthouses have 1 court room and they belong to the base courthouse of the CD.
+  - If there are multiple base courthouse in the CD; the closer base courthouse is taken to be the base of the satellite courthouses
+  - The total number of courtrooms in the satellite courthouses and their base courthouse will be equal to the value in the court-hour dataset
+
+```{r clean courthouse hours}
+
+# Group the 3 Toronto Courthouses into 1 entry at 130 QUEEN, 330/393 UNIVERSITY St
+temp <- filter(courthouse_asset, address %in% c("130 Queen St W", "393 University Ave", "330 University Ave")) %>% 
+  group_by(city) %>% 
+  summarise(courtrooms = sum(courtrooms),
+            rentable.square.feet = sum(rentable.square.feet), 
+            gross.square.feet = sum(gross.square.feet))
+
+courthouse_asset <- courthouse_asset %>% 
+  filter(!(address %in% c("130 Queen St W", "330 University Ave"))) %>% 
+  mutate(courtrooms = replace(courtrooms, address == "393 University Ave", temp$courtrooms)) %>% 
+  mutate(rentable.square.feet = replace(rentable.square.feet, address == "393 University Ave", temp$rentable.square.feet)) %>% 
+  mutate(gross.square.feet = replace(gross.square.feet, address == "393 University Ave", temp$gross.square.feet))
+
+# Spread the 5 year data into wide format
+courthouse_hours_wide <- courthouse_hours %>% 
+  gather(variable, value, -(year:address)) %>% 
+  unite(temp, year, variable) %>%
+  spread(key = "temp", value = "value") 
+
+# Join courthouse_hours_wide with courthouse_asset dataset to get lat/long information
+courthouse_hours_wide_location <- courthouse_hours_wide %>% 
+  left_join(select(courthouse_asset, bid, name, address, city, courthouse.lat, courthouse.long), by = c("city", "address")) %>% 
+  left_join(select(distinct(courthouse_asset, city, .keep_all = TRUE), bid, name, address, city, courthouse.lat, courthouse.long), by = c("city")) %>%
+  mutate(bid = ifelse(is.na(bid.x), bid.y, bid.x)) %>% 
+  mutate(name = ifelse(is.na(name.x), name.y, name.x)) %>% 
+  mutate(address = ifelse(is.na(address.x), address.y, address.x)) %>% 
+  mutate(courthouse.lat = ifelse(is.na(courthouse.lat.x), courthouse.lat.y, courthouse.lat.x)) %>% 
+  mutate(courthouse.long = ifelse(is.na(courthouse.long.x), courthouse.long.y, courthouse.long.x)) %>% 
+  select(-bid.x, -bid.y, -name.x, -name.y, -address.x, -address.y,
+         -courthouse.lat.x, -courthouse.lat.y, -courthouse.long.x, -courthouse.long.y)
+
+# Overlay on TRESO zones to get the CDUID
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
+treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
+courthouse_hours_xy <- create_court_xy(courthouse_hours_wide_location)
+courthouse_hours_overlay <- create_overlay(courthouse_hours_xy, treso_shp, type = "court")
+courthouse_hours_overlay <- courthouse_hours_overlay %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(courthouse_hours_wide_location, by = "bid")
+
+#issue long form of court hour dataset for easy use
+courthouse_hours_overlay_long <- courthouse_hours_overlay %>%
+  gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
+  separate(year, c("year", "casetypes"), sep = 4) %>% 
+  spread(key = casetypes, value) %>% 
+  select(-"_number_of_courtrooms","_number_of_courtrooms" ) %>% 
+  gather(key="casetypes", value, `_civil`:`_smac`) %>% 
+  rename("number_of_courtrooms" = "_number_of_courtrooms", "total" = "_total") %>% 
+  select(-"total", -"number_of_courtrooms", "total", "number_of_courtrooms") %>% 
+  mutate(casetypes = substring(casetypes, 2))
+
+# Save the wide court hour dataset
+saveRDS(courthouse_hours_overlay_long, "cache/mag/courthouse_hours.rds")
+
+rm(temp, courthouse_hours_wide_location, courthouse_hours_wide, courthouse_hours_xy)
+```
+
+```{r clean courthouse asssets}
+# Relying on the assumption that satellite courthouses are 1 courtroom and satellite courthouses are within the same
+# CD as the base courthouse, distribute the total courtrooms appropriately
+courthouse_asset_xy <- create_court_xy(courthouse_asset)
+courthouse_asset_overlay <- create_overlay(courthouse_asset_xy, treso_shp, type = "court") %>% 
+  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
+  left_join(courthouse_asset, by = "bid") %>% 
+  mutate(building.type = replace(building.type, 
+                                 building.type %in% c("Office", "Court Support Office"), 
+                                 "Base Court")) %>% 
+  # There are a few satellite courts in Sudbury but base court is in Greater Sudbury, replace those manually
+  mutate(cdname = replace(cdname, cdname == "Sudbury", "Greater Sudbury / Grand Sudbury")) %>% 
+  mutate(cduid = replace(cduid, cduid == 3552, 3553)) %>%
+  left_join(select(courthouse_hours_overlay, bid, `2018_number_of_courtrooms`), by = "bid") %>% 
+  mutate(courtrooms = ifelse(building.type == "Satellite Court", courtrooms, `2018_number_of_courtrooms`)) %>% 
+  select(-`2018_number_of_courtrooms`)
+
+# Distribute the base courthouse's courtrooms to satellite courthouses
+multiple_courthouse_asset_tag <- courthouse_asset_overlay %>% 
+  filter(building.type == "Base Court") %>% 
+  group_by(cdname) %>% 
+  summarise(mutilple.basecourts.tag = ifelse(n() > 1, 1, 0))
+
+courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset_tag, by = "cdname")
+
+multiple_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
+  filter(building.type == "Satellite Court") %>% 
+  group_by(cdname) %>% 
+  summarise(total.satellite.rooms = sum(courtrooms))
+
+multiple_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
+  left_join(multiple_basecourts_satellite_rooms, by = "cdname") %>% 
+  replace_na(list("total.satellite.rooms" = 0))
+
+multiple_basecourts_satellite_room_share <- multiple_basecourts %>% 
+  filter(building.type == "Base Court") %>% 
+  group_by(cdname) %>% 
+  mutate(total.base.courts = n()) %>% 
+  ungroup() %>% 
+  mutate(share.of.satellite = total.satellite.rooms / total.base.courts) %>% 
+  arrange(cdname)
+
+# Apply bucket rounding to chunks of data by TRESO POS
+bucket_round_share <- by(multiple_basecourts_satellite_room_share$share.of.satellite, 
+                         multiple_basecourts_satellite_room_share[c("cdname")], smart_round, simplify = FALSE)
+
+# Convert the output of by() to a dataframe
+temp <- sapply(bucket_round_share, I) %>% 
+  data.table::melt() %>% 
+  rename(share.of.satellite.rounded = value, cdname = L1) %>% 
+  mutate(share.of.satellite.rounded = as.numeric(share.of.satellite.rounded)) %>% 
+  arrange(cdname) %>% 
+  select(-cdname) %>% 
+  cbind(multiple_basecourts_satellite_room_share) %>% 
+  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - share.of.satellite.rounded, courtrooms))
+
+# If there are negative courtooms in any base courts, manually shift them from another courthouse
+print(paste0("There are ", nrow(filter(temp, courtrooms < 1)), " base court(s) with less than one courtroom"))
+temp <- temp %>% 
+  mutate(courtrooms = ifelse(name == "Stratford SCJ Courthouse", courtrooms + 1, courtrooms)) %>% 
+  mutate(courtrooms = ifelse(name == "Stratford OCJ Courthouse", courtrooms - 1, courtrooms)) %>% 
+  select(bid, courtrooms.reduced = courtrooms)
+print(paste0("There are ", nrow(filter(temp, courtrooms.reduced < 1)), " base court(s) with less than one courtroom"))
+
+multiple_basecourts <- left_join(multiple_basecourts, temp, by = "bid") %>% 
+  mutate(courtrooms = ifelse(is.na(courtrooms.reduced), courtrooms, courtrooms.reduced)) %>% 
+  select(-mutilple.basecourts.tag, -total.satellite.rooms, -courtrooms.reduced)
+  
+# Distribute satellite courthouses in CD with a single basecourt
+single_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
+  filter(building.type == "Satellite Court") %>% 
+  group_by(cdname) %>% 
+  summarise(total.satellite.rooms = sum(courtrooms))
+
+single_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
+  left_join(single_basecourts_satellite_rooms, by = "cdname") %>% 
+  replace_na(list("total.satellite.rooms" = 0)) %>% 
+  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - total.satellite.rooms, courtrooms)) %>% 
+  select(-mutilple.basecourts.tag, -total.satellite.rooms)
+
+# If there are negative courtooms in any base courts, manually shift them from another courthouse
+print(paste0("There are ", nrow(filter(single_basecourts, courtrooms < 1)), " base court(s) with less than one courtroom"))
+  
+courthouse_asset_distributed <- rbind(multiple_basecourts, single_basecourts)
+```
+
+```{r append caretypes serviced}
+courthouse_service_caretypes <- readRDS("cache/mag/courthouse_hours.rds") %>% 
+  filter(value != 0) %>% 
+  group_by(bid) %>% 
+  summarise(casetypes.serviced = paste(unique(casetypes), collapse = ","))
+
+courthouse_asset_casetypes <- left_join(courthouse_asset_distributed, courthouse_service_caretypes, by = "bid") %>% 
+  group_by(cduid) %>% 
+  mutate(casetypes.serviced = ifelse(building.type == "Satellite Court",
+                                     paste(unique(casetypes.serviced), collapse = ","),
+                                     casetypes.serviced)) %>% 
+  ungroup() %>%
+  unnest(casetypes.serviced = strsplit(casetypes.serviced, ",")) %>% 
+  filter(casetypes.serviced != "NA") %>% 
+  distinct(bid, casetypes.serviced, .keep_all = TRUE) %>% 
+  group_by_at(vars(-casetypes.serviced)) %>% 
+  summarise(casetypes.serviced = paste(casetypes.serviced, collapse = ",")) %>% 
+  ungroup()
+
+saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
+```
+
+
+
+
+
+# Unused Code - Potential for Future Need
+## EDU Unused Code
+## Health Unused Code
+
+```{r sql health code, include=FALSE, eval=FALSE}
 healthRodbc <-odbcConnect("NourDSN")
 
 #Bed Census Data
@@ -708,43 +1468,67 @@ healthPopulationLHIN %>%
 #List of Care-Types
 caretypes <- healthHBAMprojected %>%
   distinct(Care_Type)
+
+
 ```
 
-##Import Health Data from CSVs
-  - Clean and organize provided data to maintain variable-name consistency across all datasets and filter for data entry errors
-  - Age group filters exclude agegroup index "9 (total)" to prevent double counting
-  - Age group filters exclude "7 (Missing)"
-  - Filter only for totalling Case-type and Bed-type classifications (9 and AP)
-  - Filter HBAM CSDs to remove origin CSDs not in Ontario
-  - Join HBAM with Asset data to establish master ID list (loss of 1,151,954 cases to join)
-  
-```{r, include=FALSE, eval=TRUE}
-# Bed Census Data
-dailybedcensus <- read_csv('input/moh/cap.MOH_DailyBedCensus_Summary.csv') %>% 
-  drop_na(FISCALYEAR) %>% #Years with NULL under FISCALYEAR also have empty rows
-  select(facilityid = FACILITY_NO,
-         siteid = INST,
-         type = TYPE,
-         year = FISCALYEAR,
-         censusdate = CENSUSDATE,
-         admission = ADMISSION,
-         discharge = DISCHARGE,
-         death = DEATHS,
-         atbeds = INACUTEBEDS,
-         mhbeds = INMHBEDS,
-         cccbeds = INCCCBEDS,
-         grbeds = INGRBEDS,
-         srbeds = INSRBEDS,
-         patientbeds = PATIENTSINDESIGNATEDBEDS,
-         staffedbeds = BEDSWITHSTAFFAVAILABLE,
-         erstretchers = ERSTRETCHERSUSED,
-         uncovnentionalbeds = UNCONVENTIONALBEDSUSED,
-         overflowpatients = OVERFLOWPATIENTS,
-         totalpatients = TOTALPATIENTS) %>% 
-  mutate(type = replace(type, type == 'SR', 'GR'))
+```{r health unused import code, include=FALSE, eval=FALSE}
+#ALC Data
+##Reference Files
+ALCage <- read_csv('input/moh/cap.ALCAge.csv')
+ALCcases <- read_csv('input/moh/cap.ALCCases.csv')
+ALCdesignations <- read_csv('input/moh/cap.ALCDesignations.csv')
+ALCdischargedest <- read_csv('input/moh/cap.ALCDischargeDestination.csv')
+ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
+
+#Hospital Discharge Data
+hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv')
+
+#ALCmostappropriate
+ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv')
+```
+
+```{r commented out code for testing, include=FALSE, eval=FALSE}
+# TODO: Delete when code working
+# a <- 3949
+# hosploc <- hospitallocations %>%
+#   filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
 
 
-hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
+## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.) --> NO MORE MISSING DATA
+# unmatched_hosp <- HBAMprojected %>% 
+#   group_by(year, id, caretype, agegroup) %>% 
+#   summarise(cases = sum(cases),
+#             los = sum(lengthofstay)) %>% 
+#   mutate(beddays = (cases*los)) %>% 
+#   left_join(distinct(hospitallocations, id, caretype, pcode), by = c('id')) %>% 
+#   filter(is.na(pcode))
+
+
+#Test SiteID/Fac ID Linkages
+#ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
+
+#Identify Mismatched Site IDs
+# ALC_mismatchedids <- ALC_idlinkage %>% 
+#   filter(is.na(type))
+# 
+# ALC_mismatchedids %>% 
+#   group_by(type) %>%
+#   count()
+# 
+# ALC_idlinkage %>% 
+#   count(type %in% lhin.moh)
+# 
+# #Filter out Mismatched IDs
+# hospital_ALC_master <- ALC_idlinkage %>% 
+#   filter(!is.na(type)) %>% 
+#   group_by(siteid, facilityid, type, name.moh) %>% 
+#   distinct()
+```
+
+```{r unused obsolete code, include=FALSE, eval=FALSE}
+#hospital discharge data prep
+hospitaldischargesprep <- hospitaldischarges %>%
   replace_na(list(Discharges = 0)) %>% 
   replace_na(list(Total_Days = 0)) %>% 
   mutate(ATSEPARATIONS = ifelse(ATSEPARATIONS == 'NULL', '0', ATSEPARATIONS),
@@ -770,261 +1554,8 @@ hospitaldischarges <- read_csv('input/moh/cap.MOH_Discharges.csv') %>%
   mutate(agegroup = replace(agegroup, agegroup == 0, 1)) %>% 
   filter(agegroup != 7)
 
-# Health Asset Inventory
-hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv') %>%
-  spread(key = DatasetId, value = 'Master Number') %>% 
-  select(lhin = LHIN,
-         lhinlocation = Location,
-         name = Name,
-         caretype = Type,
-         facilityid = 'Facility Number',
-         hospitalcorp = 'Provider Legal Name',
-         address = 'Address Line 1',
-         city = City,
-         pcode = 'Postal Code',
-         lat = latitude,
-         long = longitude,
-         datasetID1.siteid = '1',
-         datasetID2.siteid = '2',
-         datasetID3.siteid = '3',
-         datasetID4.siteid = '4',
-         datasetID5.siteid = '5',
-         datasetID6.siteid = '6') %>%
-  mutate(datasetID1.siteid = as.numeric(replace_na(datasetID1.siteid, 0)), 
-         datasetID2.siteid = as.numeric(replace_na(datasetID2.siteid, 0)), 
-         datasetID3.siteid = as.numeric(replace_na(datasetID3.siteid, 0)), 
-         datasetID4.siteid = as.numeric(replace_na(datasetID4.siteid, 0)), 
-         datasetID5.siteid = as.numeric(replace_na(datasetID5.siteid, 0)),
-         datasetID6.siteid = as.numeric(replace_na(datasetID6.siteid, 0))) %>%
-  group_by(pcode) %>% 
-  mutate(id = group_indices()) %>% # Assign a unique hospital ID per hospital campus/site 
-  ungroup() %>% 
-  mutate(caretype = replace(caretype, caretype == 'SR', 'GR')) %>%
-  # Choose first name in list for each hospital
-  group_by(id) %>% 
-  mutate(name = first(name)) %>% 
-  ungroup() %>% 
-  # Lat/long incorrect in raw input data for Providence Care Hospital
-  mutate(lat = replace(lat, id == 33, 44.217317),
-         long = replace(long, id == 33, -76.527267))
-
-# TODO: Delete when code working
-# a <- 3949
-# hosploc <- hospitallocations %>%
-#   filter(datasetID1.siteid == a | datasetID2.siteid == a | datasetID3.siteid == a | datasetID4.siteid == a | datasetID5.siteid == a | datasetID6.siteid == a)
-
-# Join postal code centroids to hospital postal code data
-pccfSlimHosp <- pccf %>%
-  filter(SLI == 1) %>%
-  select(postal.code = PostalCode,
-         lat = LAT,
-         long = LONG,
-         retirement.date = Ret_Date,
-         csduid = CSDuid,
-         csdname = CSDname) %>%
-  group_by(postal.code) %>%
-  filter(retirement.date == max(retirement.date))
-
-# Create a list of postal codes with SLI == 1 but different lat/long
-pccfSlimHosp[duplicated(pccfSlimHosp$postal.code) | duplicated(pccfSlimHosp$postal.code, fromLast = TRUE), ] %>%
-  arrange(postal.code) %>%
-  group_by(postal.code, lat, long, retirement.date) %>%
-  summarise(n = n()) %>%
-  filter(n == 1)
-
-# Fill in unknown lat/long
-hospitallocations <- hospitallocations %>% 
-  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlimHosp, hospital.lat = lat, hospital.long = long, postal.code), by = c('pcode.clean' = 'postal.code')) %>%
-  mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
-         long = ifelse(is.na(long), hospital.long, long)) %>%
-  group_by(id) %>% 
-  mutate(lat = first(lat), long = first(long), address = first(address)) %>%
-  ungroup() %>% 
-  select(-pcode.clean, -hospital.lat, -hospital.long)
-
-saveRDS(hospitallocations, file = 'cache/moh/hospitallocations.rds')
-
-# HBAM Historical
-HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv') %>% 
-  select(year = Year, 
-         siteid = Hospital_Site_ID,
-         hospitalname = Hospital_Site_Name,
-         caretype = Care_Type,
-         agegroup = Age_Group, 
-         cases = Number_of_Cases,
-         orig_csd = CSD) %>% 
-  # filter(year == 2016) %>% 
-  # select(-year) %>% 
-  filter(orig_csd < 4600000,
-         orig_csd > 3501000) %>% 
-  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
-         agegroup = replace(agegroup, agegroup == '18-44', 2),
-         agegroup = replace(agegroup, agegroup == '45-64', 3),
-         agegroup = replace(agegroup, agegroup == '65-74', 4),
-         agegroup = replace(agegroup, agegroup == '75-84', 5),
-         agegroup = replace(agegroup, agegroup == '>85', 6),
-         agegroup = replace(agegroup, agegroup == '<1', 1),
-         agegroup = replace(agegroup, agegroup == '1-7', 1),
-         agegroup = replace(agegroup, agegroup == '8-17', 1),
-         caretype = replace(caretype, caretype == 'IP', 'AT'),
-         caretype = replace(caretype, caretype == 'CCC', 'CR'),
-         caretype = replace(caretype, caretype == 'Rehab', 'GR')) %>% 
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
-  mutate(id = replace(id, id == 0, -9999))
-
-saveRDS(HBAMhistorical, file = 'cache/moh/HBAMhistorical.rds')
-
-# HBAM Projected
-HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv') %>% 
-  select(year = Year, 
-         siteid = Hospital_Site_ID, 
-         hospitalname = Hospital_Site_Name,
-         caretype = Care_Type,
-         agegroup = Age_Group, 
-         cases = Number_of_Cases,
-         lengthofstay = Length_of_Stay) %>% 
-  mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
-         agegroup = replace(agegroup, agegroup == '18-44', 2),
-         agegroup = replace(agegroup, agegroup == '45-64', 3),
-         agegroup = replace(agegroup, agegroup == '65-74', 4),
-         agegroup = replace(agegroup, agegroup == '75-84', 5),
-         agegroup = replace(agegroup, agegroup == '>85', 6),
-         agegroup = replace(agegroup, agegroup == '<1', 1),
-         agegroup = replace(agegroup, agegroup == '1-7', 1),
-         agegroup = replace(agegroup, agegroup == '8-17', 1),
-         caretype = replace(caretype, caretype == 'IP', 'AT'),
-         caretype = replace(caretype, caretype == 'CCC', 'CR'),
-         caretype = replace(caretype, caretype == 'Rehab', 'GR'),
-         caretype = replace(caretype, caretype == 'ER', 'AM'),
-         caretype = replace(caretype, caretype == 'DS', 'AM')) %>% 
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>% 
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
-  mutate(id = replace(id, id == 0, -9999))
-
-saveRDS(HBAMprojected, file = 'cache/moh/hbamprojected.rds')
-
-# Historical HBAM Master Dataset
-HBAMhistorical_master <- HBAMhistorical %>% 
-  mutate(caretype = replace(caretype, caretype == "ER", "AM"),
-         caretype = replace(caretype, caretype == "DS", "AM")) %>% 
-  left_join(distinct(hospitallocations, id, name, facilityid, pcode, lat, long), by = c('id'))
-
-saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
-
-# Projected HBAM Master Dataset
-HBAMprojected_master <- HBAMprojected %>% 
-  group_by(year, id, caretype, agegroup) %>% 
-  summarise(cases = sum(cases),
-            los = sum(lengthofstay)) %>% 
-  mutate(beddays = (cases*los)) %>% 
-  left_join(distinct(hospitallocations, id, name, facilityid, pcode, lat, long), by = c('id')) %>% 
-  filter(!is.na(pcode))
-
-saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
-
-## Hosp Site IDs that unmatched between projected HBAM and Hosp PAI (total from 2016-2026 = ~10.3m cases, averaging ~1m to ~900k cases p.a.) --> NO MORE MISSING DATA
-# unmatched_hosp <- HBAMprojected %>% 
-#   group_by(year, id, caretype, agegroup) %>% 
-#   summarise(cases = sum(cases),
-#             los = sum(lengthofstay)) %>% 
-#   mutate(beddays = (cases*los)) %>% 
-#   left_join(distinct(hospitallocations, id, caretype, pcode), by = c('id')) %>% 
-#   filter(is.na(pcode))
-
-#LHIN Data
-populationLHIN <- read_csv('input/moh/dbo.Population_LHIN.csv')
-
-#ALC Data
-##Reference Files
-ALCage <- read_csv('input/moh/cap.ALCAge.csv')
-ALCcases <- read_csv('input/moh/cap.ALCCases.csv')
-ALCdesignations <- read_csv('input/moh/cap.ALCDesignations.csv')
-ALCdischargedest <- read_csv('input/moh/cap.ALCDischargeDestination.csv')
-ALCinpatientbedtype <- read_csv('input/moh/cap.ALCInpatientBedType.csv')
-
-#ALC Datasets
-#CCO Linkage Table
-# DO WE STILL NEED THIS TABLE? IF SO, FIX CODE
-
-ALC_idcrosswalk <- read_csv('input/moh/SiteID_Linkage_Table.csv') %>%
-  filter(!is.na(WTISSiteNum)) %>% 
-  select(lhin = WTISLHINNum,
-         name = MNSName,
-         alcname = WTISSiteName,
-         type = MNSType,
-         siteid = MNSMaster,
-         ALCsite_id = WTISSiteNum,
-         facilityid = MNSFacNum) %>%
-  # join to hospital locations on all possible historical datasetID values
-  left_join(select(hospitallocations, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID4.siteid, id), by = c('siteid' = 'datasetID4.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID5.siteid, id), by = c('siteid' = 'datasetID5.siteid')) %>% 
-  left_join(select(hospitallocations, datasetID6.siteid, id), by = c('siteid' = 'datasetID6.siteid')) %>%
-  ungroup() %>% 
-  mutate(id = pmax(replace_na(id.x, 0), replace_na(id.x.x, 0), replace_na(id.x.x.x,0), replace_na(id.y, 0), replace_na(id.y.y, 0), replace_na(id.y.y.y, 0))) %>% 
-  select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y, -alcname, -facilityid, -siteid, -type) %>% 
-  # Bring in postal code from hospital locations
-  distinct() %>% 
-  left_join(distinct(hospitallocations, id, pcode), by = 'id') %>% 
-  mutate(pcode.clean = gsub("\\s+", "", pcode)) %>%
-  left_join(select(pccfSlimHosp, alc.lat = lat, alc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
-  select(-pcode.clean, -alc.lat, -alc.long) %>% 
-  select(lhin, name, pcode, id, ALCsite_id, csduid, csdname) %>% 
-  # Clean dataset
-  group_by(id) %>%
-  # Remove duplicate entries where ALCsite_id is NA
-  mutate(duplicate_count = n(), remove = ifelse((duplicate_count > 1) & (is.na(ALCsite_id)) & id > 0, 1, 0)) %>%
-  filter(remove != 1) %>%
-  # Remove rows where ALCsite_id is duplicated in another row but CSD info is missing
-  group_by(ALCsite_id) %>%
-  mutate(duplicate_count = n(), id_check = max(id), remove = ifelse((duplicate_count > 1) & (is.na(id_check) == FALSE) & (is.na(csduid)), 1, 0)) %>%
-  filter(remove != 1) %>%
-  select(-duplicate_count, -remove, -id_check) %>% 
-  # Remove truly duplicate entries
-  group_by(id, ALCsite_id) %>%
-  arrange(id, name) %>%
-  filter(row_number()==1) %>% 
-  ungroup()
-
-saveRDS(ALC_idcrosswalk, file = 'cache/moh/ALC_crosswalk.rds')
-
-ALCannualvolume <- read_csv('input/moh/cap.ALCAnnualVolumeAndTOtalDays.csv') %>%
-  select(year = Year,
-         siteid = SiteNumber,
-         casetype = CaseType,
-         bedtype = InPatientBedType,
-         agegroup = AgeGroup,
-         dd = DischargeDestination,
-         freq = Frequency,
-         losmean = Mean,
-         losmed = Median,
-         los90thp = '90thP',
-         totalALCdays = TotalALCDays) %>% 
-  filter(casetype == 9, 
-         agegroup != 9,
-         agegroup != 7,
-         bedtype == 'AP',
-         dd != "ALL")
-
-ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv') %>% 
+#ALCmostappropriate
+ALCmostappropriateprep <- ALCmostappropriate %>% 
   separate(period, c("year", "month"), sep = "_") %>%
   select(year,
          month,
@@ -1050,170 +1581,17 @@ ALCmostappropriate <- read_csv('input/moh/ALCMostAppropriateDischage.csv') %>%
          casetype == 9,
          bedtype == 'AP') 
 
-#Most recent updated ALC Data from CCO w/ MADD and DD typeflags
-ALC_madd_raw <- read_csv('input/moh/ALC_Data.2019-09-09.csv', col_types = list('VOL' = col_character())) %>%
-  filter(INPATIENTBEDTYPE == 'AP',
-         casetype == 9,
-         TYPEFLAG == 'MADD')%>% 
-  select(year = period,
-         number,
-         siteid = sitenumber,
-         madd,
-         agegroup = Agerange,
-         patients = '_FREQ_',
-         avg.los = MEAN,
-         alcdays = SUM) %>% 
-  mutate(year = replace(year, year == '1112', 2011),
-         year = replace(year, year == '1213', 2012),
-         year = replace(year, year == '1314', 2013),
-         year = replace(year, year == '1415', 2014),
-         year = replace(year, year == '1516', 2015),
-         year = replace(year, year == '1617', 2016),
-         year = replace(year, year == '1718', 2017))
-
-saveRDS(ALC_madd_raw, file = 'cache/moh/ALC_madd_raw.rds')
-
-ALCmostappropriate %>% #Check number of months in Year entries (5 mo. in 2019)
+ALCmostappropriateprep %>% #Check number of months in Year entries (5 mo. in 2019)
   group_by(year) %>% 
   distinct(month) %>% 
   count()
 
-ALCmostappropriate <- ALCmostappropriate %>% 
+ALCmostappropriateprep <- ALCmostappropriateprep %>% 
   group_by(year, siteid, agegroup, madd) %>%
   summarise(freq = sum(freq),
             totalALCdays = sum(totalALCdays))
 
-#CIHI Data
-CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv') %>% 
-  select(year = Year,
-         prov = Province,
-         name = 'Hospital Name',
-         hosp_type = 'Type of Hospital',
-         cihi_total = Total) %>%  
-  mutate(name = toupper(name))
-
-saveRDS(CIHIhospitalbeds, file = 'cache/moh/CIHI_hospitalbeds.rds')
-
-#Test SiteID/Fac ID Linkages
-#ALC_idlinkage <- left_join(hospitallocations, ALC_idcrosswalk, by = c('siteid', 'facilityid'), suffix = c('.moh', '.cco'))
-
-#Identify Mismatched Site IDs
-# ALC_mismatchedids <- ALC_idlinkage %>% 
-#   filter(is.na(type))
-# 
-# ALC_mismatchedids %>% 
-#   group_by(type) %>%
-#   count()
-# 
-# ALC_idlinkage %>% 
-#   count(type %in% lhin.moh)
-# 
-# #Filter out Mismatched IDs
-# hospital_ALC_master <- ALC_idlinkage %>% 
-#   filter(!is.na(type)) %>% 
-#   group_by(siteid, facilityid, type, name.moh) %>% 
-#   distinct()
-
-#LTC Facility Data
-ltc_homes <- read_csv('input/moh/20190628_LTC Homes Query.csv') %>% 
-  select(sector = Sector,
-         city = 'Homes City',
-         postal.code = 'Homes Postal Code',
-         beds = 'Total Beds') %>% 
-  mutate(pcode.clean = gsub("\\s+", "", postal.code)) %>%
-  left_join(select(pccfSlimHosp, ltc.lat = lat, ltc.long = long, postal.code, csduid, csdname), by = c('pcode.clean' = 'postal.code')) %>%
-  select(-pcode.clean, -ltc.lat, -ltc.long) 
-
-saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
-```
-
-##TRESO Data Input
-  - Segment TRESO population data to match HBAM age group classifications: Index 1-6 w/ pediatric breakdown (ped) 1-3
-```{r}
-
-treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
-
-```
-
-##Daily Bed Census Data Cleaning and Aggregation
-  - Simplify and aggregate daily census to annual figures
-  - Calculate the number of daily entries available for each site id
-  - Calculate Annualization factor
-  - Calculate Operational and Physical Capacity
-```{r}
-#Count Daily Entries by Year: 2017:294 / 2018: 324
-dailybedcensus %>%
-  filter(year == 2017) %>% 
-  group_by(censusdate) %>% 
-  mutate(sumbeds = sum())
-  group_by(year) %>% 
-  distinct(censusdate) %>% 
-  count(censusdate) %>% 
-  summarise(totaldays = sum(n, na.rm = TRUE))
-
-#Total Daily Entries by SiteID
-dailyentrycount <- dailybedcensus %>% 
-  group_by(siteid, year) %>% 
-  count(siteid) %>% 
-  rename('entrycount' = 'n')
-
-# Total bed counts by year by care type, province-wide, for reference only - not used in downstream calculations
-num_beds_province <- dailybedcensus %>%
-  mutate(siteid = as.numeric(siteid)) %>%
-  group_by(year, censusdate, type) %>%
-  mutate(totstaffbeds = sum(staffedbeds)) %>%
-  ungroup() %>%
-  group_by(year, type) %>%
-  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
-  distinct(year, type, maxstaffedbeds)
-
-# Bed counts by year by caretype by siteid
-num_beds <- dailybedcensus %>%
-  mutate(siteid = as.numeric(siteid)) %>%
-  group_by(year, censusdate, type) %>%
-  mutate(totstaffbeds = sum(staffedbeds)) %>%
-  ungroup() %>%
-  group_by(year, type) %>%
-  mutate(maxstaffedbeds = max(totstaffbeds, na.rm = TRUE)) %>%
-  # Take the census day which has the highest staffed beds
-  filter(totstaffbeds == maxstaffedbeds) %>% 
-  # Filter data since there may be more than one census day tied for having max staffed beds - this occurs for one care type in 2018
-  filter(censusdate == first(censusdate)) %>% 
-  distinct(year, type, siteid, censusdate, staffedbeds, totstaffedbeds) %>% 
-  group_by(year) %>%
-  mutate(maxbeds.annual = sum(staffedbeds))
-
-saveRDS(num_beds, file = 'cache/moh/num_beds.rds')
-
-#Annual Bed-Days Observed
-beddaysobserved <- dailybedcensus %>% 
-  group_by(siteid,
-           type,
-           year) %>% 
-  summarise(atbedsobs = sum(atbeds, na.rm = TRUE),
-            mhbedsobs = sum(mhbeds, na.rm = TRUE),
-            cccbedsobs = sum(cccbeds, na.rm = TRUE),
-            grbedsobs = sum(grbeds, na.rm = TRUE),
-            srbedsobs = sum(grbeds, na.rm = TRUE),
-            patientbedsobs = sum(patientbeds, na.rm = TRUE),
-            staffedbedsobs = sum(staffedbeds, na.rm = TRUE))
-
-#Annualization Factor from Residual Day-Count
-annualizationfactor <- dailybedcensus %>% 
-  group_by(siteid,
-           type,
-           year) %>% 
-  left_join(dailyentrycount, by = c('siteid' = 'siteid', 'year' = 'year')) %>% 
-  mutate(remainingdays = 365 - entrycount,
-         atbedsaf = mean(atbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         mhbedsaf = mean(mhbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         cccbedsaf = mean(cccbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         grbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         srbedsaf = mean(grbeds, na.rm = TRUE, trim = 1)*remainingdays,
-         patientbedsaf = mean(patientbeds, na.rm = TRUE, trim =1)*remainingdays,
-         staffedbedsaf = mean(staffedbeds, na.rm = TRUE, trim = 1)*remainingdays) %>% 
-  distinct(siteid,type, year, atbedsaf, mhbedsaf, cccbedsaf, grbedsaf, srbedsaf, patientbedsaf, staffedbedsaf)
-
+#From daily bed census data cleaning section
 #Operational Capacity by Hospital
 hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid', 'type', 'year')) %>% 
   mutate(atbeds = atbedsobs + atbedsaf,
@@ -1234,8 +1612,9 @@ hospitalopcap <- left_join(beddaysobserved, annualizationfactor, by = c('siteid'
          patientbeds,
          staffedbeds)
 
+#From daily bed census data cleaning section
 #Physcial Capacity
-Hospitalphyscap <- dailybedcensus %>% 
+Hospitalphyscap <- dailybedcensusprepagg %>% 
   group_by(siteid, type, year) %>% 
   summarise(maxatbeds = max(atbeds, na.rm = TRUE)*365,
             maxmhbeds = max(cccbeds, na.rm= TRUE)*365,
@@ -1244,24 +1623,15 @@ Hospitalphyscap <- dailybedcensus %>%
             maxsrbeds = max(srbeds, na.rm = TRUE)*365,
             maxpatientbeds = max(patientbeds, na.rm = TRUE)*365,
             maxstaffedbeds = max(staffedbeds, na.rm = TRUE)*365)
-
-#Count Total Site IDs: 448
-dailybedcensus %>% 
-  distinct(siteid) %>% 
-  tally
-
-#List of Care-Types
-dailybedcensus %>% 
-  group_by(type) %>% 
-  distinct(type)
 ```
 
-##HBAM Data and Caserate Caculations
-  - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
-  - Aggregate TRESO population data to CSD level
+
+```{r obsolete}
+  # - Aggregate HBAM caseload data to CSD level instead of hospital site ID level 
+  # - Aggregate TRESO population data to CSD level
   
 ###CSD Caserate Calculations
-```{r}
+
 HBAMhistorical_csd <- HBAMhistorical_master %>% 
   select(year,
          siteid,
@@ -1304,22 +1674,27 @@ csd_caserates <- left_join(HBAMhistorical_csd, csd_pop_long, by = c('year', 'ori
   mutate(orig_cd = as.numeric(substring(orig_csd, 0,4)),
          csd_caserate = replace(csd_caserate, csd_caserate == Inf, 0)) #CSD populations w/ 0 (as summed TRESO zones w/ 0 population) result in Inf case-rates; replace with 0
 
-#Calculte Mismatched CSDs
-mismatched_csd <- csd_caserates %>% 
-  filter(is.na(population)) %>% 
-  summarise(sum(cases)) #total of 57,951 mismatched cases from 89 CSDs
+# #FOR INFO - Deselect cases & population from csd_caserates code above for use
+# #Calculte Mismatched CSDs
+# mismatched_csd <- csd_caserates %>% 
+#   filter(is.na(population)) %>% 
+#   summarise(sum(cases)) #total of 57,951 mismatched cases from 89 CSDs
 
+#Output for use in hospitals.rmd
 saveRDS(csd_caserates, file = 'cache/moh/csd_caserates.rds')
 ```
 
-###Census Division (CD) Caserate Calculations
-  - Convert HBAM data back to long format
-  - Calculate caserates per care-type disaggregated by age group
-  - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
-  - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
-      - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
 
-```{r}
+
+
+```{r obsolete cont.}
+  # - Convert HBAM data back to long format
+  # - Calculate caserates per care-type disaggregated by age group
+  # - Note: exclusion of CD's outside of Ontario (totalling ~40,000 cases of 8.2m, <0.5%)
+  # - Note: HBAM age groups ped1:ped3 overlap within age group "1" but with unique case values. Therefore, replace function to include 'ped' age groups into ag1.
+  #     - Population ped groups duplicate with population ag1, therefore, they are excluded from gather function (wide to long)
+
+
 HBAMhistorical_cd <- HBAMhistorical_master %>% 
   mutate(orig_cd = substring(orig_csd, 0,4)) %>% 
   select(year, 
@@ -1343,16 +1718,17 @@ cd_caserates <- left_join(HBAMhistorical_cd, cd_pop_long, by = c('year', 'orig_c
   select(-cases,
          -population)
 
-mismatched_cd <- cd_caserates %>% 
-  filter(is.na(population)) %>% 
-  summarise(sum(cases))
+# #FOR INFO - TEST: To use, deselect cases & population from cd_caserates above
+# mismatched_cd <- cd_caserates %>% 
+#   filter(is.na(population)) %>% 
+#   summarise(sum(cases))
 
 saveRDS(cd_caserates, file = 'cache/moh/cd_caserates.rds')
 
 ```
 
-###Combined Case-rates
-```{r}
+
+```{r obsolete cont.2}
 #Compile caserates into one df (CD and CSD)
 caserates_comp <- full_join(csd_caserates, cd_caserates, by = c('year', 'agegroup', 'caretype', 'orig_cd')) %>% 
   select(year, caretype, agegroup,orig_csd, csd_caserate, orig_cd, cd_caserate)
@@ -1375,9 +1751,9 @@ ggplot(csd_caserates_plot, aes(x=year, y=avg_cr, color=as.factor(agegroup))) +
 ```
 
 
-###Provincial Caserate Calculations
-  - Calculate caserates by care types for provincial level disaggregated by age group
-```{r}
+```{r obsolete cont. 3}
+  # - Calculate caserates by care types for provincial level disaggregated by age group
+
 #Provincial Caserates
 cases_total <- HBAMhistorical_csd_spread %>% 
   ungroup(csd) %>%
@@ -1497,13 +1873,17 @@ provincial_caserate_ct_agegroup <- left_join(cases_ct_agegroup, pop_agegroup, by
 
 ```
 
-## ALC Data
-  - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD)
-  - Given ALC data with multiple Site ID types (1-4-digit codes), each unique volume needs to be stripped out in order to get accurate totals
-  - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169      
-```{r}
+
+```{r obsolete cont. 4}
+
+# <!-- ## ALC Data -->
+# <!--   - Link Site IDs with missing Facility IDs (and vice-versa) for ALC data (both Annual Vol and MADD) -->
+# <!--   - Given ALC data with multiple Site ID types (1-4-digit codes), each unique volume needs to be stripped out in order to get accurate totals -->
+# <!--   - ALC Site number Counts: Total SiteID 647, ALC Total Counts 348, ALC Counts 4-digit IDs 201, Total Joined IDs 169       -->
+
+
 #Isolate all 3-digit ALC-Site IDs (assuming single address/location)
-three_digit_ALC <- ALCannualvolume %>%
+three_digit_ALC <- ALCannualvolumeprep %>%
   filter(siteid < 999,
          siteid > 99) %>% 
   select (-casetype,
@@ -1561,250 +1941,24 @@ ALC_master %>% filter(ALCsite_id == 4142, year == 1112) %>% summarise(sum(totalA
 
 ```
 
-# Court Data Cleaning
-
-## Import Court Data
-
-```{r import court data}
-courthouse_asset <- read_csv("input/mag/Court asset data.csv") %>% 
-  select(year = Collection_Year, bid = BID, name = BuildingName, address = Address1,
-         postal.code = PostalCode, city = City, courthouse.lat = Latitude, courthouse.long = Longitude,
-         building.type = BuildingType, courtrooms = Courtrooms, region = Region, 
-         rentable.square.feet = Rentable_square_feet,
-         gross.square.feet = Gross_square_feet) %>% 
-  mutate(gross.square.feet = as.numeric(gross.square.feet), courtrooms = as.numeric(courtrooms)) %>% 
-  replace_na(list(gross.square.feet = 0, courtrooms = 0)) %>% 
-  # Remove entries which are not base court or satelite court
-  filter(building.type %in% c("Base Court", "Satellite Court") | name == "Napanee OCJ Courthouse + VWAP Office" |
-           name == "Timmins OCJ Courthouse" | name == "Toronto SCJ + Family Courthouse") %>%
-  # Assume satellite courthouses with 0 courtrooms to be 1
-  mutate(courtrooms = ifelse(building.type == "Satellite Court" & courtrooms == 0, 1, courtrooms)) %>% 
-  mutate(courtrooms = replace(courtrooms, name == "Smith Falls Satellite Court", 1)) %>% 
-  # Remove entries manually after the base court and satellite court filters
-  filter(name != "Milton Courthouse (Double with 18784)") %>% 
-  filter(name != "Sarnia Courthouse- Land Registry Office Building") %>% 
-  filter(name != "Newmarket Courthouse - Modular Addition") %>% 
-  filter(name != "Parry Sound Jail - Holding Cells") %>% 
-  filter(name != "Temp Swing Space for 361 University Ave relocation for Firepanel Project") %>% 
-  filter(name != "OPP Sally Port") %>% 
-  filter(name != "Elliot Lake Victim Witness Assiatance Program Office") %>% 
-  filter(name != "Renfrew SCJ Small Claims Administration Office") %>% 
-  filter(!(city == "St. Thomas" & courtrooms == 0)) %>% 
-  filter(!(city == "Barrie" & courtrooms == 0)) %>% 
-  filter(!(city == "Sault Ste. Marie" & courtrooms == 0)) %>% 
-  filter(!(city == "Sudbury" & courtrooms == 0)) %>% 
-  # Misaligned data for city entry
-  mutate(city = replace(city, name == "Toronto SCJ + Family Courthouse", "Toronto")) %>% 
-  mutate(city = replace(city, name == "Toronto Courthouse", "Toronto"))
-  
-
-courthouse_hours <- read_csv("input/mag/MAG_CRT_HRS_DB.csv") %>% 
-  rename(year = Year, region = REGION, city = LOCATION, address = ADDRESS) %>% 
-  rename_at(vars(contains("CJ"), contains("COURT"), contains("TOTAL"), contains("CIVIL")), tolower) %>% 
-  rename_at(vars(contains(",_")), funs(sub(",_", "_", .))) %>% 
-  rename(number_of_courtrooms = "number of courtrooms") %>% 
-  mutate(SCJfam = family_court_branch + scj_family, smac = divisional_court+small_claims_court) %>% 
-  select(-family_court_branch, -scj_family, -divisional_court, -small_claims_court) %>%
-  rename(OCJcrim= 'ocj_criminal', OCJfam= 'ocj_family', SCJcrim= 'scj_criminal') %>% 
-  mutate(year = as.numeric(substr(year, 1, 4))) %>% 
-  mutate(city = stringr::str_to_title(city),
-         region = toupper(tolower(region))) %>% 
-  mutate(city = replace(city, city == "L'orignal", "L'Orignal")) %>% 
-  mutate(address = ifelse(is.na(address), address, paste0(address, " St"))) %>% 
-  mutate(address = replace(address, address == "36 Wyndham St", "36 Wyndham St S")) %>% 
-  mutate(address = replace(address, address == "245 Windsor St", "245 Windsor Ave")) %>% 
-  mutate(address = replace(address, address == "48 Spruce St", "48 Spruce Street North")) %>% 
-  mutate(address = replace(address, address == "1023 King St", "1023-1025 King St")) %>% 
-  mutate(address = replace(address, address == "97 Thomas St", "97 Thomas St E")) %>% 
-  mutate(address = replace(address, address == "49 Place D'Armes St", "49 Place D'Armes")) %>% 
-  mutate(address = replace(address, address == "55 Main St", "55 Main St W")) %>% 
-  mutate(address = replace(address, address == "45 Main St", "45 Main Street E")) %>% 
-  mutate(address = replace(address, address == "70 Simcoe St", "70-110 Simcoe St")) %>% 
-  mutate(address = replace(address, address == "1000 FINCH St", "1000 Finch Ave W")) %>% 
-  mutate(address = replace(address, address == "2201 FINCH St", "2201 Finch Ave W")) %>% 
-  mutate(address = replace(address, address == "361 UNIVERSITY St", "361 University Ave")) %>%
-  mutate(address = replace(address, address == "130 QUEEN, 330/393 UNIVERSITY St", "393 University Ave")) %>% 
-  mutate(address = replace(address, address == "311 JARVIS St", "311 Jarvis St")) %>% 
-  mutate(address = replace(address, address == "COLLEGE PARK St", "444 Yonge Street")) %>% 
-  mutate(address = replace(address, address == "OLD CITY HALL St", "60 Queen St W")) %>% 
-  mutate(address = replace(address, address == "38 Pine St", "38 Pine St N")) %>% 
-  mutate(address = replace(address, address == "41 Dundas St", "41 Dundas St W")) %>% 
-  mutate(address = replace(address, address == "1911 EGLINTON St", "1911 Eglinton Ave E")) %>% 
-  mutate(address = replace(address, address == "47 SHEPPARD St", "47 Sheppard Ave E"))
-```
-
-## Clean Courthouse Master List
-
-- Combine the asset data (`courthouse_asset`) with the 5 year historical court-hour data (`courthouse_hours`) to give location informaiton
-- It is assumed that the dataset with historical court-hour is the source of truth
-  - There is a mismatch between asset data and historical data, the asset data splits up the satellite courthouses while the historical data combines them as one entry. Since the source of truth is in the court-hour data, it is assumed that all satellite courthouses have 1 court room and they belong to the base courthouse of the CD.
-  - If there are multiple base courthouse in the CD; the closer base courthouse is taken to be the base of the satellite courthouses
-  - The total number of courtrooms in the satellite courthouses and their base courthouse will be equal to the value in the court-hour dataset
-
-```{r clean courthouse hours}
-
-# Group the 3 Toronto Courthouses into 1 entry at 130 QUEEN, 330/393 UNIVERSITY St
-temp <- filter(courthouse_asset, address %in% c("130 Queen St W", "393 University Ave", "330 University Ave")) %>% 
-  group_by(city) %>% 
-  summarise(courtrooms = sum(courtrooms),
-            rentable.square.feet = sum(rentable.square.feet), 
-            gross.square.feet = sum(gross.square.feet))
-
-courthouse_asset <- courthouse_asset %>% 
-  filter(!(address %in% c("130 Queen St W", "330 University Ave"))) %>% 
-  mutate(courtrooms = replace(courtrooms, address == "393 University Ave", temp$courtrooms)) %>% 
-  mutate(rentable.square.feet = replace(rentable.square.feet, address == "393 University Ave", temp$rentable.square.feet)) %>% 
-  mutate(gross.square.feet = replace(gross.square.feet, address == "393 University Ave", temp$gross.square.feet))
-
-# Spread the 5 year data into wide format
-courthouse_hours_wide <- courthouse_hours %>% 
-  gather(variable, value, -(year:address)) %>% 
-  unite(temp, year, variable) %>%
-  spread(key = "temp", value = "value") 
-
-# Join courthouse_hours_wide with courthouse_asset dataset to get lat/long information
-courthouse_hours_wide_location <- courthouse_hours_wide %>% 
-  left_join(select(courthouse_asset, bid, name, address, city, courthouse.lat, courthouse.long), by = c("city", "address")) %>% 
-  left_join(select(distinct(courthouse_asset, city, .keep_all = TRUE), bid, name, address, city, courthouse.lat, courthouse.long), by = c("city")) %>%
-  mutate(bid = ifelse(is.na(bid.x), bid.y, bid.x)) %>% 
-  mutate(name = ifelse(is.na(name.x), name.y, name.x)) %>% 
-  mutate(address = ifelse(is.na(address.x), address.y, address.x)) %>% 
-  mutate(courthouse.lat = ifelse(is.na(courthouse.lat.x), courthouse.lat.y, courthouse.lat.x)) %>% 
-  mutate(courthouse.long = ifelse(is.na(courthouse.long.x), courthouse.long.y, courthouse.long.x)) %>% 
-  select(-bid.x, -bid.y, -name.x, -name.y, -address.x, -address.y,
-         -courthouse.lat.x, -courthouse.lat.y, -courthouse.long.x, -courthouse.long.y)
-
-# Overlay on TRESO zones to get the CDUID
-treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC") 
-treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
-courthouse_hours_xy <- create_court_xy(courthouse_hours_wide_location)
-courthouse_hours_overlay <- create_overlay(courthouse_hours_xy, treso_shp, type = "court")
-courthouse_hours_overlay <- courthouse_hours_overlay %>% 
-  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
-  left_join(courthouse_hours_wide_location, by = "bid")
-
-#issue long form of court hour dataset for easy use
-courthouse_hours_overlay_long <- courthouse_hours_overlay %>%
-  gather(key = "year", value, `2014_civil`:`2018_total`) %>% 
-  separate(year, c("year", "casetypes"), sep = 4) %>% 
-  spread(key = casetypes, value) %>% 
-  select(-"_number_of_courtrooms","_number_of_courtrooms" ) %>% 
-  gather(key="casetypes", value, `_civil`:`_smac`) %>% 
-  rename("number_of_courtrooms" = "_number_of_courtrooms", "total" = "_total") %>% 
-  select(-"total", -"number_of_courtrooms", "total", "number_of_courtrooms") %>% 
-  mutate(casetypes = substring(casetypes, 2))
-
-# Save the wide court hour dataset
-saveRDS(courthouse_hours_overlay_long, "cache/mag/courthouse_hours.rds")
-
-rm(temp, courthouse_hours_wide_location, courthouse_hours_wide, courthouse_hours_xy)
+```{r obsolete cont. 5}
+ALCannualvolumeprep <- ALCannualvolume %>%
+  select(year = Year,
+         siteid = SiteNumber,
+         casetype = CaseType,
+         bedtype = InPatientBedType,
+         agegroup = AgeGroup,
+         dd = DischargeDestination,
+         freq = Frequency,
+         losmean = Mean,
+         losmed = Median,
+         los90thp = '90thP',
+         totalALCdays = TotalALCDays) %>% 
+  filter(casetype == 9, 
+         agegroup != 9,
+         agegroup != 7,
+         bedtype == 'AP',
+         dd != "ALL")
 ```
 
 
-```{r clean courthouse asssets}
-# Relying on the assumption that satellite courthouses are 1 courtroom and satellite courthouses are within the same
-# CD as the base courthouse, distribute the total courtrooms appropriately
-courthouse_asset_xy <- create_court_xy(courthouse_asset)
-courthouse_asset_overlay <- create_overlay(courthouse_asset_xy, treso_shp, type = "court") %>% 
-  left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
-  left_join(courthouse_asset, by = "bid") %>% 
-  mutate(building.type = replace(building.type, 
-                                 building.type %in% c("Office", "Court Support Office"), 
-                                 "Base Court")) %>% 
-  # There are a few satellite courts in Sudbury but base court is in Greater Sudbury, replace those manually
-  mutate(cdname = replace(cdname, cdname == "Sudbury", "Greater Sudbury / Grand Sudbury")) %>% 
-  mutate(cduid = replace(cduid, cduid == 3552, 3553)) %>%
-  left_join(select(courthouse_hours_overlay, bid, `2018_number_of_courtrooms`), by = "bid") %>% 
-  mutate(courtrooms = ifelse(building.type == "Satellite Court", courtrooms, `2018_number_of_courtrooms`)) %>% 
-  select(-`2018_number_of_courtrooms`)
-
-# Distribute the base courthouse's courtrooms to satellite courthouses
-multiple_courthouse_asset_tag <- courthouse_asset_overlay %>% 
-  filter(building.type == "Base Court") %>% 
-  group_by(cdname) %>% 
-  summarise(mutilple.basecourts.tag = ifelse(n() > 1, 1, 0))
-
-courthouse_asset_overlay <- left_join(courthouse_asset_overlay, multiple_courthouse_asset_tag, by = "cdname")
-
-multiple_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
-  filter(building.type == "Satellite Court") %>% 
-  group_by(cdname) %>% 
-  summarise(total.satellite.rooms = sum(courtrooms))
-
-multiple_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 1) %>% 
-  left_join(multiple_basecourts_satellite_rooms, by = "cdname") %>% 
-  replace_na(list("total.satellite.rooms" = 0))
-
-multiple_basecourts_satellite_room_share <- multiple_basecourts %>% 
-  filter(building.type == "Base Court") %>% 
-  group_by(cdname) %>% 
-  mutate(total.base.courts = n()) %>% 
-  ungroup() %>% 
-  mutate(share.of.satellite = total.satellite.rooms / total.base.courts) %>% 
-  arrange(cdname)
-
-# Apply bucket rounding to chunks of data by TRESO POS
-bucket_round_share <- by(multiple_basecourts_satellite_room_share$share.of.satellite, 
-                         multiple_basecourts_satellite_room_share[c("cdname")], smart_round, simplify = FALSE)
-
-# Convert the output of by() to a dataframe
-temp <- sapply(bucket_round_share, I) %>% 
-  data.table::melt() %>% 
-  rename(share.of.satellite.rounded = value, cdname = L1) %>% 
-  mutate(share.of.satellite.rounded = as.numeric(share.of.satellite.rounded)) %>% 
-  arrange(cdname) %>% 
-  select(-cdname) %>% 
-  cbind(multiple_basecourts_satellite_room_share) %>% 
-  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - share.of.satellite.rounded, courtrooms))
-
-# If there are negative courtooms in any base courts, manually shift them from another courthouse
-print(paste0("There are ", nrow(filter(temp, courtrooms < 1)), " base court(s) with less than one courtroom"))
-temp <- temp %>% 
-  mutate(courtrooms = ifelse(name == "Stratford SCJ Courthouse", courtrooms + 1, courtrooms)) %>% 
-  mutate(courtrooms = ifelse(name == "Stratford OCJ Courthouse", courtrooms - 1, courtrooms)) %>% 
-  select(bid, courtrooms.reduced = courtrooms)
-print(paste0("There are ", nrow(filter(temp, courtrooms.reduced < 1)), " base court(s) with less than one courtroom"))
-
-multiple_basecourts <- left_join(multiple_basecourts, temp, by = "bid") %>% 
-  mutate(courtrooms = ifelse(is.na(courtrooms.reduced), courtrooms, courtrooms.reduced)) %>% 
-  select(-mutilple.basecourts.tag, -total.satellite.rooms, -courtrooms.reduced)
-  
-# Distribute satellite courthouses in CD with a single basecourt
-single_basecourts_satellite_rooms <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
-  filter(building.type == "Satellite Court") %>% 
-  group_by(cdname) %>% 
-  summarise(total.satellite.rooms = sum(courtrooms))
-
-single_basecourts <- filter(courthouse_asset_overlay, mutilple.basecourts.tag == 0) %>% 
-  left_join(single_basecourts_satellite_rooms, by = "cdname") %>% 
-  replace_na(list("total.satellite.rooms" = 0)) %>% 
-  mutate(courtrooms = ifelse(building.type == "Base Court", courtrooms - total.satellite.rooms, courtrooms)) %>% 
-  select(-mutilple.basecourts.tag, -total.satellite.rooms)
-
-# If there are negative courtooms in any base courts, manually shift them from another courthouse
-print(paste0("There are ", nrow(filter(single_basecourts, courtrooms < 1)), " base court(s) with less than one courtroom"))
-  
-courthouse_asset_distributed <- rbind(multiple_basecourts, single_basecourts)
-```
-
-```{r append caretypes serviced}
-courthouse_service_caretypes <- readRDS("cache/mag/courthouse_hours.rds") %>% 
-  filter(value != 0) %>% 
-  group_by(bid) %>% 
-  summarise(casetypes.serviced = paste(unique(casetypes), collapse = ","))
-
-courthouse_asset_casetypes <- left_join(courthouse_asset_distributed, courthouse_service_caretypes, by = "bid") %>% 
-  group_by(cduid) %>% 
-  mutate(casetypes.serviced = ifelse(building.type == "Satellite Court",
-                                     paste(unique(casetypes.serviced), collapse = ","),
-                                     casetypes.serviced)) %>% 
-  ungroup() %>%
-  unnest(casetypes.serviced = strsplit(casetypes.serviced, ",")) %>% 
-  filter(casetypes.serviced != "NA") %>% 
-  distinct(bid, casetypes.serviced, .keep_all = TRUE) %>% 
-  group_by_at(vars(-casetypes.serviced)) %>% 
-  summarise(casetypes.serviced = paste(casetypes.serviced, collapse = ",")) %>% 
-  ungroup()
-
-saveRDS(courthouse_asset_casetypes, "cache/mag/courthouse_master.rds")
-```
