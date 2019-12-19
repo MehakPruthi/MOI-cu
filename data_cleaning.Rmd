@@ -838,7 +838,7 @@ hospitallocations <- hospitallocations %>%
   mutate(lat = ifelse(is.na(lat), hospital.lat, lat),
          long = ifelse(is.na(long), hospital.long, long)) %>%
   group_by(id) %>% 
-  mutate(lat = first(lat), long = first(long), address = first(address)) %>% 
+  mutate(lat = first(lat), long = first(long), address = first(address)) %>%
   ungroup() %>% 
   select(-pcode.clean, -hospital.lat, -hospital.long)
 
