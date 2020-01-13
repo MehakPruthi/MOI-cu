@@ -3335,13 +3335,41 @@ new_school_list_complete <- new_school_list_area %>%
 ## Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
-
 user_input_inflation <- 0.02 # Replace this hard-coded value with user-input value from visualization
 user_input_scenario_year <- 2025 # Replace this hard-coded value with user-input value from visualization
+
 currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
 
 annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_scenario_year, currency_year, current_year, new_school_list_complete)
+```
+
+
+## Decision-Making Layer
+```{r}
+
+
+
+```
+
+
+```{r Sandboxy playground for ARK decision-making functions}
+# Decision-making with respect to needed OTG per CSD
+# a.	If net new OTG (per CSD) is less than the minimum required for a new school, add OTG to existing school(s) in CSD, or if no school in CSD, don’t build school and ignore ‘need’ for more capacity
+# b.	If net new OTG is negative but doesn’t justify closing a school, do nothing
+# c.	If net new OTG is negative enough to justify closing a school, close the largest school in CSD which is smaller than magnitude of negative OTG needed (or take weighted centroid of negative population by TRESO zone to determine which school to close). Start by assuming max of one school per CSD will be closed.
+# d.	If net new OTG justifies one or more school, calculate school size = net new OTG / roundup(net new OTG / max school size)
+
+# TODO: Replace tibble with actual OTG per CSD table
+otg_per_csd <- tibble(csduid = c(1000, 1001, 1002, 2124, 2981),
+                          otg = c(12000, 4000, 1000, 500, 3000))
+
+# Set minimum and maximum school size
+school_sizes <- tibble(bound = c('min', 'max'), elementary = c(200, 1200), secondary = c(300, 1700)) 
+  
+
+
+
 ```
 
 
