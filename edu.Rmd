@@ -3346,8 +3346,8 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_s
 
 
 ## Decision-Making Layer
-```{r}
-
+```{r implement decision making}
+# Calculate the average travel time
 
 
 ```
