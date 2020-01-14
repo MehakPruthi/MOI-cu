@@ -1823,12 +1823,23 @@ school_master_otg_new <- school_master_otg %>%
   ungroup()
 
 ####### NEXT STEP: REPLACE MADE-UP CSDs WITH REAL CSDs TO TEST STEPS CREATED TO DATE #######
-  
-
-  
-
 
 
 ```
 
+## MOF Projection Double-Check
+```{r}
+treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
+  select(treso.id.por = treso_zone, panel = age.group, csduid, enrolment = population.2027) %>%
+  filter(panel != "other")
+
+board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
+
+# Apply the board sampling probabilities to the student population from TRESO
+treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                board_type_sample = board_type_sample_spread) 
+
+write_csv(treso_forecast_population_board, "input/edu/treso_population_edu_2027.csv")
+
+```
 
