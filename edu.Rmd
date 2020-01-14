@@ -3355,17 +3355,51 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_s
 
 ```{r Sandboxy playground for ARK decision-making functions}
 # Decision-making with respect to needed OTG per CSD
-# a.	If net new OTG (per CSD) is less than the minimum required for a new school, add OTG to existing school(s) in CSD, or if no school in CSD, don’t build school and ignore ‘need’ for more capacity
+# a.	If net new OTG (per CSD) is less than the minimum required for a new school, or if no school in CSD, don’t build school and ignore ‘need’ for more capacity
 # b.	If net new OTG is negative but doesn’t justify closing a school, do nothing
 # c.	If net new OTG is negative enough to justify closing a school, close the largest school in CSD which is smaller than magnitude of negative OTG needed (or take weighted centroid of negative population by TRESO zone to determine which school to close). Start by assuming max of one school per CSD will be closed.
 # d.	If net new OTG justifies one or more school, calculate school size = net new OTG / roundup(net new OTG / max school size)
 
-# TODO: Replace tibble with actual OTG per CSD table
-otg_per_csd <- tibble(csduid = c(1000, 1001, 1002, 2124, 2981),
-                          otg = c(12000, 4000, 1000, 500, 3000))
 
 # Set minimum and maximum school size
-school_sizes <- tibble(bound = c('min', 'max'), elementary = c(200, 1200), secondary = c(300, 1700)) 
+school_sizes <- tibble(panel = c('elementary', 'secondary'), min.otg = c(200, 300), max.otg = c(1200, 1700))
+
+# Determine how many schools should be built/consolidated.
+# TODO: Consider relaxing constraint to allow multiple schools to be consolidated (deleted) per CSD
+# TODO: Replace tibble with table of actual OTG per CSD
+new_otg_per_csd <- tibble(csduid = c(1000, 1001, 1002, 2124, 2981),
+                          total.otg = c(12000, 4000, 1000, 500, 3000), 
+                          net.new.otg = c(1000, 600, -500, 100, -50), 
+                          panel = c('elementary', 'elementary', 'secondary', 'elementary', 'secondary'),
+                          board_type_name = c('English Public', 'English Public', 'French Public', 'English Catholic', 'French Catholic')) %>%
+  left_join(school_sizes, by = c('panel')) %>% 
+  mutate(new.school.count = ifelse(abs(net.new.otg) < min.otg, 0, ceiling(net.new.otg/max.otg))) %>%
+  # TODO: Consider relaxing the following assumption by deleting next line: Assume no more than 1 school will be consolidated per CSD
+  mutate(new.school.count = ifelse(new.school.count < 0, -1, new.school.count))
+           
+  # Calculate number of OTG to add to existing schools - only in cases where change in OTG doesn't justify opening or closing a single school
+  # mutate(existing.add.otg = ifelse(new.school.count == 0, net.new.otg, 0))
+
+# Establish existing school size (otg)
+school_master_otg <- school_master %>%
+  select(year, dsb.index, board.name, board_type_name, panel, sfis, school.name, status, otg, csduid, cduid, treso.id.pos) %>% 
+  filter(year == 2025) %>%  # TODO: Replace year with user-input scenario year from visualization
+  group_by(csduid, panel, board_type_name) %>% 
+  mutate(otg.per.csd = sum(otg)) %>% 
+  ungroup()
+
+# Add new schools by CSD
+school_master_otg_new <- school_master_otg %>% 
+  left_join(select(new_otg_per_csd, csduid, panel, board_type_name, new.school.count), by = c('csduid', 'panel', 'board_type_name')) %>%
+  mutate(new.school.size = ifelse(new.school.count > 0, net.new.otg / new.school.count, 0)) %>%
+  # If consolidating a school, close the largest school which has OTG lower than the net loss of OTG (i.e., close the biggest school possible while still deleting fewer student places than should be deleted according to calculations)
+  group_by(csduid, panel, board_type_name) %>% 
+  mutate(consolidated.school.size = ifelse(new.school.count < 0, min(otg[otg > net.new.otg]), 0)) %>% 
+  ungroup()
+
+####### NEXT STEP: REPLACE MADE-UP CSDs WITH REAL CSDs TO TEST STEPS CREATED TO DATE #######
+  
+
   
 
 
