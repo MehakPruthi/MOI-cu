@@ -1733,7 +1733,7 @@ gaf_lookup <- gaf_raw %>%
 
 # Min school size: 200 pupil-places (i.e., ADE) for elementary, 300 pupil-places for secondary
 
-new_school_list <- tibble(user_input_school_size = c(500, 750), user_input_panel = c('Elementary', 'Secondary'), user_input_pcode = c('k0b1e4', 'P6A5K1')) # Replace this hard-coded value with user-input value from visualization
+new_school_list <- tibble(user_input_school_size = c(500, 750), user_input_panel = c('Elementary', 'Secondary'), user_input_pcode = c('k0b1e4', 'P6A5K1')) # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Convert area_per_ade to be long format
 area_per_ade_long <- area_per_ade %>% 
@@ -1759,8 +1759,8 @@ new_school_list_complete <- new_school_list_area %>%
 ## Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
-user_input_inflation <- 0.02 # Replace this hard-coded value with user-input value from visualization
-user_input_scenario_year <- 2025 # Replace this hard-coded value with user-input value from visualization
+user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_scenario_year <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
 
 currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
