@@ -1772,8 +1772,27 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_s
 
 ## Decision-Making Layer
 ```{r implement decision making}
-# Calculate the average travel time
+school_asset_2017 <- readRDS("cache/edu/school_treso_master.rds") %>% 
+  filter((status == "Open" | is.na(status)), otg != 0, ade != 0, year == 2017) %>% 
+  select(sfis, panel, board_type_name)
 
+treso_travel_time <- readRDS("output/treso/treso_travel_time.rds")
+
+# Calculate the average travel time
+observed_por_pos <- readRDS("output/edu/observed_por_pos_90.rds") %>% 
+  left_join(treso_travel_time, by=c("treso.id.por", "treso.id.pos")) %>% 
+  left_join(treso_zone_def, by=c("treso.id.por"="treso_id")) %>% 
+  left_join(school_asset_2017, by="sfis")
+
+treso_origin_travel_time <- observed_por_pos %>% 
+  group_by(treso.id.por, panel, board_type_name) %>% 
+  summarise(avg.travel.time = weighted.mean(value, enrolment),
+            enrolment = sum(enrolment))
+
+csd_origin_travel_time <- observed_por_pos %>% 
+  group_by(csduid, csdname, panel, board_type_name) %>% 
+  summarise(avg.travel.time = weighted.mean(value, enrolment),
+            enrolment = sum(enrolment))
 
 ```
 
