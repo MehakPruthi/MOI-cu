@@ -127,10 +127,16 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
                                            year_id = year_id, panel_id = panel_id, board_id = board_id)
 
-# TODO: Paul write explanation for why some schools don't show up and why they can never go down in flames.
-school_master %>% 
+# There are a handful of schools that does not get any simulated ADE to due to a variety of reasons. 
+# It is a very small percentage of total schools in the segment x board type combination
+# However, the potential impact of this is that if the population decrease in the future, and zero simulated ADE is distributed
+# to these schools, with our methodology - the schools will remain with the same observed 2017 ADE as opposed to decreasing to 0.
+number_of_zero_simulated_schools <- school_master %>% 
   filter(panel == 'Elementary', board_type_name == 'English Public', year == 2017) %>% 
-  anti_join(select(school_summary_2017, sfis), by = c('sfis'))
+  anti_join(select(school_summary_2017, sfis), by = c('sfis')) %>% 
+  nrow()
+
+print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_simulated_schools))
 
 ```
 
