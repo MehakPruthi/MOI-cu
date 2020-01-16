@@ -963,8 +963,45 @@ if (USER_SELECT == "HBAM") {
 
 ```
 
-## Extra Code: Queries Tested but Not Kept
+## New Hospital Cost Function
+```{r hospital cost function}
+# Read in cost function parameters from model user: cost per bed plus a base startup cost applied to all hospitals regardless of size
+user_input_cost_per_bed <- 1000000 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_base_hosp_cost <- 50000000 # TODO: Replace this hard-coded value with user-input value from visualization
 
+# Read in minimum and maximum size of hospital (in number of beds) for potential new hospitals
+#min_hosp_size_beds <- 100 # TODO: Replace this hard-coded value with user-input value from visualization
+#max_hosp_size_beds <- 1500 # TODO: Replace this hard-coded value with user-input value from visualization
+
+# Read in list of new hospitals
+# TODO: Replace this hard-coded tibble with user-input value from visualization
+new_hosp_list <- tibble(user_input_AT_beds = c(100, 150), 
+                        user_input_CR_beds = c(25, 50), 
+                        user_input_GR_beds = c(0, 50), 
+                        user_input_MH_beds = c(50, 25), 
+                        user_input_AM_beds = c(0, 0), 
+                        user_input_beds_total = c(175, 275))
+
+# Calculate costs
+new_hosp_list_complete <- new_hosp_list %>% 
+  mutate(cost_2018 = round(user_input_beds_total * user_input_cost_per_bed + user_input_base_hosp_cost, 0))
+
+```
+
+## Cost Annualization 
+- Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
+```{r}
+user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_scenario_year <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
+
+currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
+current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
+
+annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_scenario_year, currency_year,
+                                              current_year, new_hosp_list_complete)
+```
+
+## Extra Code: Queries Tested but Not Kept
 ```{r}
 
 ################## Previous code for calculating ALC rates at the TRESO level

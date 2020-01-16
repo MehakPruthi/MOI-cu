@@ -554,6 +554,45 @@ courthouse_2018_observed <- courthouse_asset %>%
 saveRDS(courthouse_2018_observed, "output/mag/courthouse_2018_observed.rds")
 ```
 
+## New Courthouse Cost Function
+```{r court cost function}
+# Read in cost function parameters from model user: cost per courtroom plus a startup cost applied to all courthouses regardless of size
+user_input_cost_per_courtroom <- 30000000 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_flat_courthouse_cost <- 20000000 # TODO: Replace this hard-coded value with user-input value from visualization
+
+# Read in minimum and maximum size of courthouse (in number of beds) for potential new hospitals
+#min_courthouse_size <- 1 # TODO: Replace this hard-coded value with user-input value from visualization
+#max_courthouse_size <- 50 # TODO: Replace this hard-coded value with user-input value from visualization
+
+# Read in list of new hospitals
+# TODO: Replace this hard-coded tibble with user-input value from visualization
+new_courthouse_list <- tibble(user_input_OCJcrim_courtrooms = c(3, 0), 
+                        user_input_SCJcrim_courtrooms = c(2, 0), 
+                        user_input_OCJfam_courtrooms = c(0, 0), 
+                        user_input_SCJfam_courtrooms = c(0, 0), 
+                        user_input_civil_courtrooms = c(0, 4), 
+                        user_input_smac_courtrooms = c(0, 3), 
+                        user_input_courtrooms_total = c(5, 7)) 
+
+# Calculate costs
+new_courthouse_list_complete <- new_courthouse_list %>% 
+  mutate(cost_2018 = round(user_input_courtrooms_total * user_input_cost_per_courtroom + user_input_flat_courthouse_cost, 0))
+
+```
+
+## Cost Annualization 
+- Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
+```{r}
+user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_scenario_year <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
+
+currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
+current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
+
+annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_scenario_year, currency_year,
+                                              current_year, new_courthouse_list_complete)
+```
+
 # Linear Regression
 
 - Commented out due to being non-essential to current modelling approach, but can be used for further exploration
