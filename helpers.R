@@ -103,20 +103,20 @@ calc_error <- function(matrix, a, b) {
   return(row_sum + col_sum)
 }
 
-matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
+matrix_balancing_1d <- function(matrix, a, weight, axis=1, is_weight_continuous=TRUE) {
   #' One dimensional balances a matrix
   #' 
   #' One dimensional matrix balancing with optional scaling. If there are known scale weights that needs to be
   #' applied to the propensity matrix, it can be supplied in argument `weight`. The `axis` argument determine which
   #' direction to balance the matrix, 1 indicates rows (origin) and 2 indicates columns (destination). The 
-  #' `constrained` flag determines if the weighting vector is used as a hard limit or as a boolean value to 
+  #' `is_weight_continuous` flag determines if the weighting vector is used as a hard limit or as a boolean value to 
   #' prevent trips to be sent. 
   #' 
   #' @param matrix The propensity matrix
   #' @param a The totals to balance against
   #' @param weight The weight vector to scale against
   #' @param axis The direction to perform the balance
-  #' @param constrianed A flag to determine if the weight is to be used as a constraint or not
+  #' @param is_weight_continuous A flag to determine if the weight is to be used as a constraint or not
   #' @return One dimentionally balanced matrix
   
   # Check if `axis` is 1 or 2
@@ -124,7 +124,7 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
     stop("`axis` value is invalid, not one of (1, 2)")
   }
   
-  # Check if weigth vector is supplied
+  # Check if weight vector is supplied
   if (missing(weight)) {
     print("`weight` was not supplied, 1D balancing done without any destination constraints")
     tot = a
@@ -133,9 +133,9 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, constrained=TRUE) {
     print("`weight` was supplied, 1D balancing done with destination constraints")
     tot = a
     
-    # If constrained, scale the matrix to the values of the weight vector
-    # It not constrained, apply a boolean value to the matrix
-    if (!(constrained)) {
+    # If is_weight_continuous is TRUE, scale the matrix to the values of the weight vector
+    # It is_weight_continuous is FALSE, apply a boolean value to the matrix
+    if (!(is_weight_continuous)) {
       print("Weight is used as a boolean control for destination")
       weight = ifelse(weight == 0.0, 0, 1)
     } else {
@@ -378,6 +378,17 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
 calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school=NULL,
                                                 year_id, panel_id, board_id) {
   
+  #' Calculate weight factor for distributing students between two or more schools within a single TRESO zone
+  #' 
+  #' @param trip_list
+  #' @param school_list_master
+  #' @param eqao_2017
+  #' @param new_school
+  #' @param year_id
+  #' @param panel_id
+  #' @param board_id
+  #' @return
+  
   # Include the new_school in the master school list
   if(!is.null(new_school)){
     school_list_master <- school_list_master %>% 
@@ -401,23 +412,14 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
   
   print(head(pos_school))
   
-  # get treso zone otg totals
-  pos_otg_total <- pos_school %>%
-    group_by(treso.id.pos) %>%
-    summarise(otg.total = sum(otg))
-  
   # calculate a combined weight between eqao and otg ratio
-  pos_school_weight <- left_join(pos_school, pos_otg_total, by = "treso.id.pos") %>%
-    mutate(school.weight = eqao.standardized * (otg / otg.total)) 
-  
-  # get treso zone school.weight totals
-  pos_school_weight_total <- pos_school_weight %>%
-    group_by(treso.id.pos) %>%
-    summarise(school.weight.total = sum(school.weight))
+  pos_school_weight <- pos_school %>%
+    group_by(treso.id.pos) %>% 
+    mutate(school.weight = eqao.standardized * (otg / sum(otg)), 
+           school.weight.prob = school.weight / sum(school.weight))
   
   # school weight
-  pos_school_weight_new <- left_join(pos_school_weight, pos_school_weight_total, by = "treso.id.pos") %>%
-    mutate(school.weight.prob = school.weight / school.weight.total) %>%
+  pos_school_weight_new <- pos_school_weight %>%
     select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
     group_by(treso.id.pos) %>%
     summarise(
@@ -1063,9 +1065,9 @@ create_por_forecast_vector <- function(df, full_vector, panel_id, board_id) {
   #' 
   por <- df %>% 
     filter(panel == panel_id, board_type_name == board_id) %>% 
-    select(treso.id.por, enrolment) %>% 
+    select(treso.id.por, potential.enrolment) %>% 
     right_join(full_vector, by=c("treso.id.por" = "orig")) %>% 
-    replace_na(list(enrolment = 0)) %>% 
+    replace_na(list(potential.enrolment = 0)) %>% 
     arrange(treso.id.por) %>% 
     column_to_rownames(var = "treso.id.por") %>% 
     data.matrix()
@@ -1086,7 +1088,7 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
     summarise(
       csduid = first(csduid),
       csdname = first(csdname),
-      enrolment = sum(enrolment),
+      potential.enrolment = sum(potential.enrolment),
       `English Catholic` = mean(`English Catholic`),
       `English Public` = mean(`English Public`),
       `French Catholic` = mean(`French Catholic`),
@@ -1098,13 +1100,13 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
     rowwise() %>%
     mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
     # Sample the different board types 
-    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
+    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=potential.enrolment, replace=TRUE, prob=prob))) %>%
     mutate(`English Catholic` = sum(sample.result == "EC"),
            `English Public` = sum(sample.result == "EP"),
            `French Catholic` = sum(sample.result == "FC"),
            `French Public` = sum(sample.result == "FP")) %>% 
     select(treso.id.por, panel, csduid, csdname, `English Catholic`:`French Public`) %>%
-    gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`)
+    gather(key="board_type_name", value="potential.enrolment", `English Catholic`:`French Public`)
   
   return(forecast_population_by_board)
 }
@@ -1128,7 +1130,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
   print(paste0("For ", panel_id, "-", board_id, ", there are ",
                nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
                " TRESO zones with a single school, and ",
-               nrow(filter(pos_school_weight, length(school.weight.prob.list) != 1)),
+               nrow(filter(pos_school_weight, length(school.weight.prob.list) > 1)),
                " TRESO zones with multiple schools."))
   
   # Apply bucket rounding to chunks of data by TRESO POS

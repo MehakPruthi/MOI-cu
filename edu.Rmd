@@ -80,15 +80,19 @@ pos_full <- readRDS("output/treso/pos_full.rds")
 # Remove schools with status other than "Open" for modelling
 school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
-board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
 
-board_id <- "English Public"
-panel_id <- "Elementary"
-year_id <- 2017
+# Percentage of students attending each board type, by home origin CSD
+board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds")
+
+board_id <- "English Public" # TODO: Replace this hard-coded value with user-input value from visualization
+panel_id <- "Elementary" # TODO: Replace this hard-coded value with user-input value from visualization
+year_id <- 2017 # TODO: Replace this hard-coded value with user-input value from visualization
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
-  select(treso.id.por = treso_zone, panel = age.group, csduid, enrolment = paste0("population.", year_id)) %>%
+  select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", year_id)) %>%
   filter(panel != "other")
+
+# TODO: Check that we scale population from treso_forecast_population above to forecasted ADE, since only ~90% of age-appropriate children attend public schools
 
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
                     str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
@@ -108,10 +112,12 @@ treso_forecast_population_board <- apply_sampling_to_population(forecast_populat
 por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
                                   panel_id=panel_id, board_id=board_id)
 
+# TODO: Scale potential.enrolment down to actual forecasted ADE - compare historical population in CSD to historical enrolment (ADE) in CSD and create scaling factor for each CSD, and apply across all TRESO zones within CSD
+
 print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
 
 # 1D balancing
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=TRUE)
 
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
@@ -120,6 +126,11 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 # Produce the simulated ADE for each school
 school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
                                            year_id = year_id, panel_id = panel_id, board_id = board_id)
+
+# TODO: Paul write explanation for why some schools don't show up and why they can never go down in flames.
+school_master %>% 
+  filter(panel == 'Elementary', board_type_name == 'English Public', year == 2017) %>% 
+  anti_join(select(school_summary_2017, sfis), by = c('sfis'))
 
 ```
 
@@ -162,7 +173,7 @@ por <- create_por_forecast_vector(treso_forecast_population_board, por_full,
 print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
 
 # 1D balancing
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, constrained=TRUE)
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=TRUE)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
@@ -263,7 +274,7 @@ print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which shou
 print(paste0("ADE is: ", sum(por_overfill), ". OTG is: ", sum(pos_underfill), "."))
     
 # # 1D balancing
-# prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, constrained=TRUE)
+# prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, is_weight_continuous=TRUE)
 # 2D balancing
 prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por_overfill, pos_underfill, totals_to_use = "rows", max_iterations = 1000)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
@@ -1594,7 +1605,7 @@ pos <- pos_full %>% #redirect 2 columns into 1 vector
 prop_matrix_EPE <- readRDS("cache/edu/cfunc_EPE.rds")
 
 # # 1D balance the matrix
-# prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, constrained=FALSE)
+# prop_matrix2_EPE <- matrix_balancing_1d(prop_matrix_EPE, por, pos, is_weight_continuous=FALSE)
 # 2D balance the matrix
 prop_matrix2_EPE <- matrix_balancing_2d(prop_matrix_EPE, por, pos, totals_to_use="rows", max_iterations=100)
 
