@@ -38,7 +38,7 @@ treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
 
 
 # Import TRESO Travel TIme Skims to distribute demand to courts
-travel_time_skim <- readRDS("output/treso_travel_time.rds")
+travel_time_skim <- readRDS("output/treso/treso_travel_time.rds")
 
 
 # Import prepared TRESO projection population with age groups segmented to enable MAG business line (casetype) breakdown
@@ -237,13 +237,16 @@ future_cases_bl_treso <- future_cases_bl_treso %>%
   select(-pop.rate.sudbury) %>% 
   mutate(court.hours = population * pop.rate) %>% 
   # TODO remove drop_na once hours for Haliburton is obtained
-  drop_na(court.hours)
+  drop_na(court.hours) 
 
 # Sanity Check
 print(paste0("The calculated court hours is: ", (sum(filter(future_cases_bl_treso, year == 2018)$court.hours)),
              " While the historical 2018 court hours is: ", (sum(filter(court_hours_population, year == 2018)$hours))))
 
 saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
+
+
+
 ```
 
 # Courtroom Required
@@ -267,6 +270,8 @@ utilization_rate <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','
 
 saveRDS(utilization_rate, "cache/mag/utilization_rate.rds")
 
+# Apply user-defined 
+
 # Calculate future court hours needed based on the business line specific utilization characteristics
 future_needs <- readRDS("cache/mag/future_cases_bl.rds") %>%
   filter(year == MODEL_YEAR) %>% 
@@ -286,12 +291,6 @@ future_needs <- readRDS("cache/mag/future_cases_bl.rds") %>%
 saveRDS(future_needs, "cache/mag/future_needs.rds")
            
   
-# Summarise to CD and Casetype level
-future_needs_cd_casetypes <- future_needs %>% 
-  group_by(cduid, cdname, casetypes) %>%
-  summarise(courthours.needed = sum(court.hours),
-            courtrooms.needed = sum(courtrooms.needed))
-
 # Summarise to CD level
 future_needs_cd <- future_needs %>% 
   group_by(cduid, cdname) %>% 
@@ -678,3 +677,58 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_s
 # #plot(mod)
 
 ```
+
+# Decision Making
+```{r decision making prep}
+
+
+U_AVG <- 0.8 # User input
+
+# Calculate the anticipated increase in court hour demand to yield the U_AVG output. For example, 
+#U=D/C => C = D/U => C = courtroom hour demand / U_AVG. This intermediate step does not alter demand 
+#values, only uses them to attain the U_AVG.
+future_cases_bl_cd_util <- readRDS("cache/mag/future_cases_bl_treso.rds") %>% 
+  left_join(select(treso_zone_system, csduid, treso_id), by = c("treso_zone" = "treso_id")) %>% 
+  group_by(cduid, year, casetypes) %>%
+  summarize(cd.court.hours = sum(court.hours)) %>% 
+  mutate(util.court.hours = cd.court.hours * (1/U_AVG))
+
+# Read the casetype utilization rate table
+utilization_rate <- readRDS("cache/mag/utilization_rate.rds")
+
+# Read the existing 2018 asset list for number of courtrooms existing
+courthouse_asset_cd_level <- courthouse_asset %>%
+  group_by(cduid, cdname) %>% 
+  summarise(number.of.courtrooms.2018 = sum(courtrooms)) %>% 
+  ungroup()
+
+# Calculate future court hours needed based on the business line specific utilization increase characteristics
+future_needs_util <- future_cases_bl_cd_util %>%
+  filter(year == MODEL_YEAR) %>% 
+  left_join(utilization_rate, by = "casetypes") %>% 
+  mutate(op.utilization = 0) %>% 
+  mutate(op.utilization = ifelse(util.court.hours <= inflect.hours,
+                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * util.court.hours,
+                              op.utilization)) %>% 
+  mutate(op.utilization = ifelse(util.court.hours > inflect.hours & util.court.hours <= max.hours,
+                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (util.court.hours - inflect.hours)                                                       / (max.hours - inflect.hours)),
+                                 op.utilization)) %>% 
+  mutate(op.utilization = ifelse(util.court.hours > max.hours,
+                                 max.hours.dy,
+                                 op.utilization)) %>% 
+  mutate(util.courtrooms.needed = round(util.court.hours / (op.utilization * OP_DAYS), digits = 2)) %>% 
+  select(-base.hours.dy, - inflect.hours.dy, -max.hours.dy, -inflect.hours, -max.hours, -op.utilization, -cd.court.hours) 
+
+saveRDS(future_needs_util, "cache/mag/future_needs_util.rds")
+
+# Calculate the difference between number of courtrooms needed and number of courtrooms existing.
+courtroom_net <- future_needs_util %>% 
+  group_by(cduid) %>% 
+  summarise(util.courtrooms.needed = sum(util.courtrooms.needed)) %>% 
+  left_join(select(courthouse_asset_cd_level, cduid, number.of.courtrooms.2018), by = "cduid") %>% 
+  mutate(number.of.courtrooms.2018 - util.courtrooms.needed)
+
+
+```
+
+
