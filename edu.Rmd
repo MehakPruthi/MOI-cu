@@ -62,7 +62,7 @@ eqao_2017 <- readRDS("cache/edu/eqao_standardized_2017.rds") %>%
   drop_na(School.Number) %>% # 3 NA schools with not value
   left_join(select(school_sfis_2017, bsid, sfis),
             by = c("School.Number" = "bsid"))
-print(paste0("There are ", length(filter(eqao_2017, is.na(sfis))$sfis), " schools with unmatching SFIS IDs."))
+print(paste0("There are ", length(filter(eqao_2017, is.na(sfis))$sfis), " schools with no SFIS ID linked to EQAO scores."))
 eqao_2017 <- drop_na(eqao_2017, sfis)
 saveRDS(eqao_2017, "cache/edu/eqao_2017.rds")
 
@@ -141,7 +141,8 @@ print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_
 ```
 
 
-### Step 2 - Run 20xx Forecast Model
+### Step 2 - Run 20xx Forecast Model 
+- Date set by user
 
 ```{r application of gravity model - Step 2}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
@@ -152,10 +153,10 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
 board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
 
-year_id <- 2025
+year_id <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
-  select(treso.id.por = treso_zone, panel = age.group, csduid, enrolment = paste0("population.", year_id)) %>%
+  select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", year_id)) %>%
   filter(panel != "other")
 
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
@@ -188,7 +189,6 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 school_summary_20xx <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
                                            year_id = year_id, panel_id = panel_id, board_id = board_id)
 
-
 ```
 
 ### Step 3 - Calculate Delta between Simulated Base and Forecast Models
@@ -204,8 +204,10 @@ trip_list_schools_summary_difference <- full_join(school_summary_2017, school_su
 ### Step 4 - Apply delta to 2017 Observed ADE. Create POR and POS vectors with overflown students.
 
 ```{r application of gravity model - step 4}
-USER_OTG_THRESHOLD = 1.0 # Percentage of current OTG
-CAPACITY_CONSTRAINED = TRUE # User input for capacity constraint
+# Percentage of current OTG to be set as maximum capacity in model
+USER_OTG_THRESHOLD = 1.0 # TODO: Replace this hard-coded value with user-input value from visualization
+# User input for capacity constraint
+CAPACITY_CONSTRAINED = TRUE # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
 school_forecast <- filter(school_master, year == 2017) %>% 
@@ -213,12 +215,15 @@ school_forecast <- filter(school_master, year == 2017) %>%
   filter(panel == panel_id, board_type_name == board_id) %>% 
   full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), by="sfis") %>% 
   replace_na(list(ade = 0, change.ade = 0)) %>% 
-  mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>% 
+  # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
+  mutate(simulated.ade.raw = ade + change.ade) %>% 
+  mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>%
+  # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school. However, by rounding up to 0, the model is adding 'phantom' students to the system, so total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts. However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
   # Create OTG threshold based on user input
   mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
   select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
 
-# Create a POS vector with schools over OTG Threshold - pos_overfill
+# Create a POS vector with schools over OTG Threshold - pos_overfill. These students need to be redistributed to other schools.
 pos_overfill <- school_forecast %>% 
   mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0)) %>% 
   filter(overfill.flag == 1) %>% 
@@ -257,11 +262,11 @@ pos_underfill <- school_forecast %>%
 # Apply pos_overfill to balanced matrix to obtain origin zones of the overflown schools
 por_overfill <- prop_matrix_balanced %*% pos_overfill %>% 
   as_tibble(rownames = NA) %>% 
-  # scale the number of origin ADE to match the overflown ADE total
+  rename(ade = overfill.flag) %>% 
   rownames_to_column(var = "treso.id.por") %>% 
-  group_by() %>% 
-  mutate(ade.overfill = overfill.flag * overfill_ade / sum(overfill.flag)) %>% 
-  ungroup() %>% 
+  # scale the zone origin ADE to match the overfill ADE total previously calculated (overfill_ade)
+  mutate(ade.overfill = ade * overfill_ade / sum(ade)) %>% 
+  mutate(sumADE = sum(ade)) %>% 
   select(treso.id.por, ade.overfill) %>% 
   column_to_rownames(var = "treso.id.por") %>% 
   data.matrix()
@@ -277,12 +282,13 @@ print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which shou
 
 ```{r application of gravity model - step 5}
 # Balance the por_overfill against pos_underfill schools to redistribute the overfilled ADE
-print(paste0("ADE is: ", sum(por_overfill), ". OTG is: ", sum(pos_underfill), "."))
+print(paste0("ADE overfill total is: ", sum(por_overfill), ". OTG remaining is: ", sum(pos_underfill), "."))
     
-# # 1D balancing
-# prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, is_weight_continuous=TRUE)
-# 2D balancing
-prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por_overfill, pos_underfill, totals_to_use = "rows", max_iterations = 1000)
+# TODO: instead of using the OTG remaining as the weight to balance (b/c this is not logical), use OTG total as the weight and remember to add the ADE overflowing on top of the already simulated ADE for these underfilled schools
+# 1D balancing
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos_underfill, axis=1, is_weight_continuous=TRUE)
+# # 2D balancing
+# prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por_overfill, pos_underfill, totals_to_use = "rows", max_iterations = 1000)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
@@ -325,7 +331,9 @@ school_forecast_final <- filter(school_master, year == 2017) %>%
   full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), 
             by="sfis") %>% 
   replace_na(list(ade = 0, change.ade = 0)) %>% 
-  mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>% 
+  mutate(simulated.ade.raw = ade + change.ade) %>% 
+  mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>%
+  # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school. However, by rounding up to 0, the model is adding 'phantom' students to the system, so total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts. However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
   # Create OTG threshold based on user input
   mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
   select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
@@ -345,13 +353,14 @@ pos <- school_forecast_final %>%
     column_to_rownames(var = "treso.id.pos") %>%
     data.matrix()
 
-# 2D balancing, scale the total to the POS side 
+# 2D balancing, scale the total to the POS side to determine final distribution to TRESO zones
 prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="columns", max_iterations = 1000)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
-# Produce the simulated ADE for each school
+
+# Produce the simulated ADE for each school within each TRESO zone
 school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
                                                  year_id = year_id, panel_id = panel_id, board_id = board_id)
 
