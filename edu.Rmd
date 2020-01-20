@@ -1872,6 +1872,107 @@ school_master_otg_new <- school_master_otg %>%
 
 ```
 
+## ARK DM components
+- Determine which TRESO zones should be considered for new schools as a function of 'excessive' travel time and population
+```{r}
+# Read in user-set travel-time threshold as a function of mean system-wide travel time
+travel_time_threshold_factor <- 1.5 #TODO: Replace this with value provided by user through the visualization interface
+
+# Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
+zone_proximity_threshold <- 6 # TODO:Replace this with value provided by user through the visualization interface
+
+# Combine travel time matrix with trip matrix
+travel_times <- travel_time_skim %>% # TODO: Replace this year-appropriate travel-time skim
+  arrange(orig, dest)
+
+# Create full matrix of travel times for students across the province
+potential_zones <- cbind(trip_list, travel_times) %>% # TODO: Make sure appropriate trip_list is used (i.e., from Step 6 above)
+  rename(travel.time = value) %>%
+  filter(trips > 0) %>% 
+  left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>% 
+  left_join(select(treso_zone_def, treso_id, treso.pos.csduid = csduid, treso.pos.cduid = cduid), by = c('treso.id.pos' = 'treso_id')) %>% 
+  select(-orig, -dest)
+
+# Calculate mean travel time across the province (or CSD/CD) and filter out shorter trips
+threshold_tt_zones <- potential_zones %>% 
+  # group_by(treso.por.csduid) %>% 
+  # group_by(treso.por.cduid) %>%
+  mutate(mean.travel.time = sum(trips * travel.time) / sum(trips)) %>%
+  # Filtered to remove trips below the travel time threshold set
+  # Keep this as filter on dataframe, rather than extracting a single value, in case mean travel time is calculated by CSD or CD
+  mutate(travel.time.threshold = travel_time_threshold_factor * mean.travel.time) %>% 
+  filter(travel.time >= travel.time.threshold) %>% 
+  mutate(excess.travel.time = (travel.time - travel.time.threshold) * trips) %>% 
+  arrange(desc(excess.travel.time)) %>% 
+  mutate(build.flag = 0, proximity.flag = 0)
+
+# Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
+# Initialize dataframe and while-loop check
+shortlist_zones <- threshold_tt_zones
+row_check <- 0
+tester <- read_csv("dmtest.csv")
+shortlist_zones <- tester
+success_tibble <- tibble(treso.id)
+
+while (row_check == 0) {
+  # Determine next best treso zone in which to build a school
+  # Set proposed new school
+  build.zone = first(shortlist_zones$treso.id.por) 
+  
+  shortlist_zones <- shortlist_zones %>% 
+    mutate(build.flag = ifelse(treso.id.por == build.zone | build.flag == 1, 1, 0)) %>%
+    # Determine which other TRESO zones are too close to proposed new school
+    mutate(proximity.flag = ifelse(proximity.flag == 1, 1, ifelse(treso.id.pos == build.zone & travel.time <= zone_proximity_threshold, 1, 0))) %>% 
+    # Apply proximity flag to all instances of zones identified above
+    group_by(treso.id.por) %>% 
+    mutate(proximity.flag = max(proximity.flag)) %>% 
+    ungroup() %>% 
+    # Move any zones already set to build a new school, or already filtered out due to proximity, to the bottom of list of   potential sites
+    arrange(build.flag, proximity.flag) 
+  
+  # Check to see if any rows (zones) remain to be considered for building a school
+  row_check <- sum(first(shortlist_zones$build.flag), first(shortlist_zones$proximity.flag))
+} 
+
+while (row_check == 0) {
+  # Determine next best treso zone in which to build a school
+  # Set proposed new school
+  build.zone = first(shortlist_zones$treso.id.por) 
+  
+  shortlist_zones <- shortlist_zones %>% 
+    mutate(build.flag = ifelse(treso.id.por == build.zone, 1, 0)) %>%
+    filter(build.flag == 0) %>% 
+    # Determine which other TRESO zones are too close to proposed new school
+    mutate(proximity.flag = ifelse(treso.id.pos == build.zone & travel.time <= zone_proximity_threshold, 1, 0)) %>% 
+    # Apply proximity flag to all instances of zones identified above
+    group_by(treso.id.por) %>% 
+    mutate(proximity.flag = max(proximity.flag)) %>%
+    filter(proximity.flag == 0) %>% 
+    ungroup()
+  
+  success_tibble <- success_tibble %>% 
+    add_row(., treso.id = build.zone)
+  
+  # Check to see if any rows (zones) remain to be considered for building a school
+  row_check <- shortlist_zones %>% 
+    summarize(n = n()) %>% 
+    pull()
+} 
+
+varg <- tester %>% 
+  summarize(n = n()) %>% 
+  pull()
+
+
+
+shortlist <- shortlist_zones %>% 
+  filter(build.flag == 1) %>% 
+  distinct(treso.id.por)
+  
+```
+
+
+
 ## MOF Projection Double-Check
 ```{r}
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
