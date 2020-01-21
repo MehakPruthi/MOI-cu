@@ -66,6 +66,18 @@ print(paste0("There are ", length(filter(eqao_2017, is.na(sfis))$sfis), " school
 eqao_2017 <- drop_na(eqao_2017, sfis)
 saveRDS(eqao_2017, "cache/edu/eqao_2017.rds")
 
+# Read in user-set travel-time threshold as a function of mean system-wide travel time
+travel_time_threshold_factor <- 1.5 #TODO: Replace this with value provided by user through the visualization interface
+
+# Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
+zone_proximity_threshold <- 15 # TODO:Replace this with value provided by user through the visualization interface
+
+# Define excess travel time below which it is not worthwhile to consider building a school
+min_tt_threshold <- 150 # TODO:Replace this with value provided by user through the visualization interface?
+
+# Define threshold below which existing schools should be consolidated, assuming existing schools are elible for consolidation
+consolidation_threshold <- 0.40 # TODO:Replace this with value provided by user through the visualization interface?
+
 ```
 
 ## Application of Gravity Model {.tabset .tabset-fade}
@@ -1872,134 +1884,30 @@ school_master_otg_new <- school_master_otg %>%
 
 ```
 
-## ARK DM components
+## DM components
 - Determine which TRESO zones should be considered for new schools as a function of 'excessive' travel time and population
 ```{r}
-# Read in user-set travel-time threshold as a function of mean system-wide travel time
-travel_time_threshold_factor <- 1.5 #TODO: Replace this with value provided by user through the visualization interface
+# Determine potential TRESO zones in which to build schools
+df_list <- edu_dm(travel_time_skim, trip_list, travel_time_threshold_factor, zone_proximity_threshold)
+build_df <- df_list[[1]]
+# Remove zones which are to have schools built from the proximity_df (where a zone appears in both dataframes, the build_df is 'true')
+proximity_df <- df_list[[2]] %>% 
+  anti_join(build_df, by = c('treso.id.por' = 'zone'))
 
-# Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
-zone_proximity_threshold <- 15 # TODO:Replace this with value provided by user through the visualization interface
-
-# Combine travel time matrix with trip matrix
-travel_times <- travel_time_skim %>% # TODO: Replace this with year-appropriate travel-time skim
-  arrange(orig, dest)
-
-# Create full matrix of travel times for students across the province
-potential_zones <- cbind(trip_list, travel_times) %>% # TODO: Make sure appropriate trip_list is used (i.e., from Step 6 above)
-  rename(travel.time = value) %>%
-  filter(trips > 0) %>% 
-  left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>% 
-  left_join(select(treso_zone_def, treso_id, treso.pos.csduid = csduid, treso.pos.cduid = cduid), by = c('treso.id.pos' = 'treso_id')) %>% 
-  select(-orig, -dest)
-
-# Calculate mean travel time across the province (or CSD/CD) and filter out shorter trips
-threshold_tt_zones <- potential_zones %>% 
-  # group_by(treso.por.csduid) %>% 
-  # group_by(treso.por.cduid) %>%
-  mutate(mean.travel.time = sum(trips * travel.time) / sum(trips)) %>%
-  # Filtered to remove trips below the travel time threshold set
-  # Keep this as filter on dataframe, rather than extracting a single value, in case mean travel time is calculated by CSD or CD
-  mutate(travel.time.threshold = travel_time_threshold_factor * mean.travel.time) %>% 
-  filter(travel.time >= travel.time.threshold) %>% 
-  mutate(excess.travel.time = (travel.time - travel.time.threshold) * trips) %>%
-  # Sum excess travel time for all destinations (i.e., school locations) for each TRESO  to get total excess travel time for students living in that TRESO zone
-  group_by(treso.id.por) %>% 
-  mutate(excess.travel.time = sum(excess.travel.time)) %>% 
-  ungroup() %>% 
-  arrange(desc(excess.travel.time)) %>% 
-  mutate(build.flag = 0, proximity.flag = 0)
-
-# Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
-shortlist_zones <- threshold_tt_zones %>% 
-  # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
-  # distinct(treso.id.por, excess.travel.time) %>% 
-  filter(excess.travel.time > 175)
-
-# Initialize dataframe and while-loop check
-row_check <- 0
-start.time <- Sys.time()
-while (row_check == 0) {
-  # Determine next best treso zone in which to build a school
-  # Set proposed new school
-  build.zone = first(shortlist_zones$treso.id.por) 
-  
-  shortlist_zones <- shortlist_zones %>% 
-    mutate(build.flag = ifelse(treso.id.por == build.zone | build.flag == 1, 1, 0)) %>%
-    # Determine which other TRESO zones are too close to proposed new school
-    mutate(proximity.flag = ifelse(proximity.flag == 1, 1, ifelse(treso.id.pos == build.zone & travel.time <= zone_proximity_threshold, 1, 0))) %>% 
-    # Apply proximity flag to all instances of zones identified above
-    group_by(treso.id.por) %>% 
-    mutate(proximity.flag = max(proximity.flag)) %>% 
-    ungroup() %>% 
-    # Move any zones already set to build a new school, or already filtered out due to proximity, to the bottom of list of   potential sites
-    arrange(build.flag, proximity.flag) 
-  
-  # Check to see if any rows (zones) remain to be considered for building a school
-  row_check <- sum(first(shortlist_zones$build.flag), first(shortlist_zones$proximity.flag))
-} 
-
-end.time <- Sys.time()
-diff = end.time - start.time
-print(diff)
-
-shortlist <- shortlist_zones %>% 
-  filter(build.flag == 1) %>% 
-  arrange(desc(excess.travel.time)) %>% 
-  distinct(treso.id.por)
-
-shortlist2 <- shortlist_zones %>% 
-  filter(proximity.flag == 1) %>%
-  distinct(treso.id.por)
-
-shortlist3 <- shortlist_zones %>% 
-  filter(proximity.flag + build.flag >= 1)
-  
 ```
 
+- Determine which existing schools to consolidate
+
 ```{r}
-shortlist_zones <- threshold_tt_zones %>% 
-  # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
-  distinct(treso.id.por, excess.travel.time) %>% 
-  filter(excess.travel.time > 175)
 
-shortlist_pairs <- threshold_tt_zones %>% 
-  # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
-  select(treso.id.por, treso.id.pos, excess.travel.time, travel.time, build.flag, proximity.flag) %>% 
-  filter(excess.travel.time > 175)
-
-row_check <- 1
-start.time <- Sys.time()
-success_tibble <- tibble(zone = integer())
-proximity_tibble <- tibble(zone = integer())
-
-while (row_check > 0) {
-  # Determine next best treso zone in which to build a school
-  # Set proposed new school
-  build.zone = first(shortlist_zones$treso.id.por) 
-  success_tibble <- success_tibble %>% 
-    add_row(., zone = build.zone)
+consolidation <- school_sfis_2017 %>% 
+  # Use of inner join removes schools from other board-types and panels (from school_Sfis_2017) and proposed/new schools from school_summary_20xx
+  inner_join(school_summary_20xx, by = c('sfis')) %>% 
+  # Calculate simulated utilization at existing schools once new schools are built
+  mutate(simulated.utilization = simulated.ade / otg) %>% 
+  filter(simulated.utilization <= consolidation_threshold) %>% 
+  select(sfis, dsb.index, board.name, panel, school.name, otg, simulated.ade, simulated.utilization)
   
-  shortlist_pairs_slim <- shortlist_pairs %>%
-    filter(treso.id.pos == build.zone) %>% 
-    filter(travel.time <= zone_proximity_threshold) %>% 
-    distinct(treso.id.por)
-  
-  proximity_tibble <- rbind(proximity_tibble, shortlist_pairs2)
-  
-  shortlist_zones <- shortlist_zones %>% 
-    filter(treso.id.por != build.zone) %>% 
-    anti_join(shortlist_pairs_slim, by = c('treso.id.por'))
-  
-  # Check to see if any rows (zones) remain to be considered for building a school
-  row_check <- shortlist_zones %>% 
-    summarise(n = n()) %>% 
-    pull()
-} 
-
-end.time <- Sys.time()
-diff = end.time - start.time
-print(diff)
 
 ```
 
