@@ -60,8 +60,8 @@ haverFunctionManhattan <- function(lat1, lon1, lat2, lon2) {
   lat3 <- lat1
   lon3 <- lon2
   
-  d1 <- haverFunction(lat1, lon1, lat3, lon3)
-  d2 <- haverFunction(lat2, lon2, lat3, lon3)
+  d1 <- haverFunctionEuclidean(lat1, lon1, lat3, lon3)
+  d2 <- haverFunctionEuclidean(lat2, lon2, lat3, lon3)
   
   # Total Distance
   d = d1 + d2
