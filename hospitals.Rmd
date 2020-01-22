@@ -47,12 +47,17 @@ HBAMprojected_master <- readRDS('cache/moh/HBAMprojected_master.rds')
 #Hospital Asset Data
 hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
 
+#Speciality Hospital Identifier
+speciality_hospitals <- read.csv("cache/moh/specialty_hospital_list.csv")
+
 #TRESO Population data and Spatial Data
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 
 treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
+
+travel_time_skim <- readRDS("output/treso/treso_travel_time.rds")
 
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
   # drop_na(pcode) #Drop NA pcodes from Hospital Locations dataset, to be changed when dataset is updated
@@ -118,7 +123,7 @@ saveRDS(hospital_overlay, file = 'cache/moh/hospital_overlay.rds')
 
 rm(treso_shp, hospital_xy, hospital_spdf)
 
-#Update Master HBAM list to Include TRESO Zones
+#Update Master HBAM list to Include TRESO Zones and corresponding CSD
 HBAMhistorical_master_tz <- left_join(HBAMhistorical_master, 
                                       select(hospital_overlay, treso_zone, id, hosp_csduid = csduid, csdname, cdname), 
                                       by = c('id')) %>% 
@@ -287,6 +292,8 @@ ltc_homes_csd <- ltc_homes %>%
   ungroup()
 
 saveRDS(ltc_homes_csd, file = 'cache/moh/ltc_homes_csd.rds')
+
+hospital_lookup_master <- readRDS('output/moh/hospital_lookup_master.rds')
 
 #LINK ALC SITES WITH MASTER LIST AND CSD DATA
 hospital_lookup_ALC <- hospital_lookup_master %>% 
@@ -780,9 +787,10 @@ saveRDS(HBAMprojected_alos_adj, file = 'cache/moh/HBAMprojected_alos_adj.rds')
 
 ```{r}
 # Calculate total cases by hospital, and the percentage of cases belonging to each CSD for each hospital siteid
-HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>% 
+HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
   group_by(year, id, age_cluster, caretype, orig_csd) %>%
   mutate(hosp.csd.agecluster.caretype.cases = sum(cases)) %>%
+  ungroup() %>% 
   group_by(year, id, age_cluster, caretype) %>% 
   mutate(hosp.agecluster.caretype.cases = sum(cases),
          csd.agecluster.caretype.mrkt = hosp.csd.agecluster.caretype.cases/hosp.agecluster.caretype.cases) %>%
@@ -795,7 +803,8 @@ HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
          orig_csd, 
          hosp.csd.agecluster.caretype.cases, 
          hosp.agecluster.caretype.cases, 
-         csd.agecluster.caretype.mrkt) %>% 
+         csd.agecluster.caretype.mrkt,
+         hosp_csduid) %>% 
   ungroup() %>% 
   distinct() # Use distinct to remove duplicate rows based on agegroup
 
@@ -810,7 +819,7 @@ treso_origin_cases <- HBAMhistorical_origcsd_cases %>%
   group_by(id) %>%
   mutate(hospitalname = first(hospitalname)) %>%
   ungroup() %>%
-  distinct() %>% 
+  distinct() %>%
   # Divide market share from CSDs into TRESO zones
   group_by(year, id, caretype, agecluster, orig_csd) %>% 
   mutate(treso.agecluster.caretype.mrkt = orig.treso.pop.agecluster / sum(orig.treso.pop.agecluster) * csd.agecluster.caretype.mrkt,
@@ -822,6 +831,7 @@ treso_origin_cases <- HBAMhistorical_origcsd_cases %>%
   select(id,
          hospitalname,
          hosp.treso.zone,
+         hosp_csduid,
          caretype,
          agecluster,
          orig_csd,
@@ -860,6 +870,7 @@ treso_population_moh_agecluster <- treso_population_moh %>%
 # CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 # treso_origin_cases <- readRDS('cache/moh/treso_origin_cases.rds') # Use this query if reading in from stored data instead of keeping in RAM
 crm_treso <- treso_origin_cases %>%
+  left_join(speciality_hospitals, by = c("id", "hospitalname"="name")) %>%  ##update with exported CSV data table that user can manually change
   left_join(treso_population_moh_agecluster, by = c("orig.treso.zone" = "treso_zone", "agecluster")) %>%
   select(-csduid) %>% 
   left_join(select(HBAMprojected_alos_adj, id, agecluster, caretype, adj.caretype.agecluster.los), by = c('id', "agecluster", "caretype")) %>% 
@@ -875,8 +886,17 @@ crm_treso <- treso_origin_cases %>%
          hosp.treso.bedsneeded = replace_na(hosp.treso.bedsneeded,0)) %>% 
   # Remove any TRESO/hospital pairs which do not historically have cases
   filter(treso.caserate > 0)
-
+  
 #saveRDS(crm_treso, file = "output/moh/crm_treso.rds")
+
+# # Establish Orig. CSD to Dest. CSD break down by hospital share
+# crm_treso_csd_level <- crm_treso %>%
+#   group_by(id, hospitalname, hosp_csduid, orig_csd, caretype, agecluster) %>% 
+#   summarise(hosp.share.of.orig.csd.cases = sum(hosp.treso.cases), hosp.share.of.orig.csd.beddays = sum(hosp.treso.beddays), hosp.share.of.orig.csd.bedsneeded = sum(hosp.treso.bedsneeded)) %>% 
+#   group_by(orig_csd, caretype, agecluster) %>% 
+#   mutate(csd.total.cases = sum(hosp.share.of.orig.csd.cases), csd.total.beddays = sum(hosp.share.of.orig.csd.beddays), csd.total.bedsneeded = sum(hosp.share.of.orig.csd.bedsneeded)) %>% 
+#   mutate(hosp_ratio_of_csd_case = hosp.share.of.orig.csd.cases/csd.total.cases, hosp_ratio_of_csd_beddays = hosp.share.of.orig.csd.beddays/csd.total.beddays, hosp_ratio_of_csd_bedsneeded = hosp.share.of.orig.csd.bedsneeded/csd.total.bedsneeded)
+
 
 # Calculate breakdown by caretype for hospitals for use in next step (since ALC affects 'unknown' caretypes)
 crm_treso_caretypes <- crm_treso %>%
@@ -1075,6 +1095,28 @@ if (USER_SELECT == "HBAM") {
 #          population.2026, hosp.treso.cases, hosp.treso.beddays,
 #          hosp.treso.bedsneeded, scale.factor, cases, beddays,
 #          bedsneeded)
+
+
+
+
+
+#   # Establish list of speciality hospitals. Join treso travel time between orig. zone and hospital location zone to identify speciality hospitals by cases*TT for TT over 3hrs > 10% of all cases*TT
+#   spec_marker <- crm_treso %>%   
+#   left_join(travel_time_skim, by = c("orig.treso.zone"="orig", "hosp.treso.zone" ="dest")) 
+#   
+# spec_marker_2 <- spec_marker %>% 
+#   rename(travel.time = value) %>% 
+#   mutate(cases.by.tt = hosp.treso.cases * travel.time) %>% 
+#   mutate(long = if_else(travel.time >= 180, 1 , 0)) %>% 
+#   group_by(id, hospitalname, long) %>% 
+#   mutate(hosp.long.travel.total = sum(cases.by.tt)) %>% 
+#   ungroup() %>% 
+#   mutate(hosp.total.travel = sum(cases.by.tt)) %>% 
+#   mutate(long.to.total.ratio = hosp.long.travel.total/hosp.total.travel) %>% 
+#   mutate(speciality = if_else(long.to.total.ratio>=0.,1,0)) %>% 
+#   select(id, hospitalname, speciality) %>% 
+#   group_by(id, hospitalname) %>% 
+#   unique()
 
 ```
 
