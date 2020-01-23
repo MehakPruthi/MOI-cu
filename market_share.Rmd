@@ -1,0 +1,35 @@
+---
+title: "Market Share"
+author: "M. leigh"
+date: "23/01/2020"
+output: html_document
+---
+
+
+
+```{r Market Share prep, echo=FALSE}
+## Prepare group ADE by CD and compare against population data
+## Some market share is outside the system, eg. Private school, home schooling, error in population estimates
+## ADE counts are funded and considered the most accurate measure 
+## should not hard code 2017
+ade_dsb_hist<- school_treso_data %>%
+  select(year, dsb.index, panel,ade, cduid) %>%
+  filter(year <= 2017) %>%
+  group_by(year,dsb.index,panel,cduid) %>%
+  summarise(ade=sum(ade)) %>%
+  arrange(dsb.index,panel,cduid, year)%>%
+  ungroup ()
+
+##some data issues are apparent. If there is not a CD associated with a school assign it to the largest
+## Cd with enrolment for that panel
+## Some board/cd/panels have data for only a select number of years. This is another data error. Assign to the ## largest br/cd/panel
+
+ade_dsb_hist2<- ade_dsb_hist %>%
+  spread(year,ade)%>%
+  Mutate (flag=)
+  ungroup()
+
+write.csv(ade_dsb_hist2,'ade_dsb_hist2.csv')
+
+
+```
