@@ -376,7 +376,7 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
-calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school=NULL,
+calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school,
                                                 year_id, panel_id, board_id) {
   
   #' Calculate weight factor for distributing students between two or more schools within a single TRESO zone
@@ -1031,16 +1031,24 @@ construction_cost <- function(user_input_inflation, user_input_scenario_year, cu
 } 
 
 # EDU Model -----
-create_pos_vector <- function(df, full_vector, year_id, panel_id, board_id) {
+create_pos_vector <- function(df, new_school, full_vector, year_id, panel_id, board_id) {
   #' Creates a POS vector from the input dataframe
   #' 
   #' @param df The input dataframe, expects the master school list
+  #' @param new_school Input dataframe of new schools added by user/decision-making layer
   #' @param full_vector The full list of TRESO zones in order
   #' @param year_id Integer indicating the modelling year
   #' @param panel_id String indicating the modelling panel
   #' @param board_id String indicating the modelling board type
   #' @return a data matrix
   #' 
+
+  # Include the new_school in the master school list
+  if(!is.null(new_school)){
+    df <- df %>% 
+      bind_rows(new_school)
+  }
+  
   pos <- df %>% 
     filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
     select(treso.id.pos, otg) %>%
@@ -1112,7 +1120,7 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   return(forecast_population_by_board)
 }
   
-forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL, year_id, panel_id, board_id) {
+forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017, new_school, year_id, panel_id, board_id) {
   #' Produce a dataframe with the summary of the school's forecasted ADE
   #'
   #' @param prop_matrix
@@ -1146,6 +1154,11 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
     arrange(Var1, Var2)
   colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
   
+  df_0 <- df %>% 
+    group_by(treso.id.pos) %>% 
+    summarise(enrolment.rounded = sum(enrolment.rounded)) %>% 
+    filter(enrolment.rounded == 0)
+  
   # After combining with travel time, trip list can be shortened
   df <- filter(df, enrolment.rounded != 0)
   
@@ -1165,7 +1178,9 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
     group_by(sfis) %>% 
     summarise(simulated.ade = sum(enrol.value))
   
-  return(schools_summary)
+  df_list <- list(schools_summary, df_0)
+  
+  return(df_list)
   
 }
 
@@ -1186,8 +1201,6 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
   # travel_times <- travel_times %>%
   #   arrange(orig, dest)
   
-  print('1')
-  
   # Create full matrix of travel times for students across the province
   potential_zones <- cbind(trip_list, travel_times) %>%
     rename(travel.time = value) %>%
@@ -1195,8 +1208,6 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
     left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>% 
     left_join(select(treso_zone_def, treso_id, treso.pos.csduid = csduid, treso.pos.cduid = cduid), by = c('treso.id.pos' = 'treso_id')) %>% 
     select(-orig, -dest)
-  
-  print('2')
   
   # Calculate mean travel time across the province (or CSD/CD) and filter out shorter trips
   threshold_tt_zones <- potential_zones %>% 
@@ -1214,8 +1225,6 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
     ungroup() %>% 
     arrange(desc(excess.travel.time)) %>% 
     mutate(build.flag = 0, proximity.flag = 0)
-  
-  print('3')
   
   # Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
   shortlist_zones <- threshold_tt_zones %>% 
@@ -1239,6 +1248,7 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
   build_df <- tibble(zone = integer())
   proximity_df <- tibble(zone = integer())
   
+  start.time <- Sys.time()
   print(Sys.time())
   
   # Loop through possible TRESO building locations to choose best zones in which to build
@@ -1269,7 +1279,9 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
       pull()
   } 
   
-  print(Sys.time())
+  end.time <- Sys.time()
+  time.diff <- end.time - start.time
+  print(time.diff)
   
   df_list <- list(build_df, proximity_df)
   

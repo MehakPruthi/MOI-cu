@@ -73,13 +73,10 @@ travel_time_threshold_factor <- 1.5 #TODO: Replace this with value provided by u
 zone_proximity_threshold <- 15 # TODO:Replace this with value provided by user through the visualization interface
 
 # Define excess travel time below which it is not worthwhile to consider building a school
-min_tt_threshold <- 1500 # TODO:Replace this with value provided by user through the visualization interface?
+min_tt_threshold <- 750 # TODO:Replace this with value provided by user through the visualization interface?
 
 # Define threshold below which existing schools should be consolidated, assuming existing schools are elible for consolidation
-consolidation_threshold <- 0.40 # TODO:Replace this with value provided by user through the visualization interface?
-
-# Set a base year for which to pull existing schools
-base_year <- 2017 # TODO:Replace this with value provided by user through the visualization interface?
+consolidation_threshold <- 0.25 # TODO:Replace this with value provided by user through the visualization interface?
 
 # Identify whether user is running decision-making layer
 dm <- TRUE # TODO:Replace this with value provided by user through the visualization interface
@@ -110,6 +107,9 @@ treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>%
   select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", year_id)) %>%
   filter(panel != "other")
 
+# Initialize new school dataframe
+new_school <- tibble(treso.id.pos = integer(), panel = character(), board_type_name = character(), year = integer(), build.priority = integer(), sfis.temp = integer(), otg = integer())
+
 # TODO: Check that we scale population from treso_forecast_population above to forecasted ADE, since only ~90% of age-appropriate children attend public schools
 
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
@@ -121,7 +121,7 @@ print(segment_id)
 prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 
 # Create pos vector
-pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+pos <- create_pos_vector(school_master, new_school=NULL, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
 
 # Apply the board sampling probabilities to the student population from TRESO
 treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
@@ -142,22 +142,21 @@ trip_list <- reshape2::melt(prop_matrix_balanced) %>%
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the simulated ADE for each school
-school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
-                                           year_id = year_id, panel_id = panel_id, board_id = board_id)
+school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
+                                           year_id = year_id, panel_id = panel_id, board_id = board_id)[[1]]
 
 # There are a handful of schools that does not get any simulated ADE due to a variety of reasons. 
 # It is a very small percentage of total schools in the segment x board type combination
 # However, the potential impact of this is that if the population decrease in the future, and zero simulated ADE is distributed
 # to these schools, with our methodology - the schools will remain with the same observed 2017 ADE as opposed to decreasing to 0.
 number_of_zero_simulated_schools <- school_master %>% 
-  filter(panel == 'Elementary', board_type_name == 'English Public', year == 2017) %>% 
+  filter(panel == panel_id, board_type_name == board_id, year == year_id) %>% 
   anti_join(select(school_summary_2017, sfis), by = c('sfis')) %>% 
   nrow()
 
 print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_simulated_schools))
 
 ```
-
 
 ### Step 2 - Run 20xx Forecast Model 
 - Date set by user
@@ -186,7 +185,7 @@ print(segment_id)
 prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 
 # Create pos vector
-pos <- create_pos_vector(school_master, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+pos <- create_pos_vector(school_master, new_school, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
 
 # Apply the board sampling probabilities to the student population from TRESO
 treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
@@ -204,8 +203,13 @@ trip_list <- reshape2::melt(prop_matrix_balanced) %>%
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the simulated ADE for each school
-school_summary_20xx <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
+school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
                                            year_id = year_id, panel_id = panel_id, board_id = board_id)
+
+school_summary_20xx <- school_summary_df_list[[1]]
+
+# Create dataframe containing list of schools which do not receive any ADE in model run
+df_0 <- school_summary_df_list[[2]]
 
 ```
 
@@ -313,8 +317,8 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the simulated ADE for each school
 school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, 
-                                                    new_school = NULL, year_id = year_id, panel_id = panel_id,
-                                                    board_id = board_id)
+                                                    new_school, year_id = year_id, panel_id = panel_id,
+                                                    board_id = board_id)[[1]]
 
 # Calculate the ADE overfill for each school, so it can be removed in the summary
 school_summary_ade_overfill <- school_forecast %>% 
@@ -380,8 +384,8 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 
 # Produce the simulated ADE for each school within each TRESO zone
-school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school = NULL,
-                                                 year_id = year_id, panel_id = panel_id, board_id = board_id)
+school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
+                                                 year_id = year_id, panel_id = panel_id, board_id = board_id)[[1]]
 
 ```
 
@@ -393,61 +397,87 @@ if (dm == TRUE) {
 
 # Determine potential TRESO zones in which to build schools
 df_list <- edu_dm(travel_time_skim, trip_list, treso_zone_def, travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold)
-build_df <- df_list[[1]] %>% 
+
+# Temporarily set OTG for proposed schools being added to zones with existing schools in order to calculate an appropriate weight factor. OTG to be set to average of existing schools in that zone.
+
+treso_otg_avg <- school_master %>% 
+  select(year, treso.id.pos, sfis, otg) %>% 
+  filter(year == year_id) %>% 
+  group_by(treso.id.pos) %>%
+  summarise(avg.otg = round(sum(otg) / n(), 0))
+
+new_school <- df_list[[1]] %>% 
   rename(treso.id.pos = zone) %>% 
   mutate(panel = panel_id,
          board_type_name = board_id,
-         year = year_id)
-# Remove zones which are to have schools built from the proximity_df (where a zone appears in both dataframes, the build_df is 'true')
+         year = year_id,
+         build.priority = 1:n(),
+         sfis = as.numeric(paste0(treso.id.pos, '000'))) %>% 
+  # Join to treso_otg_avg to pull average OTG
+  left_join(treso_otg_avg, by = c('treso.id.pos')) %>% 
+  rename(otg = avg.otg) %>% 
+  mutate(otg = replace_na(otg, 1)) # OTG must be > 0 for some distribution functions to run
+
+# Create list of TRESO zones ruled out from consideration due to proximity to higher-ranked zone
 proximity_df <- df_list[[2]] %>% 
-  anti_join(build_df, by = c('treso.id.por' = 'zone'))
+  anti_join(new_school, by = c('treso.id.por' = 'treso.id.pos'))
 
+# Run model capacity unconstrained to see how many students choose each school, new and existing
+  # Rerun Steps 2, 3, 4 in gravity model
 }
+
+new_school_check <- new_school %>% 
+  inner_join(df_0, by = 'treso.id.pos')
 ```
 
-7.	Run model capacity unconstrained to see how many students choose each school, new and existing
+- Delete any new schools with ADE < minimum OTG required for new school
 ```{r}
-# Create list of schools containing existing schools and proposed new schools
+# Set minimum and maximum school size
+school_sizes <- tibble(panel = c('Elementary', 'Secondary'), min.otg = c(200, 300), max.otg = c(1200, 1700))
+min_ade <- school_sizes %>% 
+  filter(panel == panel_id) %>% 
+  select(min.otg) %>% 
+  pull()
 
-# Filter list of existing schools for existing schools (most recent year) of interest
-school_master <- school_master %>% 
-  filter(year == base_year)
+# Join in new school table to flag which schools are new
+new_school_ade <- school_summary_20xx %>%
+  # Filter out existing schools
+  filter(sfis > 99000) %>% 
+  filter(simulated.ade >= min_ade)
 
-#######
-# TODO: DON'T PLAN TO 'EXPAND' EXISTING SCHOOLS, SIMPLY BUILD OR NOT IN ANY ZONE NEEDING NEW PLACES
-#######
+new_school_slim <- new_school %>% 
+  right_join(new_school_ade, by = c('sfis'))
 
-build_df_schools <- build_df %>% 
-  mutate(build.priority = 1:n(),
-         sfis.temp = as.numeric(paste0(treso.id.pos, '000'))) %>% 
-  left_join(select(school_master, treso.id.pos, sfis, otg), by = c('treso.id.pos')) %>% 
-  # Set any new potential school to have OTG of 1; set any identified build zone which already has schools to 
-  mutate(otg = replace_na(otg, 1),
-         expand.school = max(1 - otg, 0)
-  
-school_master <- school_master %>% 
-  full_join(build_df_schools, by = c('sfis', 'treso.id.pos')) %>% 
-  mutate(replace_na(build.priority, 0)) %>% 
-  mutate(replace_na(expand.school, 0)) %>% 
-  # Choose up to one school in each TRESO zone to expand if expansion is warranted
-  # Choose smallest school to expand
-  arrange(sfis, otg) %>% 
-  group_by(sfis) %>% 
-  mutate(school.count.per.treso = n(),
-         expand.school = ifelse(expand.school == 1 & school.count.per.treso == 1, 1, 0)) %>% 
-  ungroup()
-  
-# Rerun Steps 2, 3, 4 in gravity model
+# Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
+# Create pos vector
+pos <- create_pos_vector(school_master, new_school_slim, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+
+prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=FALSE)
+trip_list <- reshape2::melt(prop_matrix_balanced) %>%
+    arrange(Var1, Var2)
+colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+
+# Produce the simulated ADE for each school
+school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
+                                           year_id = year_id, panel_id = panel_id, board_id = board_id)
+
+school_summary_20xx <- school_summary_df_list[[1]]
+```
+
+- IF USER WISHES TO CONSOLIDATE EXISTING SCHOOLS: 
+    - Delete any existing schools with utilization < utilization_threshold
+    - Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
+
+```{r}
+existing_school_utilization <- school_master %>% 
+  filter(year == year_id, panel == panel_id, board_type_name == board_id) %>% 
+  left_join(school_summary_20xx, by = c('sfis')) %>% 
+  mutate(simulated.utilization = simulated.ade / otg) %>% 
+  mutate(underused.flag = ifelse(simulated.utilization < consolidation_threshold, 1, 0))
+  # filter(simulated.utilization < )
 ```
 
 
-8.	Delete any new schools with ADE < minimum OTG required for new school
-
-9.	Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
-
-10.	IF USER WISHES TO CONSOLIDATE EXISTING SCHOOLS: 
-    Delete any existing schools with utilization < utilization_threshold
-    Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
 
 11.	Set OTG at new schools to be a function of total ADE determined in Step 10
 
@@ -461,7 +491,7 @@ school_master <- school_master %>%
 
 16. If travel times > acceptable travel times for any zone, see if an existing school has been consolidated from a zone within, say, 40 minutes of the zone with unacccepable travel times, reinstate the closest school
 
-
+17.	Rerun model capacity constrained to forecast ADE by school for all schools (new and existing)
 
 ## Summary of Education Dataset
 
