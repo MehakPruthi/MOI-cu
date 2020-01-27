@@ -5,6 +5,11 @@ date: "23/01/2020"
 output: html_document
 ---
 
+```{r}
+library(tidyverse)
+library(data.table)
+
+```
 
 
 ```{r Market Share prep, echo=FALSE}
@@ -12,24 +17,92 @@ output: html_document
 ## Some market share is outside the system, eg. Private school, home schooling, error in population estimates
 ## ADE counts are funded and considered the most accurate measure 
 ## should not hard code 2017
-ade_dsb_hist<- school_treso_data %>%
-  select(year, dsb.index, panel,ade, cduid) %>%
+ade_dsb_hist<- readRDS('output/school_treso_master.rds') %>%
+  select(year,
+         dsb.index,
+         panel,
+         ade,
+         cduid) %>%
   filter(year <= 2017) %>%
   group_by(year,dsb.index,panel,cduid) %>%
   summarise(ade=sum(ade)) %>%
   arrange(dsb.index,panel,cduid, year)%>%
-  ungroup ()
+  ungroup ()%>%
+  mutate(year=as.numeric(year))
+  
 
-##some data issues are apparent. If there is not a CD associated with a school assign it to the largest
-## Cd with enrolment for that panel
-## Some board/cd/panels have data for only a select number of years. This is another data error. Assign to the ## largest br/cd/panel
+##some data issues are apparent. If there is not a CD associated enrolment or enrolment appears is only
+## ocassionally present in a CSD; reassign it on a pro-rated basis to other CDS for that board
 
 ade_dsb_hist2<- ade_dsb_hist %>%
-  spread(year,ade)%>%
-  Mutate (flag=)
+  spread(year,ade)
+
+##flag issues
+ade_dsb_hist2<- ade_dsb_hist2 %>%
+  mutate (data_iss=ifelse(rowSums(is.na(ade_dsb_hist2))>0,1,0)) %>%
+  gather(year,ade,c('2007':'2017'))%>%
+  mutate(year=as.numeric(year))
+
+## total ADE by DSB, Panel, Year
+ade_dsb_panel_sum<- ade_dsb_hist %>%
+select(year,
+       dsb.index,
+       panel,
+       ade,) %>%
+  filter(year <= 2017) %>%
+  group_by(year,dsb.index,panel) %>%
+  summarise(ade=sum(ade)) %>%
+  arrange(dsb.index,panel, year)%>%
+  ungroup ()
+
+## ADE to be reassigned
+ade_dat_issue_sum<- ade_dsb_hist2 %>%
+  filter(data_iss==1) %>%
+  group_by(dsb.index, panel, year,data_iss)%>%
+  summarise(ade=sum(ade))%>%
+  na.omit(ade)%>%
+  filter(ade>0)%>%
+  arrange(dsb.index, panel, year)%>%
   ungroup()
 
-write.csv(ade_dsb_hist2,'ade_dsb_hist2.csv')
+## ADE with good data & share of total ade & reassinged total to create clean data
+ade_panel_mrktshr <- ade_dsb_hist2 %>%
+  filter(data_iss==0) %>%
+  left_join(ade_dsb_panel_sum, by =c('dsb.index'='dsb.index','panel'='panel','year'='year'))%>%
+  mutate(share=ade.x/ade.y)%>%
+  left_join(select(ade_dat_issue_sum, 
+                   dsb.index,
+                   panel,
+                   year,
+                   ade),
+            by =c('dsb.index'='dsb.index','panel'='panel','year'='year'))%>%
+  mutate(ade=replace_na(ade,0))%>%
+  mutate(ade=round(ade.x+(share*ade),0))%>%
+  select(-ade.x,-ade.y,-share,-data_iss)
+
+## clean up and remove temp tables
+rm(ade_dsb_hist,ade_dsb_hist2,ade_dat_issue_sum,ade_dsb_panel_sum)
+
+```
+```{r Market share caculations, echo=FALSE}
+##prepare the population data into Elementary and Secondary groups
+sch_pop<- read.csv('input/mag/MOF_POP.csv')%>%
+  select(year=Year,
+         age=Age,
+         sex=Sex,
+         pop=Population,
+         cd=SGCId)%>%
+  filter(year>2006, age<19, age>3,sex==3)%>%
+  mutate(panel=ifelse(age<14,'Elementary','Secondary'))%>%
+  group_by(year,cd,panel)%>%
+  summarise(pop=sum(pop))%>%
+  ungroup(0)
+
+## calculate marketshare by cd panel
+ade_panel_mrktshr2<-ade_panel_mrktshr  %>%
+  left_join(sch_pop,by=c('year'='year','cduid'='cd','panel'='panel'))%>%
+  mutate(share=ade/pop)
 
 
 ```
+
