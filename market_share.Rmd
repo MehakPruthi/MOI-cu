@@ -8,7 +8,7 @@ output: html_document
 ```{r}
 library(tidyverse)
 library(data.table)
-library(purrr)
+
 
 ```
 
@@ -150,6 +150,8 @@ brd_cd_mrktshr<-ade_panel_mrktshr  %>%
                        (!!as.symbol(endyear))-(!!as.symbol(firstyear))))%>%
   mutate(change=ifelse(change<(-0.05),-.05,ifelse(change>.05,.05,change)))
 
+## clean up temp tables
+rm(panel_cd_mrktshr,panel_cd_mrktshr_last,panel_cd_sum_stat)
 
 ```
 ```{r future market share}
@@ -182,20 +184,43 @@ brd_cd_mrktshr_chg_raw2<-brd_cd_mrktshr_chg_raw1 %>%
 cd_panel_proj_mrktshr <- brd_cd_mrktshr_chg_raw2%>%
   select (dsb.index, cduid, panel, year, mrktshr_yrx)%>%
   group_by (cduid, panel, year)%>%
-  summarise(sum(mrktshr_yrx))%>%
+  summarise(proj_cd_mrktshr=sum(mrktshr_yrx))%>%
   left_join(panel_cd_sum_stat, by=c('cduid','panel'))%>%
-  select(-min,-max, -keyx)
+  select(-min,-max, -keyx)%>%
+  mutate(factor=ifelse(proj_cd_mrktshr<(avg-range),(avg-range)/proj_cd_mrktshr,
+         ifelse(proj_cd_mrktshr>(avg+range),(avg+range)/proj_cd_mrktshr,1)))
   
- 
-  
-  
-  
+ ##scale up or down individual brd_cd_panel mrktshares to bring into acceptable totals for the cd/panel
+brd_cd_mrktshr_proj_in<-brd_cd_mrktshr_chg_raw2%>%
+  select(year,dsb.index,panel,cduid,mrktshr_yrx)%>%
+  left_join(cd_panel_proj_mrktshr, by=c('cduid','year','panel'))%>%
+  mutate(mrktshr_yrx=mrktshr_yrx*factor)%>%
+  select(-range,-avg,-proj_cd_mrktshr,-factor)
 
+##market share rates are fixed for years beyond the 10th in the forecast
+## this table creates an copies of the final year for an extension that will be unioned with the first
+brd_cd_mrktshr_ext<-brd_cd_mrktshr_proj_in %>%
+  filter(year==max(year))%>%
+  slice(rep(row_number(),30))%>%
+  mutate(ticker=1)%>%
+  group_by(dsb.index,cduid,panel)%>%
+  mutate(counter=cumsum(ticker))%>%
+  mutate(year=year+counter)%>%
+  ungroup()%>%
+  select(-ticker,-counter)
 
+##union the two tables
+brd_cd_mrktshr_proj<- rbind(brd_cd_mrktshr_proj_in,brd_cd_mrktshr_ext)
 
-  
+## remove temp tables
+rm(brd_cd_mrktshr_chg_raw1, brd_cd_mrktshr_chg_raw2, brd_cd_mrktshr_proj_in,brd_cd_mrktshr_ext,
+   cd_panel_proj_mrktshr)
 
-
+```
+```{r convert mrktshare to future enrollment}
+mrktshr_enr<- brd_cd_mrktshr_proj %>%
+  left_join(sch_pop, by=c('year', 'panel', 'cduid'='cd'))%>%
+  mutate(proj_ade=round(mrktshr_yrx*pop,0))
 
 ```
 
