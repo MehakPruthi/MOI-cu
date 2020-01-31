@@ -1184,7 +1184,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
   
 }
 
-edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold) {
+edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold, por_additional) {
   #' Produce a list of 2 dataframes containing: 
   #' 1. Dataframe of TRESO zones in which to consider building schools
   #' 2. Dataframe of TRESO zones ruled out from building schools due to proximity to higher-ranked location for building school
@@ -1195,6 +1195,7 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
   #' @param travel_time_threshold_factor A user-set factor for selecting how much travel time is considered 'excess' time
   #' @param zone_proximity_threshold A user-set threshold to preclude construction of schools in each of two TRESO zones too close together
   #' @param min_tt_threshold A user-set threshold to preclude construction of schools in TRESO zones without sufficient 'excess' travel time
+  #' @param por_additional A list of TRESO origins which have residual students due to school overfills --> candidate zones for building a new school
   #' @return A list of 2 dataframes with TRESO zones in which to build, and TRESO zones ruled out due to proximity
   
   # Arrange travel_times to be in the same order as the trip_list to enable column binding in next step
@@ -1226,16 +1227,26 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
     arrange(desc(excess.travel.time)) %>% 
     mutate(build.flag = 0, proximity.flag = 0)
   
-  # Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
+  # Calculate zones/zone pairs for consideration due to school overfill
+  additional_zones <- threshold_tt_zones %>% 
+    right_join(select(por_additional, treso.id.por), by = c('treso.id.por')) %>% 
+    distinct(treso.id.por)
+  
+  additional_pairs <- threshold_tt_zones %>% 
+    right_join(select(por_additional, treso.id.por), by = c('treso.id.por'))
+  
+    # Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
   shortlist_zones <- threshold_tt_zones %>% 
     # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
     distinct(treso.id.por, excess.travel.time) %>% 
-    filter(excess.travel.time > min_tt_threshold)
+    filter(excess.travel.time > min_tt_threshold) %>% 
+    full_join(additional_zones, by = c('treso.id.por'))
   
   shortlist_pairs <- threshold_tt_zones %>% 
     # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
     select(treso.id.por, treso.id.pos, excess.travel.time, travel.time, build.flag, proximity.flag) %>% 
-    filter(excess.travel.time > min_tt_threshold)
+    filter(excess.travel.time > min_tt_threshold) %>% 
+    full_join(additional_zones, by = c('treso.id.por'))
   
   numrows <- shortlist_pairs %>% 
     summarise(n()) %>%
