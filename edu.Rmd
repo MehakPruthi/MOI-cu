@@ -352,7 +352,8 @@ por_overfill <- prop_matrix_balanced %*% pos_overfill %>%
 
 por_additional <- por_overfill %>% 
   filter(ade.overfill >= 15) %>% 
-  select(ade.overfill, treso.id.por)
+  select(ade.overfill, treso.id.por) %>% 
+  mutate(treso.id.por = as.numeric(treso.id.por))
 
 # Add in any origin zones sending students to school zones still overfilled after several rounds of balancing
 por_overfill <- por_overfill %>% 
@@ -576,8 +577,10 @@ schools_kept <- existing_school_utilization %>%
   filter(underused.flag == 0)
 
 # Create a list of all schools closed by scenario year (as projected in EDU data) plus schools consolidated by decision-making layer
-schools_consolidated_closed <- existing_school_utilization %>% 
-  filter(underused.flag == 1) %>% 
+schools_consolidated <- existing_school_utilization %>% 
+  filter(underused.flag == 1) 
+
+schools_consolidated_closed <- schools_consolidated %>% 
   full_join(select(schools_closed, sfis), by = c('sfis'))
 
 # Remove existing schools from school_master which fall below utilization threshold
@@ -613,10 +616,9 @@ new_school_ade <- school_forecast %>%
   filter(simulated.ade >= min_ade)
 
 # Determine OTG consolidated by CSD for consolidated schools
-schools_consolidated_closed_otg <- schools_consolidated_closed %>% 
-  left_join(select(treso_zone_def, treso_id, csduid), by = c('sfis')) %>% 
+schools_consolidated_closed_otg <- schools_consolidated_closed %>%
   group_by(csduid) %>% 
-  mutate(csd.otg = sum(otg)) %>% 
+  mutate(csd.otg = sum(otg) * consolidation_threshold) %>% 
   ungroup()
 
 # Provide backup copy of new_school
@@ -627,9 +629,11 @@ new_school <- new_school %>%
   right_join(select(new_school_ade, sfis, simulated.ade), by = c('sfis')) %>% 
   mutate(otg = 1.05*simulated.ade) %>% 
   # Revise OTG of new schools to account for OTG closed by consolidating existing schools in the CSD
-  left_join(schools_consolidated_closed_otg, by = c('sfis')) %>% 
+  left_join(select(treso_zone_def, treso_id, csduid), by = c('treso.id.pos' = 'treso_id')) %>% 
+  left_join(distinct(schools_consolidated_closed_otg, csduid, csd.otg), by = c('csduid')) %>% 
+  mutate(csd.otg = replace_na(csd.otg, 0)) %>% 
   group_by(csduid) %>% 
-  mutate(additional.otg.percent = otg / sum(otg),
+  mutate(additional.otg.percent = simulated.ade / sum(simulated.ade),
          additional.otg = additional.otg.percent * csd.otg,
          revised.otg = round(otg + additional.otg)) %>% 
   ungroup() %>% 
@@ -669,41 +673,57 @@ last_run_step <- 'Run capacity constrained...'
 
 ```{r}
 # Rerun components of DM calculation to figure out average travel times / travel times by zone, see if they exceed acceptable tolerances
-# Start by finding zones with schools which were eliminated due to under-utilization
-underutilized_schools <- school_master %>% 
-  filter(year == year_id, panel == panel_id, board_type_name == board_id) %>% 
-  select(-simulated.ade) %>% 
-  left_join(select(school_forecast, sfis, simulated.ade), by = c('sfis')) %>% 
-  mutate(simulated.utilization = simulated.ade / otg) %>% 
-  mutate(underused.flag = ifelse(simulated.utilization < consolidation_threshold, 1, 0)) %>% 
-  filter(underused.flag == 1) %>% 
-  distinct(treso.id.pos)
 
-# Filter trip list down to include only zones which have more than 5 trips to a destination zone AND have long trips
-trip_length_check <- cbind(trip_list, travel_times) %>%
+# Start by finding zones with schools which were eliminated due to under-utilization, and keep the largest consolidated school from zones with consolidated schools
+# zones_consolidated <- schools_consolidated %>% 
+#   group_by(treso.id.pos) %>% 
+#   arrange(desc(otg)) %>% 
+#   mutate(school.count = 1:n()) %>% 
+#   ungroup() %>% 
+
+# Filter trip list down to include only zones which have more than 10 trips to a destination zone AND have long trips
+trip_length_check <- cbind(trip_list, travel_time_skim) %>%
   rename(travel.time = value) %>%
   filter(travel.time > 60) %>% 
+  filter(trips > 1) %>% 
   group_by(treso.id.por) %>% 
   mutate(total.por.trips = sum(trips)) %>% 
   ungroup() %>% 
-  filter(total.por.trips > 5) %>% 
+  filter(total.por.trips > 10) %>% 
   left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>% 
-  left_join(select(treso_zone_def, treso_id, treso.pos.csduid = csduid, treso.pos.cduid = cduid), by = c('treso.id.pos' = 'treso_id')) %>% 
-  select(-orig, -dest) %>% 
-  inner_join(underutilized_schools, by = c('treso.id.por' = 'treso.id.pos')) %>%
-  rename(treso.id.pos = treso.id.por) %>% 
+   select(-orig, -dest)
+
+# Unconsolidate schools in origin TRESO zones which have long tavel times
+unconsolidate_treso_por <- trip_length_check %>% 
+  inner_join(schools_consolidated, by = c('treso.id.por' = 'treso.id.pos')) %>%
   mutate(time.critical.flag = 1)
+  
+# Unconsolidate schools in destination TRESO zones which have long travel times
+unconsolidate_treso_pos <- trip_length_check %>% 
+  inner_join(schools_consolidated, by = c('treso.id.pos')) %>%
+  mutate(time.critical.flag = 1) %>% 
+  anti_join(unconsolidate_treso_por, by = c('sfis'))
+
+ # left_join(select(treso_zone_def, treso_id, treso.pos.csduid = csduid, treso.pos.cduid = cduid), by = c('treso.id.pos' = 'treso_id')) %>% 
+  # select(-orig, -dest) %>% 
+  # inner_join(schools_consolidated, by = c('treso.id.por' = 'treso.id.pos')) %>%
+  # rename(treso.id.pos = treso.id.por) %>% 
+  # mutate(time.critical.flag = 1)
 
 # Redefine school_master to include existing schools which are in zones with otherwise high travel times
-school_master_slim_backup <- school_master
-school_master <- school_master_backup %>% 
+school_master_backup <- school_master
+school_master <- school_master %>% 
   filter(year == year_id, panel == panel_id, board_type_name == board_id) %>% 
   select(-simulated.ade) %>% 
   left_join(select(school_forecast, sfis, simulated.ade), by = c('sfis')) %>% 
   mutate(simulated.utilization = simulated.ade / otg) %>% 
   left_join(select(trip_length_check, treso.id.pos, time.critical.flag), by = c('sfis')) %>% 
   mutate(underused.flag = ifelse(simulated.utilization < consolidation_threshold & time.critical.flag == 0, 1, 0)) %>% 
-  filter(underused.flag == 0)
+  filter
+
+# Rerun Steps 3, 4, 5, 6
+
+last_run_step <- 'Uncosolidate schools'
 
 ```
 
