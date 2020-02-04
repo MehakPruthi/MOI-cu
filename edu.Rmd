@@ -469,7 +469,7 @@ saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
 saveRDS(por, "cache/edu/por_final.rds")
 saveRDS(pos, "cache/edu/pos_final.rds")
 saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
-saveRDS(pos, "cache/edu/pos_final.rds")
+saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
 
 # Cache results temporarily
 saveRDS(school_master, "cache/edu/school_master_testing.rds")
@@ -734,14 +734,11 @@ unconsolidate_treso_pos <- trip_length_check %>%
 unconsolidated_schools <- unconsolidate_treso_por %>% 
   bind_rows(., unconsolidate_treso_pos)
 
-# Identify schools in unconsolidated zones
-# unconsolidated_schools <- schools_consolidated %>% 
-#   right_join(select(unconsolidate_treso_por, treso.id.por), by = c('treso.id.pos' = 'treso.id.por')) %>% 
-#   right_join(select(unconsolidate_treso_pos, treso.id.pos), by = c('treso.id.pos'))
-
 # Redefine school_master to include existing schools which are in zones with otherwise high travel times
 school_master_backup2 <- school_master
 school_master <- unconsolidated_schools %>% 
+  distinct(sfis, time.critical.flag) %>% 
+  left_join(schools_consolidated, by = c('sfis')) %>% 
   bind_rows(., school_master)
 
 schools_consolidated_closed <- schools_consolidated_closed %>% 
