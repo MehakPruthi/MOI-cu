@@ -461,6 +461,15 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_
 ## Decision-Making Layer Calculations
 ### Determine which TRESO zones should be considered for new schools as a function of 'excessive' travel time and population
 ```{r}
+# Cache FINAL results temporarily
+saveRDS(school_master, "cache/edu/school_master_final.rds")
+saveRDS(trip_list, "cache/edu/trip_list_final.rds")
+saveRDS(por_additional, "cache/edu/por_additional_final.rds")
+saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
+saveRDS(por, "cache/edu/por_final.rds")
+saveRDS(pos, "cache/edu/pos_final.rds")
+saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
+saveRDS(pos, "cache/edu/pos_final.rds")
 
 # Cache results temporarily
 saveRDS(school_master, "cache/edu/school_master_testing.rds")
@@ -734,6 +743,12 @@ unconsolidated_schools <- unconsolidate_treso_por %>%
 school_master_backup2 <- school_master
 school_master <- unconsolidated_schools %>% 
   bind_rows(., school_master)
+
+schools_consolidated_closed <- schools_consolidated_closed %>% 
+  anti_join(unconsolidated_schools, by = c('sfis'))
+
+schools_consolidated_final <- schools_consolidated %>% 
+  anti_join(unconsolidated_schools, by = c('sfis'))
 
 # Create pos vector and re-run key components of Step 2 below
 pos <- create_pos_vector(school_master, new_school, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
