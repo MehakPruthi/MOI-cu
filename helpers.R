@@ -783,6 +783,17 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
       select(Treso_ID, bid, lat, long) %>%
       rename(treso.id.pos = Treso_ID)
   }
+  else if (type == 'hospital') {
+    # Find the treso zones which the hospital points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(lat = xy_location@data$hospital.lat,
+            long = xy_location@data$hospital.long,
+            id = xy_location@data$id) %>%
+      as_tibble() %>%
+      mutate(bid = as.character(id)) %>%  
+      select(Treso_ID, id, lat, long) %>%
+      rename(treso.id.pos = Treso_ID)
+  }
   else if (type == 'marker') {
     overlay <- over(xy_location, treso_shp, returnList = FALSE) %>% 
       cbind(., school.name = xy_location@data$school.name,
@@ -804,6 +815,30 @@ create_overlay <- function(xy_location, treso_shp, type = 'student') {
   }
   
   return(overlay)
+}
+
+create_hospital_xy <- function(hospital_master) {
+  '
+  This function takes in the court dataframe. 
+  
+  input: Dataframe of court with lat long
+  output: SpatialPointsDataFrame of each court
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  hospital_spdf <- hospital_master %>%
+    ungroup() %>%
+    select(id, hospital.lat, hospital.long) %>%
+    mutate(lat = hospital.lat, long = hospital.long) %>%
+    mutate(ref = row_number())
+  coordinates(hospital_spdf) <- c('long', 'lat')
+  
+  # Project the hospital lat/long to TRESO's LCC specification
+  proj4string(hospital_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  hospital_xy <- spTransform(hospital_spdf, CRS(treso_projarg))
+  
+  return(hospital_xy)
 }
 
 # Buffer the TRESO zones for each school based on the catchment distance

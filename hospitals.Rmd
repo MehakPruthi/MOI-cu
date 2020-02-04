@@ -869,7 +869,6 @@ treso_population_moh_agecluster <- treso_population_moh %>%
 # CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 # treso_origin_cases <- readRDS('cache/moh/treso_origin_cases.rds') # Use this query if reading in from stored data instead of keeping in RAM
 crm_treso <- treso_origin_cases %>%
-  left_join(speciality_hospitals, by = c("id", "hospitalname"="name")) %>%  ##update with exported CSV data table that user can manually change
   left_join(treso_population_moh_agecluster, by = c("orig.treso.zone" = "treso_zone", "agecluster")) %>%
   select(-csduid) %>% 
   left_join(select(HBAMprojected_alos_adj, id, agecluster, caretype, adj.caretype.agecluster.los), by = c('id', "agecluster", "caretype")) %>% 
@@ -941,6 +940,195 @@ crm_alc <- select(hospital_lookup_master, year, id, hosp.csd = csduid) %>%
          demand.days.ALC = hosp.treso.beddays.alc * hosp.treso.caretype.beddays.percent,
          beds.needed = demand.days.total/hosp.op.days) %>% 
   select(id, hosp.csd, hosp.cd, hospitalname, caretype, agecluster, orig.csd, orig.treso.zone, cases, demand.days.total, demand.days.nonALC, demand.days.ALC, beds.needed)
+
+# Incorporate new hospitals added by redistributing demand from other hospitals and csds
+
+
+  ## Prepare the origin demand vector for selected year
+  crm_new_hosp <- crm_alc %>% 
+    select(-demand.days.nonALC, -demand.days.ALC, -beds.needed,hosp.cd) %>% 
+    left_join(select(speciality_hospitals, id, specialityfactor), by = "id")
+
+  # New Hospital
+  new_hospital <- tibble(
+    id = "99999",
+    hospital.lat = 43.90032, hospital.long = 	-78.85863,
+    name = "New Hospital",
+    caretype = c("AT", "CR", "GR", "MH", "AM"),
+    beds = c(100,1000,1000,100,0),
+    agecluster = c("all","all","all","all","all"), #all ages or just "ped"
+    specialityfactor = 0, # 1 if hospital is speciality hospital, 0 if not
+  )
+
+  # Overlay with TRESO Shapefile to get the TRESO/CSD Information
+  new_hospital_xy <- create_hospital_xy(new_hospital) 
+  new_hospital_overlay <- create_overlay(new_hospital_xy, treso_shp, type = "hospital") %>% 
+    left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>%
+    distinct() %>% 
+    left_join(new_hospital, by = "id") %>% 
+    mutate_if(is.factor, as.character) %>% 
+    select(-lat, -long, -csdname, -area, -mof_region, -hospital.lat, -hospital.long, -cdname, -treso.id.pos) %>% 
+    rename(hosp.csd = csduid, hospitalname = name, hosp.cd = cduid) %>% 
+    mutate(id = as.numeric(id), hosp.cd=as.character(hosp.cd)) %>% 
+    mutate(new.hospital =1)
+
+  # Insert new hospital to list demand distributed list
+  hospital_new_list <- bind_rows(new_hospital_overlay, crm_new_hosp) 
+
+  # Create an updated hospital asset list
+  updated_hospital_list <- hospital_new_list %>% 
+    select(id, hosp.csd, hosp.cd, hospitalname, new.hospital) %>% 
+    distinct()
+
+  # Isolate and copy csd and cd number of new hospital to a new column
+  updated_hospital_list_stripped <- updated_hospital_list %>% 
+    filter(id == "99999")
+
+  # Filter for hospitals in the same CSD and CD and plant flags
+  updated_hospital_list_short <- updated_hospital_list %>% 
+    mutate(ref.new.hosp.csd = updated_hospital_list_stripped$hosp.csd, ref.new.hosp.cd = updated_hospital_list_stripped$hosp.cd)
+  
+  temp_1 <- updated_hospital_list_short %>% 
+    filter_(~hosp.csd==ref.new.hosp.csd) %>% 
+    group_by(id) %>% 
+    mutate(x= (n())) %>%
+    group_by(x) %>% 
+    mutate(num.hosp.csd = sum(x)) %>% 
+    select(-x)
+
+  temp_2 <- updated_hospital_list_short %>% 
+    filter_(~hosp.cd==ref.new.hosp.cd) %>% 
+    group_by(id) %>% 
+    mutate(x= (n())) %>%
+    group_by(x) %>% 
+    mutate(num.hosp.cd = sum(x)) %>% 
+    select(-x)
+
+  updated_hospital_list_short <- updated_hospital_list_short %>% 
+    left_join(select(temp_1, id, num.hosp.csd), by = "id") %>% 
+    left_join(select(temp_2, id, num.hosp.cd), by = "id") %>% 
+    select(-x.x, -x.y)
+  
+# Transfer filter to full list of hospitals and group by agecluster (ped or other)
+## If the new hospital is in a csd with existing hospitals, then it will take a part of their share. the amount of share taken is determined by whether the share-giving hospital is a speciality hospital.
+hospital_demand_dist <- hospital_new_list %>% 
+  right_join(select(updated_hospital_list_short, id, ref.new.hosp.csd, ref.new.hosp.cd, num.hosp.csd, num.hosp.cd), by = 'id') 
+
+hospital_demand_dist_csd <- hospital_demand_dist %>% 
+  drop_na(num.hosp.csd) %>% 
+  group_by(id, caretype, specialityfactor, new.hospital, beds) %>% 
+  mutate (cases.csd = sum(cases), demand.days.total.csd =sum(demand.days.total)) %>% 
+  mutate(cases.csd = cases.csd, demand.beds = demand.days.total.csd/hosp.op.days) %>%
+  ungroup() %>% 
+  replace(is.na(.), 0) %>% 
+  group_by(caretype) %>% 
+  mutate(total.cases = sum(cases.csd), total.demand.beds.csd = sum(demand.beds))
+  
+
+  
+
+
+
+  
+  
+
+
+# Create a list of hospitals available in the new hospital CSD
+courthouse_available <- courthouse_asset_user %>%
+  unnest(casetypes = strsplit(casetypes.serviced, ",")) %>% 
+  group_by(cduid, cdname, casetypes) %>% 
+  summarise(treso.id.pos = paste(treso.id.pos, collapse = ","),
+            bid = paste(bid, collapse = ","),
+            name = paste(name, collapse = ","),
+            building.type = paste(building.type, collapse = ","),
+            courtrooms = paste(courtrooms, collapse = ",")
+            )
+
+# Join the list of courthouses available by CD to the origin demand
+# NOTE: Sudbury (CD 3552) needs to be matched with Greater Sudbury (CD 3553) courts
+# Distribute a percentage of TRESO demand to closest courthouse within the CD
+# Distribute another percentage of TRESO demand weight by available courhouses within the CD
+courthours_od <- treso_demand_origin %>%
+  filter(court.hours != 0) %>% 
+  mutate(cduid = ifelse(cduid == 3552, 3553, cduid),
+         cdname = ifelse(cdname == "Sudbury", "Greater Sudbury / Grand Sudbury", cdname)) %>% 
+  left_join(courthouse_available, by = c("cduid", "cdname", "casetypes")) %>% 
+  unnest(treso.id.pos = strsplit(treso.id.pos, ","),
+         bid = strsplit(bid, ","),
+         name = strsplit(name, ","),
+         building.type = strsplit(building.type, ","),
+         courtrooms = strsplit(courtrooms, ",")) %>% 
+  mutate(treso.id.por = as.numeric(treso.id.por),
+         treso.id.pos = as.numeric(treso.id.pos),
+         courtrooms = as.numeric(courtrooms)) %>% 
+  # Merge with TRESO travel times
+  left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
+  # Identify the closest travel time pair by calculating a travel utility (e^(1/tt))
+  mutate(travel.utility = exp(1/value)) %>%
+  arrange(treso.id.por, casetypes, desc(travel.utility)) %>% 
+  group_by(treso.id.por, casetypes) %>% 
+  # Give a utility ranking for each combination of POR and casetypes
+  mutate(travel.utility.ranking = row_number(),
+         courtroom.weight = courtrooms / sum(courtrooms)) %>% 
+  ungroup() %>% 
+  # Flag the courthouses in the same TRESO zone servicing the same casetype that has the closest travel utility
+  group_by(treso.id.por, casetypes, travel.utility) %>% 
+  mutate(identical = ifelse(nchar(paste(unique(bid), collapse = ",")) > 6 && travel.utility.ranking == 1,
+                            ceiling(nchar(paste(unique(bid), collapse = "")) / 6) , 0)) %>% 
+  ungroup() %>% 
+  # If the courthouse is the closest but also have a identical flag - change the travel utility ranking to 2
+  mutate(travel.utility.ranking = ifelse(identical > 0, 2, travel.utility.ranking)) %>% 
+  mutate(court.hours.to.closest = ifelse(travel.utility.ranking == 1, court.hours * CLOSEST_PERCENTAGE, 0),
+         court.hours.to.random = court.hours * RANDOM_PERCENTAGE * courtroom.weight,
+         court.hours.to.identical = ifelse(identical > 0, court.hours * CLOSEST_PERCENTAGE / identical, 0))
+
+saveRDS(courthours_od, "output/mag/courthours_od.rds")
+
+# Calculate the trip list by converting the hours to the courthouse with an user-defined
+# appearance factor
+SELECTED_COURTHOUSE_BID = "B20705"
+appearance_trip_list <- courthours_od %>% 
+  # filter(bid == SELECTED_COURTHOUSE_BID) %>% 
+  group_by(treso.id.por, treso.id.pos, bid, casetypes) %>% 
+  summarise(court.hours = sum(court.hours.to.closest, court.hours.to.random, court.hours.to.identical)) %>% 
+  left_join(APPEARANCE_FACTOR, by = "casetypes") %>% 
+  mutate(appearances = court.hours / app.factor) %>% 
+  group_by(treso.id.por, treso.id.pos, bid) %>% 
+  summarise(appearances = sum(appearances)) %>% 
+  ungroup()
+
+# Summarize the distributed demand to each courthouses and calculate the utilization for each courthouse
+courthouse_asset_updated <- courthours_od %>% 
+  group_by(bid, name, building.type, courtrooms, cduid, cdname, casetypes) %>% 
+  summarise(court.hours.to.closest = sum(court.hours.to.closest),
+            court.hours.to.random = sum(court.hours.to.random),
+            court.hours.to.identical = sum(court.hours.to.identical)
+            ) %>% 
+  mutate(court.hours.distributed = court.hours.to.closest + court.hours.to.random + court.hours.to.identical) %>% 
+  left_join(utilization_rate, by = "casetypes") %>% 
+  mutate(op.utilization = 0) %>% 
+  mutate(op.utilization = ifelse(court.hours.distributed <= inflect.hours,
+                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours.distributed,
+                              op.utilization)) %>% 
+  mutate(op.utilization = ifelse(court.hours.distributed > inflect.hours & court.hours.distributed <= max.hours,
+                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours.distributed - inflect.hours)                                                       / (max.hours - inflect.hours)),
+                                 op.utilization)) %>% 
+  mutate(op.utilization = ifelse(court.hours.distributed > max.hours,
+                                 max.hours.dy,
+                                 op.utilization)) %>% 
+  mutate(courtrooms.needed = round(court.hours.distributed / (op.utilization * OP_DAYS), digits = 2)) %>% 
+  mutate(actual.utilization = court.hours.distributed / courtrooms / OP_DAYS,
+         utilization = actual.utilization / op.utilization) %>% 
+  group_by(bid, name, building.type, cduid, cdname) %>% 
+  summarise(courtrooms = first(courtrooms),
+            courtrooms.needed = sum(courtrooms.needed),
+            court.hours.distributed = sum(court.hours.distributed),
+            utilization = sum(utilization)
+            ) %>% 
+  ungroup() %>% 
+  mutate(cost = FIXED_COST + VARIABLE_COST * courtrooms.needed,
+         standard.area = courtroom_size(courtrooms.needed)) %>% 
+  select(bid, courtrooms, courtrooms.needed, court.hours.distributed, utilization, standard.area, cost)
 
 # Calculate number of cases, demand days, and beds needed by hospital, caretype, and agecluster
 crm_hosp_agecluster <- crm_alc %>%
