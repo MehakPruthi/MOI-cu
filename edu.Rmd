@@ -772,13 +772,73 @@ last_run_step <- 'Uncosolidate schools'
 
 17.	Rerun model capacity constrained to forecast ADE by school for all schools (new and existing)
 
-### Plot DM schools
+### Plot Results from DM
 
 ```{r}
+# Read in the school forecast dataframe
+school_forecast_final_treso_id <- readRDS("cache/edu/school_forecast_final_final.rds") %>% 
+  filter(sfis > 99999) %>% 
+  distinct(treso.id.pos)
 
-school_forecast_final <- readRDS("cache/edu/school_forecast_final_final.rds")
+treso_forecast_population_2017 <- readRDS("input/edu/treso_population_edu.rds") %>% 
+  select(treso.id.por = treso_zone, panel = age.group, csduid, 
+         potential.enrolment = paste0("population.", 2017)) %>%
+  filter(panel != "other")
+treso_forecast_population_2025 <- readRDS("input/edu/treso_population_edu.rds") %>% 
+  select(treso.id.por = treso_zone, panel = age.group, csduid, 
+         potential.enrolment = paste0("population.", 2025)) %>%
+  filter(panel != "other")
+
+# Apply the board sampling probabilities to the student population from TRESO
+treso_forecast_population_board_2017 <- apply_sampling_to_population(
+  forecast_population = treso_forecast_population_2017,
+  board_type_sample = board_type_sample_spread) %>% 
+  filter(panel == panel_id, board_type_name == board_id)
+
+treso_forecast_population_board_2025 <- apply_sampling_to_population(
+  forecast_population = treso_forecast_population_2025,
+  board_type_sample = board_type_sample_spread)  %>% 
+  filter(panel == panel_id, board_type_name == board_id)
+
+treso_forecast_population_board_diff <- full_join(treso_forecast_population_board_2017,
+                                                  treso_forecast_population_board_2025,
+                                                  by=c("treso.id.por", "panel",
+                                                       "board_type_name", "csduid",
+                                                       "csdname")) %>% 
+  mutate(potential.enrolment.diff = potential.enrolment.y - potential.enrolment.x,
+         potential.enrolment.pct = potential.enrolment.diff / potential.enrolment.x,
+         potential.enrolment.pct.ln = log1p(potential.enrolment.pct))
 
 
+# Convert the SpatialDataframe to normal Dataframe for ggplot()
+treso_shp@data$id <- treso_shp@data$Treso_ID
+treso_shp_df <- fortify(treso_shp, region="id") %>%
+  rename(
+    x = long,
+    y = lat,
+  ) %>% 
+  mutate(id = as.integer(id)) %>% 
+  left_join(treso_forecast_population_board_diff, by=c("id"="treso.id.por")) %>% 
+  filter(csdname == "Toronto")
+
+treso_shp_df_schools <- treso_shp_df %>% 
+  right_join(school_forecast_final_treso_id, by=c("id"="treso.id.pos"))
+
+
+g <- ggplot() +
+  geom_polygon(data = treso_shp_df, mapping = aes(x = x, y = y, group = group,
+                                                  fill = potential.enrolment.diff),
+               color = "grey90", alpha = 0.8, size = 0.001) +
+  geom_polygon(data = treso_shp_df_schools, mapping = aes(x = x, y = y, group = group),
+               color = "red", alpha = 0.1, size = 0.001) +
+  labs(x = "", y = "", title = "New Schools and Population Growth in Ontario") +
+  theme(axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.x = element_blank(), axis.text.x = element_blank(),
+        plot.title = element_text(lineheight = 0.8, face = "bold", vjust = 1)) +
+  coord_equal(ratio = 1)
+
+ggplotly(g)
+g
 ```
 
 

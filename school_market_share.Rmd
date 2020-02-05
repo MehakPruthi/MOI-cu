@@ -39,8 +39,6 @@ schoolEnrolSlim <- schoolEnrol %>%
   # Remove schools with capacity of 0
   #filter(otg != 0, ade != 0) %>%
 
-# Clean global variables
-rm(schoolEnrol2011, schoolEnrol2017)
 ```
 
 ## Calculate 2007 Market Share by School
@@ -107,6 +105,6 @@ schoolEnrol20112017 <- schoolEnrol2011 %>%
   rename(ade2017 = ade) %>%
   mutate(enrol2011diff = ade2011 - enrol2011.by2007MS, enrol2017diff = ade2017 - enrol2017.by2007MS) %>%
   arrange(sfis) %>%
-  saveRDS("cache/edu/school_2007_market_share.rds")
+  saveRDS("cache/edu/school_2017_market_share.rds")
 
 ```
