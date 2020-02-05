@@ -462,22 +462,22 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_
 ### Determine which TRESO zones should be considered for new schools as a function of 'excessive' travel time and population
 ```{r}
 # Cache FINAL results temporarily
-saveRDS(school_master, "cache/edu/school_master_final.rds")
-saveRDS(trip_list, "cache/edu/trip_list_final.rds")
-saveRDS(por_additional, "cache/edu/por_additional_final.rds")
-saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
-saveRDS(por, "cache/edu/por_final.rds")
-saveRDS(pos, "cache/edu/pos_final.rds")
-saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
-saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
+# saveRDS(school_master, "cache/edu/school_master_final.rds")
+# saveRDS(trip_list, "cache/edu/trip_list_final.rds")
+# saveRDS(por_additional, "cache/edu/por_additional_final.rds")
+# saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
+# saveRDS(por, "cache/edu/por_final.rds")
+# saveRDS(pos, "cache/edu/pos_final.rds")
+# saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
+# saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
 
 # Cache results temporarily
-saveRDS(school_master, "cache/edu/school_master_testing.rds")
-saveRDS(trip_list, "cache/edu/trip_list_testing.rds")
-saveRDS(por_additional, "cache/edu/por_additional_testing.rds")
-saveRDS(school_forecast_final, "cache/edu/school_forecast_final_testing.rds")
-saveRDS(por_full, "cache/edu/por_full_testing.rds")
-saveRDS(pos_full, "cache/edu/pos_full_testing.rds")
+# saveRDS(school_master, "cache/edu/school_master_testing.rds")
+# saveRDS(trip_list, "cache/edu/trip_list_testing.rds")
+# saveRDS(por_additional, "cache/edu/por_additional_testing.rds")
+# saveRDS(school_forecast_final, "cache/edu/school_forecast_final_testing.rds")
+# saveRDS(por_full, "cache/edu/por_full_testing.rds")
+# saveRDS(pos_full, "cache/edu/pos_full_testing.rds")
 
 # school_master <- readRDS("cache/edu/school_master_testing.rds")
 # trip_list <- readRDS("cache/edu/trip_list_testing.rds")
@@ -485,6 +485,12 @@ saveRDS(pos_full, "cache/edu/pos_full_testing.rds")
 # school_forecast_final <- readRDS("cache/edu/school_forecast_final_testing.rds")
 # por_full <- readRDS("cache/edu/por_full_testing.rds")
 # pos_full <- readRDS("cache/edu/pos_full_testing.rds")
+
+build_df <- df_list[[1]] %>%
+  left_join(treso_zone_def, by = c('zone' = 'treso_id'))
+
+prox <- df_list[[2]] %>%
+  left_join(treso_zone_def, by = c('treso.id.por' = 'treso_id'))
 
 if (dm == TRUE) {
 
