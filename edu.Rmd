@@ -84,6 +84,10 @@ dm <- TRUE # TODO:Replace this with value provided by user through the visualiza
 # Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
 USER_OTG_THRESHOLD = 1.1 # TODO: Replace this hard-coded value with user-input value from visualization
 
+# Define portable size
+ELE_STUDENTS_UNIT_CLASS = 23 # TODO: Replace this hard-coded value with user-input value from visualization?
+SEC_STUDENTS_UNIT_CLASS = 21 # TODO: Replace this hard-coded value with user-input value from visualization?
+
 # Target utilization for future year
 target_utilization <- 0.9 # TODO: Replace this hard-coded value with user-input value from visualization
 
@@ -92,6 +96,8 @@ year_id <- 2025 # TODO: Replace this hard-coded value with user-input value from
 
 # Base scenario year
 base_year <- 2017
+
+
 
 ```
 
@@ -776,11 +782,26 @@ school_summary_20xx <- school_summary_df_list[[1]]
 
 # Rerun Steps 3, 4, 5, 6
 
-# Calculate number of students in portables and number of portables
-
 last_run_step <- 'Uncosolidate schools'
 
 ```
+
+### Calculate number of portables needed by school
+```{r}
+# Calculate number of students in portables and number of portables
+if panel_id == 'Elementary' {
+  portable_class_size <- ELE_STUDENTS_UNIT_CLASS
+}
+
+else {
+  portable_class_size <- SEC_STUDENTS_UNIT_CLASS
+}
+
+school_summary_20xx_final_portables <- school_summary_20xx_final %>% 
+  mutate(portable.ade = pmax(simulated.ade - otg, 0), 
+         portable.count = roundup(portable.ade / portable_class_size)
+```
+
 
 ### Plot DM schools
 
