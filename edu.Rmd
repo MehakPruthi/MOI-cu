@@ -81,14 +81,23 @@ consolidation_threshold <- 0.25 # TODO:Replace this with value provided by user 
 # Identify whether user is running decision-making layer
 dm <- TRUE # TODO:Replace this with value provided by user through the visualization interface
 
-# Percentage of current OTG to be set as maximum capacity in model
-USER_OTG_THRESHOLD = 1.0 # TODO: Replace this hard-coded value with user-input value from visualization
+# Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
+USER_OTG_THRESHOLD = 1.1 # TODO: Replace this hard-coded value with user-input value from visualization
+
+# Define portable size
+ELE_STUDENTS_UNIT_CLASS = 23 # TODO: Replace this hard-coded value with user-input value from visualization?
+SEC_STUDENTS_UNIT_CLASS = 21 # TODO: Replace this hard-coded value with user-input value from visualization?
+
+# Target utilization for future year
+target_utilization <- 0.9 # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Future scenario year
 year_id <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Base scenario year
 base_year <- 2017
+
+
 
 ```
 
@@ -462,22 +471,33 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_
 ### Determine which TRESO zones should be considered for new schools as a function of 'excessive' travel time and population
 ```{r}
 # Cache FINAL results temporarily
-saveRDS(school_master, "cache/edu/school_master_final.rds")
-saveRDS(trip_list, "cache/edu/trip_list_final.rds")
-saveRDS(por_additional, "cache/edu/por_additional_final.rds")
-saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
-saveRDS(por, "cache/edu/por_final.rds")
-saveRDS(pos, "cache/edu/pos_final.rds")
-saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
-saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
+# saveRDS(school_master, "cache/edu/school_master_final.rds")
+# saveRDS(trip_list, "cache/edu/trip_list_final.rds")
+# saveRDS(por_additional, "cache/edu/por_additional_final.rds")
+# saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
+# saveRDS(school_summary_20xx_final, "cache/edu/school_summary_20xx_final_final.rds")
+# saveRDS(por, "cache/edu/por_final.rds")
+# saveRDS(pos, "cache/edu/pos_final.rds")
+# saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
+# saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
+
+school_master <- readRDS("cache/edu/school_master_final.rds")
+trip_list <- readRDS("cache/edu/trip_list_final.rds")
+por_additional <- readRDS("cache/edu/por_additional_final.rds")
+school_forecast_final <- readRDS("cache/edu/school_forecast_final_final.rds")
+school_summary_20xx_final <- readRDS("cache/edu/school_summary_20xx_final_final.rds")
+por <- readRDS("cache/edu/por_final.rds")
+pos <- readRDS("cache/edu/pos_final.rds")
+schools_consolidated_closed <- readRDS("cache/edu/schools_consolidated_closed_final.rds")
+schools_consolidated_final <- readRDS("cache/edu/schools_consolidated_final.rds")
 
 # Cache results temporarily
-saveRDS(school_master, "cache/edu/school_master_testing.rds")
-saveRDS(trip_list, "cache/edu/trip_list_testing.rds")
-saveRDS(por_additional, "cache/edu/por_additional_testing.rds")
-saveRDS(school_forecast_final, "cache/edu/school_forecast_final_testing.rds")
-saveRDS(por_full, "cache/edu/por_full_testing.rds")
-saveRDS(pos_full, "cache/edu/pos_full_testing.rds")
+# saveRDS(school_master, "cache/edu/school_master_testing.rds")
+# saveRDS(trip_list, "cache/edu/trip_list_testing.rds")
+# saveRDS(por_additional, "cache/edu/por_additional_testing.rds")
+# saveRDS(school_forecast_final, "cache/edu/school_forecast_final_testing.rds")
+# saveRDS(por_full, "cache/edu/por_full_testing.rds")
+# saveRDS(pos_full, "cache/edu/pos_full_testing.rds")
 
 # school_master <- readRDS("cache/edu/school_master_testing.rds")
 # trip_list <- readRDS("cache/edu/trip_list_testing.rds")
@@ -634,6 +654,22 @@ last_run_step <- 'Consolidate existing schools'
 ###	Set OTG at new schools to be a function of unconstrained ADE (formerly considering OTG from consolidated schools in the CSD)
 
 ```{r}
+
+# Calculate number of new student places needed to achieve target utilization
+existing_otg <- school_master %>% 
+  select(otg) %>% 
+  sum()
+
+# Extract enrolment for the board-type/panel in question  
+scenario_enrolment <- treso_forecast_population_board %>% 
+  filter(board_type_name == board_id, panel == panel_id) %>% 
+  select(potential.enrolment) %>% 
+  sum()
+
+# Calcualte OTG needed based on user-defined target utilization
+needed_otg <- scenario_enrolment / target_utilization
+new_otg_reqd <- needed_otg - existing_otg
+
 new_school_ade <- school_forecast %>%
   # Filter out existing schools
   filter(sfis > 99000) %>% 
@@ -651,18 +687,12 @@ new_school_backup2 <- new_school
 # Revise list of new schools to have only the previously identified new schools which exceed the minimum ADE threshold
 new_school <- new_school %>% 
   right_join(select(new_school_ade, sfis, simulated.ade), by = c('sfis')) %>% 
-  mutate(otg = 1.05*simulated.ade) 
-  # Revise OTG of new schools to account for OTG closed by consolidating existing schools in the CSD - NOT NEEDED SINCE RERUNNING TO CHECK NEW UNCONSTRAINED ADE WILL BE USED TO DETERMINE HOW TO SIZE ADE
-  # left_join(select(treso_zone_def, treso_id, csduid), by = c('treso.id.pos' = 'treso_id')) %>% 
-  # left_join(distinct(schools_consolidated_closed_otg, csduid, csd.otg), by = c('csduid')) %>% 
-  # mutate(csd.otg = replace_na(csd.otg, 0)) %>% 
-  # group_by(csduid) %>% 
-  # mutate(additional.otg.percent = simulated.ade / sum(simulated.ade),
-  #        additional.otg = additional.otg.percent * csd.otg,
-  #        revised.otg = round(otg + additional.otg)) %>% 
-  # ungroup() %>% 
-  # select(-otg) %>% 
-  # rename(otg = revised.otg)
+  mutate(otg = simulated.ade) %>% 
+  # Change OTG in new schools to sum to new_otg_reqd
+  mutate(sum.otg = sum(otg),
+         revised.otg = round(new_otg_reqd / sum.otg * otg, 0)) %>% 
+  select(-otg) %>% 
+  rename(otg = revised.otg)
 
 last_run_step <- 'Set OTG at new schools...'
 
@@ -767,10 +797,22 @@ last_run_step <- 'Uncosolidate schools'
 
 ```
 
+### Calculate number of portables needed by school
+```{r}
+# Calculate number of students in portables and number of portables
+if panel_id == 'Elementary' {
+  portable_class_size <- ELE_STUDENTS_UNIT_CLASS
+}
 
-16. If travel times > acceptable travel times for any zone, see if an existing school has been consolidated from a zone within, say, 40 minutes of the zone with unacccepable travel times, reinstate the closest school
+else {
+  portable_class_size <- SEC_STUDENTS_UNIT_CLASS
+}
 
-17.	Rerun model capacity constrained to forecast ADE by school for all schools (new and existing)
+school_summary_20xx_final_portables <- school_summary_20xx_final %>% 
+  mutate(portable.ade = pmax(simulated.ade - otg, 0), 
+         portable.count = roundup(portable.ade / portable_class_size)
+```
+
 
 ### Plot Results from DM
 

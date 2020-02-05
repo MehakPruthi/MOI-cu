@@ -1206,7 +1206,7 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
   # Create full matrix of travel times for students across the province
   potential_zones <- cbind(trip_list, travel_times) %>%
     rename(travel.time = value) %>%
-    filter(trips > 0) %>% 
+    #filter(trips > 0) %>% 
     left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>% 
     left_join(select(treso_zone_def, treso_id, treso.pos.csduid = csduid, treso.pos.cduid = cduid), by = c('treso.id.pos' = 'treso_id')) %>% 
     select(-orig, -dest)
@@ -1243,17 +1243,21 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
     filter(excess.travel.time > min_tt_threshold) %>% 
     full_join(additional_zones, by = c('treso.id.por'))
   
-  shortlist_pairs <- threshold_tt_zones %>% 
+  # Create duplicate copy of shortlist_zones for later use
+  shortlist_zones_dup <- shortlist_zones
+  
+  shortlist_pairs <- potential_zones %>% 
     # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
-    select(treso.id.por, treso.id.pos, excess.travel.time, travel.time, build.flag, proximity.flag) %>% 
-    filter(excess.travel.time > min_tt_threshold) %>% 
-    full_join(additional_zones, by = c('treso.id.por'))
+    #select(treso.id.por, treso.id.pos, excess.travel.time, travel.time, build.flag, proximity.flag) %>% 
+    #filter(excess.travel.time > min_tt_threshold) %>% 
+    select(treso.id.por, treso.id.pos, travel.time)
+    #full_join(additional_zones, by = c('treso.id.por'))
   
-  numrows <- shortlist_pairs %>% 
-    summarise(n()) %>%
-    sum()
+  shortlist_pairs <- shortlist_pairs %>% 
+    inner_join(shortlist_zones, by = c('treso.id.por')) %>% 
+    inner_join(shortlist_zones, by = c('treso.id.pos' = 'treso.id.por'))
   
-  print(numrows)
+  print(nrow(shortlist_pairs))
   
   # Initialize dataframes and while-loop check
   row_check <- 1
@@ -1262,6 +1266,8 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
   
   start.time <- Sys.time()
   print(Sys.time())
+  # print(nrow(shortlist_zones))
+  # print(shortlist_pairs %>% filter(treso.id.por == 1188 & treso.id.pos == 1197))
   
   # Loop through possible TRESO building locations to choose best zones in which to build
   while (row_check > 0) {
@@ -1272,28 +1278,56 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
       add_row(., zone = build.zone)
     
     # Determine which origin zones should be ruled out 
-    shortlist_pairs_slim <- shortlist_pairs %>%
+    shortlist_pairs_elim <- shortlist_pairs %>%
       filter(treso.id.por != build.zone) %>% 
       filter(treso.id.pos == build.zone) %>% 
       filter(travel.time <= zone_proximity_threshold) %>% 
       distinct(treso.id.por)
     
-    proximity_df <- rbind(proximity_df, shortlist_pairs_slim)
+    print(paste0('Build Zone: ', build.zone))
+    
+    #proximity_df <- rbind(proximity_df, shortlist_pairs_slim)
     
     # Remove TRESO zones which have already been set to 'build' or should be ruled out due to proximity
     shortlist_zones <- shortlist_zones %>% 
       filter(treso.id.por != build.zone) %>% 
-      anti_join(shortlist_pairs_slim, by = c('treso.id.por'))
+      anti_join(shortlist_pairs_elim, by = c('treso.id.por'))
+    
+    print(paste0('Shortlist Zone count: ', nrow(shortlist_zones)))
+    
+    # Speeding up future searches by shortening shortlist_pairs to exlude previously eliminated zones from future consideration
+    shortlist_pairs_keep_1 <- shortlist_pairs %>% 
+      filter(treso.id.por != build.zone) %>% 
+      filter(treso.id.pos == build.zone & travel.time > zone_proximity_threshold)
+      
+    shortlist_pairs_keep_2 <- shortlist_pairs %>% 
+      filter(treso.id.por != build.zone) %>%
+      filter(treso.id.pos != build.zone)
+    
+    shortlist_pairs <- rbind(shortlist_pairs_keep_1, shortlist_pairs_keep_2)  
+    
+    # shortlist_pairs <- shortlist_pairs %>% 
+    #   filter(treso.id.por != build.zone) %>% 
+    #   inner_join(shortlist_zones, by = c('treso.id.por')) %>% 
+    #   inner_join(shortlist_zones, by = c('treso.id.pos' = 'treso.id.por'))
+      #anti_join(shortlist_pairs_slim, by = c('treso.id.por')) %>% 
+      #anti_join(shortlist_pairs_slim, by = c('treso.id.pos' = 'treso.id.por'))
+      
+    print(paste0('Shortlist Pair Count: ', nrow(shortlist_pairs)))
     
     # Check to see if any rows (zones) remain to be considered for building a school
-    row_check <- shortlist_zones %>% 
-      summarise(n = n()) %>% 
-      pull()
+    row_check <- nrow(shortlist_zones)
   } 
+  
+  proximity_df <- shortlist_zones_dup %>% 
+    anti_join(build_df, by = c('treso.id.por' = 'zone'))
   
   end.time <- Sys.time()
   time.diff <- end.time - start.time
   print(time.diff)
+  
+  proximity_df <- proximity_df %>% 
+    distinct(treso.id.por)
   
   df_list <- list(build_df, proximity_df)
   
