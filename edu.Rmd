@@ -81,8 +81,11 @@ consolidation_threshold <- 0.25 # TODO:Replace this with value provided by user 
 # Identify whether user is running decision-making layer
 dm <- TRUE # TODO:Replace this with value provided by user through the visualization interface
 
-# Percentage of current OTG to be set as maximum capacity in model
+# Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
 USER_OTG_THRESHOLD = 1.0 # TODO: Replace this hard-coded value with user-input value from visualization
+
+# Target utilization for future year
+target_utilization <- 0.9 # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Future scenario year
 year_id <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
@@ -640,6 +643,25 @@ last_run_step <- 'Consolidate existing schools'
 ###	Set OTG at new schools to be a function of unconstrained ADE (formerly considering OTG from consolidated schools in the CSD)
 
 ```{r}
+
+# Calculate number of new student places needed to achieve target utilization
+existing_otg <- school_master %>% 
+  select(otg) %>% 
+  sum() %>% 
+  pull()
+
+# Extract enrolment for the board-type/panel in question  
+scenario_enrolment <- treso_forecast_population_board %>% 
+  filter(board_type_name == board_id, panel == panel_id) %>% 
+  select(potential.enrolment) %>% 
+  sum() %>% 
+  pull()
+
+# Calcualte OTG needed based on user-defined target utilization
+needed_otg <- scenario_enrolment / target_utilization
+
+new_otg_reqd <- 
+
 new_school_ade <- school_forecast %>%
   # Filter out existing schools
   filter(sfis > 99000) %>% 

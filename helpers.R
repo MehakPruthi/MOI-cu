@@ -1320,7 +1320,7 @@ edu_dm <- function(travel_times, trip_list, treso_zone_def, travel_time_threshol
   } 
   
   proximity_df <- shortlist_zones_dup %>% 
-    anti_join(build_df, by = 'treso.id.por')
+    anti_join(build_df, by = c('treso.id.por' = 'zone'))
   
   end.time <- Sys.time()
   time.diff <- end.time - start.time
