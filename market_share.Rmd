@@ -5,168 +5,174 @@ date: "23/01/2020"
 output: html_document
 ---
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(tidyverse)
 library(data.table)
-
-
 ```
 
+## Market Share
+
+- Calculating the market share change between 2011 to 2017
+- Bear in mind the change to full time JK in 2014
 
 ```{r Market Share prep, echo=FALSE}
-## Prepare group ADE by CD and compare against population data
-## Some market share is outside the system, eg. Private school, home schooling, error in population estimates
-## ADE counts are funded and considered the most accurate measure 
-## should not hard code 2017
-ade_dsb_hist<- readRDS('output/school_treso_master.rds') %>%
+# Prepare group ADE by CD and compare against population data
+# Some market share is outside the system, eg. Private school, home schooling, error in population estimates
+# ADE counts are funded and considered the most accurate measure 
+# should not hard code 2017
+ade_dsb_hist <- readRDS('cache/edu/school_treso_master.rds') %>%
   select(year,
          dsb.index,
          panel,
          ade,
          cduid) %>%
   filter(year <= 2017) %>%
-  group_by(year,dsb.index,panel,cduid) %>%
-  summarise(ade=sum(ade)) %>%
-  arrange(dsb.index,panel,cduid, year)%>%
-  ungroup ()%>%
-  mutate(year=as.numeric(year))
+  group_by(year, dsb.index, panel, cduid) %>%
+  summarise(ade = sum(ade)) %>%
+  ungroup() %>% 
+  arrange(dsb.index, panel, cduid, year)%>%
+  mutate(year = as.numeric(year))
 
-##some data issues are apparent. If there is not a CD associated enrolment or enrolment appears is only
-## ocassionally present in a CSD; reassign it on a pro-rated basis to other CDS for that board
+# Some data issues are apparent. If there is not a CD associated enrolment or enrolment appears is only
+# ocassionally present in a CSD; reassign it on a pro-rated basis to other CDS for that board
+ade_dsb_hist_spread <- ade_dsb_hist %>%
+  pivot_wider(names_from = year, values_from = ade)
 
-ade_dsb_hist2<- ade_dsb_hist %>%
-  spread(year,ade)
-
-##flag issues
-ade_dsb_hist2<- ade_dsb_hist2 %>%
-  mutate (data_iss=ifelse(rowSums(is.na(ade_dsb_hist2))>0,1,0)) %>%
-  gather(year,ade,c('2007':'2017'))%>%
-  mutate(year=as.numeric(year))
+# Flag the issues
+ade_dsb_hist_long <- ade_dsb_hist_spread %>%
+  mutate(data.issue = ifelse(rowSums(is.na(ade_dsb_hist_spread)) > 0, 1, 0)) %>%
+  gather(year, ade, `2007`:`2017`) %>%
+  mutate(year = as.numeric(year))
 
 ## total ADE by DSB, Panel, Year
-ade_dsb_panel_sum<- ade_dsb_hist %>%
+ade_dsb_panel_sum <- ade_dsb_hist %>%
 select(year,
        dsb.index,
        panel,
-       ade,) %>%
+       ade) %>%
   filter(year <= 2017) %>%
-  group_by(year,dsb.index,panel) %>%
-  summarise(ade=sum(ade)) %>%
-  arrange(dsb.index,panel, year)%>%
-  ungroup ()
+  group_by(year, dsb.index, panel) %>%
+  summarise(ade = sum(ade)) %>%
+  ungroup () %>% 
+  arrange(dsb.index, panel, year)
 
-## ADE to be reassigned
-ade_dat_issue_sum<- ade_dsb_hist2 %>%
-  filter(data_iss==1) %>%
-  group_by(dsb.index, panel, year,data_iss)%>%
-  summarise(ade=sum(ade))%>%
-  na.omit(ade)%>%
-  filter(ade>0)%>%
-  arrange(dsb.index, panel, year)%>%
-  ungroup()
+# ADE to be reassigned
+ade_data_issue_sum <- ade_dsb_hist_long %>%
+  filter(data.issue == 1) %>%
+  group_by(dsb.index, panel, year, data.issue)%>%
+  summarise(ade = sum(ade)) %>%
+  ungroup() %>% 
+  na.omit(ade) %>%
+  filter(ade > 0) %>%
+  arrange(dsb.index, panel, year)
 
-## ADE with good data & share of total ade & reassinged total to create clean data
-ade_panel_mrktshr <- ade_dsb_hist2 %>%
-  filter(data_iss==0) %>%
-  left_join(ade_dsb_panel_sum, by =c('dsb.index'='dsb.index','panel'='panel','year'='year'))%>%
-  mutate(share=ade.x/ade.y)%>%
-  left_join(select(ade_dat_issue_sum, 
-                   dsb.index,
-                   panel,
-                   year,
-                   ade),
-            by =c('dsb.index'='dsb.index','panel'='panel','year'='year'))%>%
-  mutate(ade=replace_na(ade,0))%>%
-  mutate(ade=round(ade.x+(share*ade),0))%>%
-  select(-ade.x,-ade.y,-share,-data_iss)
+# ADE with good data & share of total ade & reassinged total to create clean data
+ade_panel_mrktshr <- ade_dsb_hist_long %>%
+  filter(data.issue == 0) %>%
+  left_join(ade_dsb_panel_sum, by = c('dsb.index', 'panel', 'year')) %>%
+  mutate(share = ade.x / ade.y) %>%
+  left_join(select(ade_data_issue_sum, dsb.index, panel, year, ade),
+            by = c('dsb.index', 'panel','year')) %>%
+  mutate(ade = replace_na(ade, 0)) %>%
+  mutate(ade.scaled = round(ade.x + (share * ade), 0)) %>%
+  select(-ade.x, -ade.y, -share, -data.issue)
 
-## The model will be the change over the last 7 years, applied to the next 10 and then no change after
-## Calculate the first and sevenths year 
-endyear<-max(ade_dsb_hist$year)
-firstyear<-endyear-7
+print(paste0("The total ADE in 2017 in the original data is: ", sum(filter(ade_dsb_hist_long, year==2017,
+                                                                           data.issue == 0)$ade, na.rm = TRUE)))
+print(paste0("The total ADE in 2017 after cleaning the data is: ", sum(filter(ade_panel_mrktshr, year==2017)$ade.scaled)))
 
-## clean up and remove temp tables
-rm(ade_dsb_hist,ade_dsb_hist2,ade_dat_issue_sum,ade_dsb_panel_sum)
+# The model will be the change over the last 7 years, applied to the next 10 and then no change after
+# Calculate the first and sevenths year 
+endyear <- max(ade_dsb_hist$year)
+firstyear <- endyear - 7
+
+# Clean up and remove temp tables
+rm(ade_dsb_hist, ade_dsb_hist_spread, ade_data_issue_sum, ade_dsb_panel_sum)
 
 ```
+
+
 ```{r Market share caculations, echo=FALSE}
-##prepare the population data into Elementary and Secondary groups
-sch_pop<- read.csv('input/mag/MOF_POP.csv')%>%
-  select(year=Year,
-         age=Age,
-         sex=Sex,
-         pop=Population,
-         cd=SGCId)%>%
-  filter(year>2006, age<19, age>3,sex==3)%>%
-  mutate(panel=ifelse(age<14,'Elementary','Secondary'))%>%
-  group_by(year,cd,panel)%>%
-  summarise(pop=sum(pop))%>%
+# Prepare the population data into Elementary and Secondary groups
+school_population <- read.csv('input/mag/MOF_POP.csv') %>%
+  select(year = Year,
+         age = Age,
+         sex = Sex,
+         pop = Population,
+         cduid = SGCId) %>%
+  filter(year > 2006, age < 19, age > 3,sex == 3) %>%
+  mutate(panel = ifelse(age < 14, 'Elementary', 'Secondary')) %>%
+  group_by(year, cduid, panel) %>%
+  summarise(pop = sum(pop)) %>%
   ungroup()
 
+# Calculate marketshare by cd panel/ This will be used to ensure that individual changes make sense
+# Eg if one board is losing market share another is gaining it
+# figure out the range of possible cd values
+# Elementary ADE increased after 2013 as JKSK went from being 0.5 ADE to 1.0 ADE
+# calculate range of total market share and set limit to +-3%
+panel_cd_mrktshr <- ade_panel_mrktshr %>%
+  left_join(school_population, by = c('year', 'cduid', 'panel')) %>%
+  mutate(share = ade.scaled / pop) %>%
+  select(-ade, -pop)
 
+panel_cd_mrktshr_end_yr <- panel_cd_mrktshr %>%
+  filter(year == endyear) %>% 
+  group_by(year, cduid, panel) %>%
+  summarise(share = sum(share)) %>% 
+  ungroup()
 
-
-## calculate marketshare by cd panel/ This will be used to ensure that individual changes make sense
-## Eg if one board is losing market share another is gaining it
-## figure out the range of possible cd values
-## Elementary ADE increased after 2013 as JKSK went from being 0.5 ADE to 1.0 ADE
-## calculate range of total market share and set limit to +-3%
-panel_cd_mrktshr<-ade_panel_mrktshr  %>%
-  left_join(sch_pop,by=c('year'='year','cduid'='cd','panel'='panel'))%>%
-  mutate(share=ade/pop)%>%
-  select(-ade,-pop)
-
-panel_cd_mrktshr_last<-panel_cd_mrktshr%>%
-  filter(year==endyear)%>% 
-  group_by(year,cduid, panel)%>%
-  summarise(sum(share))
-
-panel_cd_sum_stat<-panel_cd_mrktshr%>%
-  group_by(year,cduid,panel)%>%
-  summarise(share=sum(share))%>%
-  ungroup()%>%
-  mutate(keyx=ifelse(panel=='Secondary',1,ifelse(year>2013 & panel =='Elementary',2,3)))%>%
-  group_by(cduid,panel,keyx)%>%
-  summarise(max=max(share),
-            min=min(share),
-            avg=mean(share))%>%
-  mutate(range=ifelse(max-min>.03,.03,max-min))%>%
-  filter(keyx<3)
+panel_cd_sum_stat <- panel_cd_mrktshr %>%
+  group_by(year, cduid, panel) %>%
+  summarise(share = sum(share)) %>%
+  ungroup() %>%
+  mutate(keyx = ifelse(panel == 'Secondary', 1, ifelse(year > 2013 & panel =='Elementary', 2, 3)))%>%
+  group_by(cduid, panel, keyx) %>%
+  summarise(max = max(share),
+            min = min(share),
+            avg = mean(share)) %>%
+  mutate(range = ifelse(max-min > .03, .03, max-min)) %>%
+  filter(keyx < 3)
   
-## Calculate board level market share 
-## determine degree of change between 2011 to 2013 and 2014 to 2017 for elementary
-## Determine the degree of change between 2011 and 2017 for secondary
-## set maximum change to 5% (95% of all changes are within that band)
-brd_cd_mrktshr<-ade_panel_mrktshr  %>%
-  left_join(sch_pop,by=c('year'='year','cduid'='cd','panel'='panel'))%>%
-  mutate(share=ade/pop)%>%
-  select(-ade,-pop)%>%
-  group_by(year,cduid,panel,dsb.index)%>%
-  summarise(share=sum(share))%>%
-  ungroup()%>%
-  spread(year,share)%>%
-  mutate(change=ifelse(panel=='Elementary'&firstyear<2014,
-                       `2013`-(!!as.symbol(firstyear))+(!!as.symbol(endyear))-`2014`,
-                       (!!as.symbol(endyear))-(!!as.symbol(firstyear))))%>%
-  mutate(change=ifelse(change<(-0.05),-.05,ifelse(change>.05,.05,change)))
+# Calculate board level market share 
+# determine degree of change between 2011 to 2013 and 2014 to 2017 for elementary
+# Determine the degree of change between 2011 and 2017 for secondary
+# set maximum change to 5% (95% of all changes are within that band)
+brd_cd_mrktshr <- ade_panel_mrktshr  %>%
+  left_join(school_population, by = c('year', 'cduid', 'panel')) %>%
+  mutate(share = ade.scaled / pop) %>%
+  select(-ade, -pop, -ade.scaled) %>%
+  group_by(year, cduid, panel, dsb.index) %>%
+  summarise(share=sum(share)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = year, values_from = share) %>%
+  mutate(change = ifelse(panel=='Elementary' & firstyear < 2014,
+                         `2013` - (!!as.symbol(firstyear)) + (!!as.symbol(endyear)) - `2014`,
+                         (!!as.symbol(endyear)) - (!!as.symbol(firstyear)))) %>%
+  mutate(change = ifelse(change < (-0.05), -.05, ifelse(change > .05, .05, change)))
 
-## clean up temp tables
-rm(panel_cd_mrktshr,panel_cd_mrktshr_last,panel_cd_sum_stat)
+brd_cd_mrktshr %>% 
+  group_by(cduid, panel) %>% 
+  summarise(share_2017 = sum(`2017`))
+
+# clean up temp tables
+rm(panel_cd_mrktshr, panel_cd_mrktshr_end_yr)
 
 ```
+
 ```{r future market share}
 ## take the change in market share over the last 7 years and extend it over the next 10
 ## sum the market shares in a cd and make sure that it is with in the band around the average
 ## if the sum is outside the band pro-rate up or down to fall within the band
 ## after 10 years fix the amounts and allow enrolment to change with the change in population
 ## AFTER MUCH WAILING AND GNASHING OF TEETH 1
-brd_cd_mrktshr_chg_raw1<-brd_cd_mrktshr %>%
-  select(dsb.index,cduid,panel,mrktshr=!!as.symbol(endyear),change)%>%
-  mutate(year=endyear,
+brd_cd_mrktshr_chg_raw1 <- brd_cd_mrktshr %>%
+  select(dsb.index, cduid, panel, mrktshr = !!as.symbol(endyear), change) %>%
+  mutate(year = endyear,
          chgrt=(1+change)^(1/10))
 
 ## AFTER MUCH WAILING AND GNASHING OF TEETH 2
-##create 10 years of market share. The final value being flat lines
+## create 10 years of market share. The final value being flat lines
 brd_cd_mrktshr_chg_raw2<-brd_cd_mrktshr_chg_raw1 %>%
   slice(rep(row_number(),10))%>%
   mutate(ticker=1)%>%
@@ -179,8 +185,6 @@ brd_cd_mrktshr_chg_raw2<-brd_cd_mrktshr_chg_raw1 %>%
 ## Create cd level totals and cross check against allowed ranges
 ## public schools generally account for about 90 to 95% of possible enrolment
 ## 5% roughly is private school (homeschooling is negligible) and error in the population estimates
-## 
-
 cd_panel_proj_mrktshr <- brd_cd_mrktshr_chg_raw2%>%
   select (dsb.index, cduid, panel, year, mrktshr_yrx)%>%
   group_by (cduid, panel, year)%>%
@@ -190,7 +194,7 @@ cd_panel_proj_mrktshr <- brd_cd_mrktshr_chg_raw2%>%
   mutate(factor=ifelse(proj_cd_mrktshr<(avg-range),(avg-range)/proj_cd_mrktshr,
          ifelse(proj_cd_mrktshr>(avg+range),(avg+range)/proj_cd_mrktshr,1)))
   
- ##scale up or down individual brd_cd_panel mrktshares to bring into acceptable totals for the cd/panel
+##scale up or down individual brd_cd_panel mrktshares to bring into acceptable totals for the cd/panel
 brd_cd_mrktshr_proj_in<-brd_cd_mrktshr_chg_raw2%>%
   select(year,dsb.index,panel,cduid,mrktshr_yrx)%>%
   left_join(cd_panel_proj_mrktshr, by=c('cduid','year','panel'))%>%
@@ -210,16 +214,40 @@ brd_cd_mrktshr_ext<-brd_cd_mrktshr_proj_in %>%
   select(-ticker,-counter)
 
 ##union the two tables
-brd_cd_mrktshr_proj<- rbind(brd_cd_mrktshr_proj_in,brd_cd_mrktshr_ext)
+brd_cd_mrktshr_proj <- rbind(brd_cd_mrktshr_proj_in, brd_cd_mrktshr_ext)
 
 ## remove temp tables
 rm(brd_cd_mrktshr_chg_raw1, brd_cd_mrktshr_chg_raw2, brd_cd_mrktshr_proj_in,brd_cd_mrktshr_ext,
    cd_panel_proj_mrktshr)
 
 ```
+
+```{r Convert DSB index to board type}
+school_board_types <- read_csv("input/edu/school_board_types.csv") %>% 
+  select(dsb, board_type_name)
+
+board_sample_spread <- brd_cd_mrktshr_proj %>% 
+  rename(sample = mrktshr_yrx) %>% 
+  left_join(school_board_types, by=c("dsb.index"="dsb")) %>% 
+  pivot_wider(names_from = board_type_name, values_from = sample) %>% 
+  group_by(year, cduid, panel) %>%
+  summarise(
+    `English Catholic` = sum(`English Catholic`, na.rm = TRUE),
+    `English Public` = sum(`English Public`, na.rm = TRUE),
+    `French Catholic` = sum(`French Catholic`, na.rm = TRUE),
+    `French Public` = sum(`French Public`, na.rm = TRUE)
+  ) %>%
+  ungroup() %>% 
+  mutate(sample.total = `English Catholic` + `English Public` + `French Catholic` + `French Public`)
+
+saveRDS(board_sample_spread, "cache/edu/board_type_sample_spread.rds")
+
+```
+
+
 ```{r convert mrktshare to future enrollment}
-mrktshr_enr<- brd_cd_mrktshr_proj %>%
-  left_join(sch_pop, by=c('year', 'panel', 'cduid'='cd'))%>%
+mrktshr_enr <- brd_cd_mrktshr_proj %>%
+  left_join(school_population, by=c('year', 'panel', 'cduid'))%>%
   mutate(proj_ade=round(mrktshr_yrx*pop,0))
 
 ```

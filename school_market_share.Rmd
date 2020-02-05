@@ -64,8 +64,8 @@ schoolEnrol2011 <- schoolEnrolSlim %>%
   mutate(board.enrol = sum(ade)) %>%
   ungroup() %>%
   mutate(enrol2011.by2007MS = market.share2007 * board.enrol) %>%
-  mutate(MSerror2011 = abs(ade - enrol2011.by2007MS) / ade, MSerrorPercent2011 = 
-         percent(abs(ade - enrol2011.by2007MS) / ade, accuracy = 1)) %>%
+  mutate(MSerror2011 = abs(ade - enrol2011.by2007MS) / ade, 
+         MSerrorPercent2011 = percent(abs(ade - enrol2011.by2007MS) / ade, accuracy = 1)) %>%
   
   # Calculate unweighted mean error
     # Find average enrolment differences for each year
