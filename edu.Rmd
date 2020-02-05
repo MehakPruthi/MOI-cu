@@ -475,10 +475,21 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_
 # saveRDS(trip_list, "cache/edu/trip_list_final.rds")
 # saveRDS(por_additional, "cache/edu/por_additional_final.rds")
 # saveRDS(school_forecast_final, "cache/edu/school_forecast_final_final.rds")
+# saveRDS(school_summary_20xx_final, "cache/edu/school_summary_20xx_final_final.rds")
 # saveRDS(por, "cache/edu/por_final.rds")
 # saveRDS(pos, "cache/edu/pos_final.rds")
 # saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
 # saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
+
+school_master <- readRDS("cache/edu/school_master_final.rds")
+trip_list <- readRDS("cache/edu/trip_list_final.rds")
+por_additional <- readRDS("cache/edu/por_additional_final.rds")
+school_forecast_final <- readRDS("cache/edu/school_forecast_final_final.rds")
+school_summary_20xx_final <- readRDS("cache/edu/school_summary_20xx_final_final.rds")
+por <- readRDS("cache/edu/por_final.rds")
+pos <- readRDS("cache/edu/pos_final.rds")
+schools_consolidated_closed <- readRDS("cache/edu/schools_consolidated_closed_final.rds")
+schools_consolidated_final <- readRDS("cache/edu/schools_consolidated_final.rds")
 
 # Cache results temporarily
 # saveRDS(school_master, "cache/edu/school_master_testing.rds")
