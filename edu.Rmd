@@ -82,7 +82,7 @@ consolidation_threshold <- 0.25 # TODO:Replace this with value provided by user 
 dm <- TRUE # TODO:Replace this with value provided by user through the visualization interface
 
 # Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
-USER_OTG_THRESHOLD = 1.0 # TODO: Replace this hard-coded value with user-input value from visualization
+USER_OTG_THRESHOLD = 1.1 # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Target utilization for future year
 target_utilization <- 0.9 # TODO: Replace this hard-coded value with user-input value from visualization
@@ -489,12 +489,6 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_
 # por_full <- readRDS("cache/edu/por_full_testing.rds")
 # pos_full <- readRDS("cache/edu/pos_full_testing.rds")
 
-build_df <- df_list[[1]] %>%
-  left_join(treso_zone_def, by = c('zone' = 'treso_id'))
-
-prox <- df_list[[2]] %>%
-  left_join(treso_zone_def, by = c('treso.id.por' = 'treso_id'))
-
 if (dm == TRUE) {
 
 # Determine potential TRESO zones in which to build schools
@@ -647,20 +641,17 @@ last_run_step <- 'Consolidate existing schools'
 # Calculate number of new student places needed to achieve target utilization
 existing_otg <- school_master %>% 
   select(otg) %>% 
-  sum() %>% 
-  pull()
+  sum()
 
 # Extract enrolment for the board-type/panel in question  
 scenario_enrolment <- treso_forecast_population_board %>% 
   filter(board_type_name == board_id, panel == panel_id) %>% 
   select(potential.enrolment) %>% 
-  sum() %>% 
-  pull()
+  sum()
 
 # Calcualte OTG needed based on user-defined target utilization
 needed_otg <- scenario_enrolment / target_utilization
-
-new_otg_reqd <- 
+new_otg_reqd <- needed_otg - existing_otg
 
 new_school_ade <- school_forecast %>%
   # Filter out existing schools
@@ -679,18 +670,12 @@ new_school_backup2 <- new_school
 # Revise list of new schools to have only the previously identified new schools which exceed the minimum ADE threshold
 new_school <- new_school %>% 
   right_join(select(new_school_ade, sfis, simulated.ade), by = c('sfis')) %>% 
-  mutate(otg = 1.05*simulated.ade) 
-  # Revise OTG of new schools to account for OTG closed by consolidating existing schools in the CSD - NOT NEEDED SINCE RERUNNING TO CHECK NEW UNCONSTRAINED ADE WILL BE USED TO DETERMINE HOW TO SIZE ADE
-  # left_join(select(treso_zone_def, treso_id, csduid), by = c('treso.id.pos' = 'treso_id')) %>% 
-  # left_join(distinct(schools_consolidated_closed_otg, csduid, csd.otg), by = c('csduid')) %>% 
-  # mutate(csd.otg = replace_na(csd.otg, 0)) %>% 
-  # group_by(csduid) %>% 
-  # mutate(additional.otg.percent = simulated.ade / sum(simulated.ade),
-  #        additional.otg = additional.otg.percent * csd.otg,
-  #        revised.otg = round(otg + additional.otg)) %>% 
-  # ungroup() %>% 
-  # select(-otg) %>% 
-  # rename(otg = revised.otg)
+  mutate(otg = simulated.ade) %>% 
+  # Change OTG in new schools to sum to new_otg_reqd
+  mutate(sum.otg = sum(otg),
+         revised.otg = round(new_otg_reqd / sum.otg * otg, 0)) %>% 
+  select(-otg) %>% 
+  rename(otg = revised.otg)
 
 last_run_step <- 'Set OTG at new schools...'
 
@@ -791,14 +776,11 @@ school_summary_20xx <- school_summary_df_list[[1]]
 
 # Rerun Steps 3, 4, 5, 6
 
+# Calculate number of students in portables and number of portables
+
 last_run_step <- 'Uncosolidate schools'
 
 ```
-
-
-16. If travel times > acceptable travel times for any zone, see if an existing school has been consolidated from a zone within, say, 40 minutes of the zone with unacccepable travel times, reinstate the closest school
-
-17.	Rerun model capacity constrained to forecast ADE by school for all schools (new and existing)
 
 ### Plot DM schools
 
