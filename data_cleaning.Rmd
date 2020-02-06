@@ -14,26 +14,83 @@ library(rgeos)
 source("helpers.R")
 ```
 
-# EDU Data Import
 
-```{r edu mport, include=FALSE}
-# TRESO data
-hhld_df <- data.table::fread("input/treso/households_2011.csv.gz")
-pop_df <- data.table::fread("input/treso/persons_2011.csv.gz")
+# TRESO Data Cleaning
 
-# School Data
-schoolCap <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
-schoolForecast <- read.csv("input/edu/school_forecast.csv", stringsAsFactors = FALSE)
-schoolAssets <- read.csv("input/edu/school_assets.csv", stringsAsFactors = FALSE)
-schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", stringsAsFactors = FALSE)
-schoolAssetsSFIS.BID <- read.csv("input/edu/dbo_AssetInventoryEDULatLong.csv", stringsAsFactors = FALSE)
-studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
-eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+## TRESO Travel Time Skim Prep
 
-pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
+- The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of.
+- Assumptions made are the following:
+  - Known intra-zonal trips which are less than or equal to 2.5 km in length are performed by walking at an average speed of 5 km/hr. 
+  - Known intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
+  - Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and euclidean travel time at 30 km/hr) are set to euclidean travel time.
+  - Leaving unknown intra-zonal travel time to be estimated from the size of the TRESO shapefile. Four levels of TRESO sizes are determined from quantile calculation. Level 1 and 2 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 15 km/hr. Level 2 and 3 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 60 km/hr.
+
+```{r treso travel time prep, echo=FALSE, eval=FALSE}
+# TRESO time skim
+travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
+
+travel_time_skim <- travel_time_skim_square %>%
+  reshape2::melt(id = c("p/q/[val]")) %>%
+  rename(orig = "p/q/[val]", dest = variable) %>%
+  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest]) %>%
+  filter(orig %in% treso_shp@data$Treso_ID) %>%
+  filter(dest %in% treso_shp@data$Treso_ID)
+
+# The reason for creating a master list is to save time computation time on left_join()
+travel_time <- readRDS("output/edu/observed_por_pos_90.rds") %>%
+  drop_na(treso.id.por) %>%
+  group_by(treso.id.por, treso.id.pos) %>%
+  summarise(euclidean.dist = weighted.mean(euclidean.dist, enrolment)) %>%
+  ungroup() %>%
+  right_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value)
+
+summary(travel_time$travel.time)
+
+treso_area <- treso_shp@data %>%
+  select(treso.id = Treso_ID, area = Area) %>%
+  mutate(area.km = area / 1000000) %>%
+  mutate(length = sqrt(area.km))
+treso_area_quantile <- quantile(treso_area$area.km)
+
+print(paste0("Zones with an area between ", round(treso_area_quantile[4][[1]], 2), " - ",
+             round(treso_area_quantile[5][[1]], 2), " km^2 are categorized as extra large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[3][[1]], 2), " - ",
+             round(treso_area_quantile[4][[1]], 2), " km^2 are categorized as large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[2][[1]], 2), " - ",
+             round(treso_area_quantile[3][[1]], 2), " km^2 are categorized as medium"))
+print(paste0("Zones with an area between ", round(treso_area_quantile[1][[1]], 2), " - ",
+             round(treso_area_quantile[2][[1]], 2), " km^2 are categorized as small"))
+
+treso_intrazonal_travel_time <- treso_area %>%
+  mutate(size.category = "extra large") %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[4][[1]], "large", size.category)) %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[3][[1]], "medium", size.category)) %>%
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[2][[1]], "small", size.category)) %>% 
+  mutate(intra.zonal.travel.time = ifelse(size.category %in% c("extra large", "large"), length / 60 * 60, length / 15 * 60))
+
+travel_time1 <- travel_time %>%
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
+  mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  left_join(treso_intrazonal_travel_time, by=c("treso.id.pos"="treso.id")) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & treso.id.por == treso.id.pos), 
+                              intra.zonal.travel.time,
+                              travel.time)) %>%
+  select(treso.id.por, treso.id.pos, value = travel.time) %>%
+  arrange(treso.id.por, treso.id.pos)
+
+saveRDS(travel_time1, "cache/treso/treso_travel_time.rds")
 ```
 
-# EDU Data Cleaning
 ## TRESO Data cleaning 
 ```{r treso data cleaning, echo=FALSE}
 # Clean hhld_df
@@ -117,6 +174,29 @@ treso_tb <- socio_economic_tb %>%
 
 # Clean global variables
 rm(hhld_tb, socio_economic_tb, hhld_structure)
+```
+
+
+# EDU Data Cleaning
+
+
+## EDU Data Import
+
+```{r edu mport, include=FALSE}
+# TRESO data
+hhld_df <- data.table::fread("input/treso/households_2011.csv.gz")
+pop_df <- data.table::fread("input/treso/persons_2011.csv.gz")
+
+# School Data
+schoolCap <- read.csv("input/edu/school_capacity.csv", stringsAsFactors = FALSE)
+schoolForecast <- read.csv("input/edu/school_forecast.csv", stringsAsFactors = FALSE)
+schoolAssets <- read.csv("input/edu/school_assets.csv", stringsAsFactors = FALSE)
+schoolAssetsPortables <- read.csv("input/edu/school_assets_portables.csv", stringsAsFactors = FALSE)
+schoolAssetsSFIS.BID <- read.csv("input/edu/dbo_AssetInventoryEDULatLong.csv", stringsAsFactors = FALSE)
+studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
+eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+
+pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
 ```
 
 ### Clean and Simplify Portables Data
