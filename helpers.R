@@ -1093,7 +1093,7 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   #' @return A dataframe with population segmented by panel and board type
   #' 
   forecast_population_by_board <- forecast_population %>%
-    left_join(select(board_type_sample, -enrolment.total, -sample.total), by = c("panel", "csduid")) %>%
+    left_join(board_type_sample, by = c("panel", "cduid")) %>%
     group_by(treso.id.por, panel) %>%
     summarise(
       csduid = first(csduid),

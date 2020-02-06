@@ -97,7 +97,8 @@ year_id <- 2025 # TODO: Replace this hard-coded value with user-input value from
 # Base scenario year
 base_year <- 2017
 
-
+board_id <- "English Public" # TODO: Replace this hard-coded value with user-input value from visualization
+panel_id <- "Elementary" # TODO: Replace this hard-coded value with user-input value from visualization
 
 ```
 
@@ -127,9 +128,6 @@ schools_consolidated_closed <- schools_closed
 
 # Percentage of students attending each board type, by home origin CSD
 board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds")
-
-board_id <- "English Public" # TODO: Replace this hard-coded value with user-input value from visualization
-panel_id <- "Elementary" # TODO: Replace this hard-coded value with user-input value from visualization
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
   select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", base_year)) %>%
@@ -199,11 +197,12 @@ pos_full <- readRDS("output/treso/pos_full.rds")
 # The forecasted schools have "NA" in status
 school_master <- readRDS("cache/edu/school_treso_master.rds") %>% 
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
-board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds") 
+board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") 
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
   select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", year_id)) %>%
-  filter(panel != "other")
+  filter(panel != "other") %>% 
+  mutate(cduid = as.integer(substr(csduid, 1, 4)))
 
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
                     str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
@@ -481,15 +480,15 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_
 # saveRDS(schools_consolidated_closed, "cache/edu/schools_consolidated_closed_final.rds")
 # saveRDS(schools_consolidated_final, "cache/edu/schools_consolidated_final.rds")
 
-school_master <- readRDS("cache/edu/school_master_final.rds")
-trip_list <- readRDS("cache/edu/trip_list_final.rds")
-por_additional <- readRDS("cache/edu/por_additional_final.rds")
-school_forecast_final <- readRDS("cache/edu/school_forecast_final_final.rds")
-school_summary_20xx_final <- readRDS("cache/edu/school_summary_20xx_final_final.rds")
-por <- readRDS("cache/edu/por_final.rds")
-pos <- readRDS("cache/edu/pos_final.rds")
-schools_consolidated_closed <- readRDS("cache/edu/schools_consolidated_closed_final.rds")
-schools_consolidated_final <- readRDS("cache/edu/schools_consolidated_final.rds")
+# school_master <- readRDS("cache/edu/school_master_final.rds")
+# trip_list <- readRDS("cache/edu/trip_list_final.rds")
+# por_additional <- readRDS("cache/edu/por_additional_final.rds")
+# school_forecast_final <- readRDS("cache/edu/school_forecast_final_final.rds")
+# school_summary_20xx_final <- readRDS("cache/edu/school_summary_20xx_final_final.rds")
+# por <- readRDS("cache/edu/por_final.rds")
+# pos <- readRDS("cache/edu/pos_final.rds")
+# schools_consolidated_closed <- readRDS("cache/edu/schools_consolidated_closed_final.rds")
+# schools_consolidated_final <- readRDS("cache/edu/schools_consolidated_final.rds")
 
 # Cache results temporarily
 # saveRDS(school_master, "cache/edu/school_master_testing.rds")
@@ -499,12 +498,12 @@ schools_consolidated_final <- readRDS("cache/edu/schools_consolidated_final.rds"
 # saveRDS(por_full, "cache/edu/por_full_testing.rds")
 # saveRDS(pos_full, "cache/edu/pos_full_testing.rds")
 
-# school_master <- readRDS("cache/edu/school_master_testing.rds")
-# trip_list <- readRDS("cache/edu/trip_list_testing.rds")
-# por_additional <- readRDS("cache/edu/por_additional_testing.rds")
-# school_forecast_final <- readRDS("cache/edu/school_forecast_final_testing.rds")
-# por_full <- readRDS("cache/edu/por_full_testing.rds")
-# pos_full <- readRDS("cache/edu/pos_full_testing.rds")
+school_master <- readRDS("cache/edu/school_master_testing.rds")
+trip_list <- readRDS("cache/edu/trip_list_testing.rds")
+por_additional <- readRDS("cache/edu/por_additional_testing.rds")
+school_forecast_final <- readRDS("cache/edu/school_forecast_final_testing.rds")
+por_full <- readRDS("cache/edu/por_full_testing.rds")
+pos_full <- readRDS("cache/edu/pos_full_testing.rds")
 
 if (dm == TRUE) {
 
