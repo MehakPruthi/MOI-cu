@@ -1127,6 +1127,7 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   #' @param board_type_sample The dataframe with the board type sampling probabilities for each CSD and Panel
   #' @return A dataframe with population segmented by panel and board type
   #' 
+  set.seed(42)
   forecast_population_by_board <- treso_forecast_population %>%
     left_join(board_type_sample_spread, by = c("panel", "cduid")) %>% 
     # Create probability list for sample

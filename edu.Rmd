@@ -243,8 +243,7 @@ df_0 <- school_summary_df_list[[2]]
 
 ```{r application of gravity model - step 3}
 # Take the difference between the simulated ADEs
-trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, 
-                                                  by="sfis", suffix=c(".base", ".20xx")) %>% 
+trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, by="sfis", suffix=c(".base", ".20xx")) %>% 
   replace_na(list(simulated.ade.base = 0, simulated.ade.20xx = 0)) %>% 
   mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
 ```
@@ -305,6 +304,7 @@ por_overfill <- prop_matrix_balanced %*% pos_overfill %>%
   mutate(sumADE = sum(ade)) %>% 
   select(treso.id.por, ade.overfill)
 
+# TODO ask Alec as to what is this for again?
 por_additional <- por_overfill %>% 
   filter(ade.overfill >= 15) %>% 
   select(ade.overfill, treso.id.por) %>% 
@@ -342,7 +342,7 @@ school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, scho
                                                     new_school, year_id = year_id, panel_id = panel_id,
                                                     board_id = board_id)[[1]]
 
-# Calculate the ADE overfill for each school, so it can be removed in the summary
+# Calculate the ADE overfill for each school, so the overfill ADE can be removed in the summary
 school_summary_ade_overfill <- school_forecast %>% 
   mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
          overfill.ade = simulated.ade - otg.threshold) %>% 
@@ -365,8 +365,7 @@ school_summary_20xx <- full_join(school_summary_20xx, school_summary_20xx_iterat
 
 ```{r application of gravity model - step 6}
 # Take the difference between the simulated ADEs
-trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, 
-                                                  by="sfis", suffix=c(".2017", ".20xx")) %>% 
+trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, by="sfis", suffix=c(".2017", ".20xx")) %>% 
   replace_na(list(simulated.ade.base = 0, simulated.ade.20xx = 0)) %>% 
   mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
 
