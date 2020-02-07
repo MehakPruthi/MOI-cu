@@ -1127,19 +1127,9 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   #' @param board_type_sample The dataframe with the board type sampling probabilities for each CSD and Panel
   #' @return A dataframe with population segmented by panel and board type
   #' 
-  forecast_population_by_board <- forecast_population %>%
-    left_join(board_type_sample, by = c("panel", "cduid")) %>%
-    group_by(treso.id.por, panel) %>%
-    summarise(
-      csduid = first(csduid),
-      csdname = first(csdname),
-      potential.enrolment = sum(potential.enrolment),
-      `English Catholic` = mean(`English Catholic`),
-      `English Public` = mean(`English Public`),
-      `French Catholic` = mean(`French Catholic`),
-      `French Public` = mean(`French Public`)
-    ) %>%
-    filter(!is.na(csdname)) %>%
+  set.seed(42)
+  forecast_population_by_board <- treso_forecast_population %>%
+    left_join(board_type_sample_spread, by = c("panel", "cduid")) %>% 
     # Create probability list for sample
     unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
     rowwise() %>%
@@ -1150,10 +1140,73 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
            `English Public` = sum(sample.result == "EP"),
            `French Catholic` = sum(sample.result == "FC"),
            `French Public` = sum(sample.result == "FP")) %>% 
-    select(treso.id.por, panel, csduid, csdname, `English Catholic`:`French Public`) %>%
+    select(treso.id.por, panel, cduid, `English Catholic`:`French Public`) %>%
     gather(key="board_type_name", value="potential.enrolment", `English Catholic`:`French Public`)
   
   return(forecast_population_by_board)
+}
+
+create_forecast_school_list <- function(school_df, new_school_df, panel_id, board_id, school_diff, schools_consolidated_closed) {
+  # TODO remove schools_consolidated_closed when it is in the original school_df
+  
+  #' Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
+  #' Also redistribute any overfilled schools in a zone to 
+  #' 
+  #' @param school_df
+  #' @param new_school_df
+  #' @param panel_id
+  #' @param board_id
+  #' @param school_diff
+  #' @param schools_consolidated_closed
+  #' @return A dataframe of schools with forecasted/simulated ADE and 
+  
+  school_forecast_df <- school_df %>% 
+    filter((status == "Open" | is.na(status)), otg != 0, ade != 0) %>% 
+    filter(panel == panel_id, board_type_name == board_id) %>% 
+    # Add in new schools
+    bind_rows(new_school_df) %>% 
+    full_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by="sfis") %>%
+    # Anti-join to remove any schools which existed in 2017 but no longer exist in future year
+    anti_join(select(schools_consolidated_closed, sfis), by = c('sfis')) %>% 
+    replace_na(list(ade = 0, change.ade = 0)) %>%                 
+    # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
+    mutate(simulated.ade.raw = ade + change.ade) %>% 
+    # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school.
+    # However, by rounding up to 0, the model could be adding 'phantom' students to the system
+    # So the total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts.
+    # However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
+    mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>%
+    # Create OTG threshold based on user input
+    mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
+    select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
+  
+  school_forecast_redist_df <- school_forecast_df %>% 
+    mutate(ade.diff = simulated.ade - otg.threshold,
+           overfill = pmax(ade.diff, 0),
+           underfill = pmin(ade.diff, 0)) %>% 
+    # Create flag to determine if there is capacity remaining in each school
+    mutate(capacity.flag = 1 - pmax(pmin(ade.diff, 1), 0)) %>%
+    group_by(treso.id.pos) %>% 
+    mutate(treso.capacity = sum(underfill),
+           treso.overfill = sum(overfill)) %>%
+    # Calculate likelihood of going each of the other school(s) in the TRESO zone if redirected from full school
+    mutate(otg.weight.underfill = otg * capacity.flag,
+           underfill.share = otg.weight.underfill / sum(otg.weight.underfill),
+           underfill.share = replace_na(underfill.share, 0)) %>%
+    # Calculate likelihood of coming from each overfilled school in a TRESO zone
+    mutate(otg.weight.overfill = overfill * (1 - capacity.flag),
+           overfill.share = otg.weight.overfill / sum(otg.weight.overfill),
+           overfill.share = replace_na(overfill.share, 0)) %>%
+    # Determine how many students will be redistributed within zone
+    mutate(treso.redist = min(abs(treso.overfill), abs(treso.capacity)),
+           school.redist.to = treso.redist * underfill.share,
+           school.redist.from = treso.redist * overfill.share) %>% 
+    # Adjust simulated ADE to account for shift from one school to another within zones
+    mutate(simulated.ade.rev = simulated.ade + school.redist.to - school.redist.from) %>% 
+    ungroup() %>% 
+    select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade = simulated.ade.rev)
+  
+  return(school_forecast_redist_df)
 }
   
 forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017, new_school, year_id, panel_id, board_id) {
