@@ -28,7 +28,16 @@ source("helpers.R")
 # TRESO 
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("cache/treso/treso_tb.rds")
-treso_travel_time <- readRDS("cache/treso/treso_travel_time.rds")
+
+# TRESO time skim
+travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
+
+travel_time_skim <- travel_time_skim_square %>%
+  reshape2::melt(id = c("p/q/[val]")) %>%
+  rename(orig = "p/q/[val]", dest = variable) %>%
+  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest]) %>%
+  filter(orig %in% treso_shp@data$Treso_ID) %>%
+  filter(dest %in% treso_shp@data$Treso_ID)
 
 # Definition files
 school_board_def <- read_csv("input/edu/school_board_types.csv")
@@ -107,32 +116,30 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
 
 # Used in Step 4 but initialized here before school_master changes
-school_master_base <- school_master %>% 
+school_master_2017 <- school_master %>% 
   filter(year == base_year)
 
 # Create a list of schools closed between 2017 and the scenario run year to avoid sending students to non-existent schools
-schools_closed <- school_master_base %>% 
+schools_closed <- school_master_2017 %>% 
   anti_join(select(school_master, sfis), by = c('sfis'))
 
 # Initalize consolidated and closed schools list for use in decision-making layer
 schools_consolidated_closed <- schools_closed
 
-# Percentage of students attending each board type, by home origin CD
-# The market share begins from 2018, just using that as the base year application
-board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") %>% 
-  filter(year == 2018)
+# Percentage of students attending each board type, by home origin CSD
+board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds")
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
-  select(treso.id.por = treso_zone, panel = age.group, csduid, cduid, 
-         potential.enrolment = paste0("population.", base_year)) %>%
+  select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", base_year)) %>%
   filter(panel != "other")
 
 # Initialize new school dataframe
-new_school <- tibble(treso.id.pos = integer(), panel = character(), board_type_name = character(), year = integer(), 
-                     build.priority = integer(), sfis.temp = integer(), otg = integer())
+new_school <- tibble(treso.id.pos = integer(), panel = character(), board_type_name = character(), year = integer(), build.priority = integer(), sfis.temp = integer(), otg = integer())
 
 # Initialize consolidated schools dataframe for use in Step 4 and decision-making layer
 schools_consolidated <- tibble(sfis = integer())
+
+# TODO: Check that we scale population from treso_forecast_population above to forecasted ADE, since only ~90% of age-appropriate children attend public schools
 
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
                     str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
@@ -146,13 +153,13 @@ prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 pos <- create_pos_vector(school_master, new_school=NULL, pos_full, year_id=base_year, panel_id=panel_id, board_id=board_id)
 
 # Apply the board sampling probabilities to the student population from TRESO
-treso_forecast_population_board <- apply_sampling_to_population(
-  forecast_population = treso_forecast_population,
-  board_type_sample = board_type_sample_spread) 
-
+treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                board_type_sample = board_type_sample_spread) 
 # Create forecast por vector
 por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
                                   panel_id=panel_id, board_id=board_id)
+
+# TODO: Scale potential.enrolment down to actual forecasted ADE - compare historical population in CSD to historical enrolment (ADE) in CSD and create scaling factor for each CSD, and apply across all TRESO zones within CSD
 
 print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
 
@@ -165,8 +172,7 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the simulated ADE for each school
 school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
-                                           year_id = base_year, panel_id = panel_id, 
-                                           board_id = board_id)[[1]]
+                                           year_id = base_year, panel_id = panel_id, board_id = board_id)[[1]]
 
 # There are a handful of schools that does not get any simulated ADE due to a variety of reasons. 
 # It is a very small percentage of total schools in the segment x board type combination
@@ -182,7 +188,7 @@ print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_
 ```
 
 ### Step 2 - Run 20xx Forecast Model 
-- The year is set by user
+- Date set by user
 
 ```{r application of gravity model - Step 2}
 # Read the saved full list of POR and POS TRESO zones once and save it in output
@@ -191,11 +197,7 @@ pos_full <- readRDS("output/treso/pos_full.rds")
 # The forecasted schools have "NA" in status
 school_master <- readRDS("cache/edu/school_treso_master.rds") %>% 
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0)
-
-# Percentage of students attending each board type, by home origin CD
-# The market share begins from 2018, just using that as the base year application
-board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") %>% 
-  filter(year == year_id)
+board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") 
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
   select(treso.id.por = treso_zone, panel = age.group, csduid, potential.enrolment = paste0("population.", year_id)) %>%
@@ -243,23 +245,69 @@ df_0 <- school_summary_df_list[[2]]
 
 ```{r application of gravity model - step 3}
 # Take the difference between the simulated ADEs
-trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, by="sfis", suffix=c(".base", ".20xx")) %>% 
-  replace_na(list(simulated.ade.base = 0, simulated.ade.20xx = 0)) %>% 
-  mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
+trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, 
+                                                  by="sfis", suffix=c(".2017", ".20xx")) %>% 
+  replace_na(list(simulated.ade.2017 = 0, simulated.ade.20xx = 0)) %>% 
+  mutate(change.ade = simulated.ade.20xx - simulated.ade.2017)
 ```
 
 ### Step 4 - Apply delta to 2017 Observed ADE. Create POR and POS vectors with overflow students.
 
 ```{r application of gravity model - step 4}
+
 # User input for capacity constraint
 CAPACITY_CONSTRAINED = TRUE # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
-school_forecast <- create_forecast_school_list(school_master_base, new_school, panel_id, board_id, trip_list_schools_summary_difference,
-                                           schools_consolidated_closed)
+school_forecast <- school_master_2017 %>% 
+  filter((status == "Open" | is.na(status)), otg != 0, ade != 0) %>% 
+  filter(panel == panel_id, board_type_name == board_id) %>% 
+  # Add in new schools
+  bind_rows(., new_school) %>% 
+  full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), by="sfis") %>%
+  # Anti-join to remove any schools which existed in 2017 but no longer exist in future year
+  anti_join(select(schools_consolidated_closed, sfis), by = c('sfis')) %>% 
+  replace_na(list(ade = 0, change.ade = 0)) %>%                 
+  # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
+  mutate(simulated.ade.raw = ade + change.ade) %>% 
+  mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>%
+  # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school. However, by rounding up to 0, the model is adding 'phantom' students to the system, so total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts. However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
+  # Create OTG threshold based on user input
+  mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
+  select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
+
+# Create a POS vector with schools over OTG Threshold - pos_overfill. These students need to be redistributed to other schools.
+# Start by redistributing overflow to other schools within the TRESO zone
+pos_redist <- school_forecast %>% 
+  mutate(ade.diff = simulated.ade - otg.threshold,
+         overfill = pmax(ade.diff, 0),
+         underfill = pmin(ade.diff, 0)) %>% 
+  # Create flag to determine if there is capacity remaining in each school
+  mutate(capacity.flag = 1 - pmax(pmin(ade.diff, 1),0)) %>%
+  group_by(treso.id.pos) %>% 
+  mutate(treso.capacity = sum(underfill),
+         treso.overfill = sum(overfill)) %>%
+  # Calculate likelihood of going each of the other school(s) in the TRESO zone if redirected from full school
+  mutate(otg.weight.underfill = otg * capacity.flag,
+         underfill.share = otg.weight.underfill / sum(otg.weight.underfill)) %>%
+  mutate(underfill.share = replace_na(underfill.share, 0)) %>% 
+  # Calculate likelihood of coming from each overfilled school in a TRESO zone
+  mutate(otg.weight.overfill = overfill * (1 - capacity.flag),
+         overfill.share = otg.weight.overfill / sum(otg.weight.overfill)) %>%
+  mutate(overfill.share = replace_na(overfill.share, 0)) %>% 
+  # Determine how many students will be redistributed within zone
+  mutate(treso.redist = min(treso.overfill, -treso.capacity),
+         school.redist.to = treso.redist * underfill.share,
+         school.redist.from = treso.redist * overfill.share) %>% 
+  # Adjust simulated ADE to account for shift from one school to another within zones
+  mutate(simulated.ade.rev = simulated.ade + school.redist.to - school.redist.from) %>%
+  ungroup()
 
 # Create a POS vector with schools over OTG Threshold after redistributing to other schools within the TRESO zone
 pos_overfill <- school_forecast %>%
+  select(-simulated.ade) %>% 
+  left_join(select(pos_redist, sfis, simulated.ade.rev), by = c('sfis')) %>% 
+  rename(simulated.ade = simulated.ade.rev) %>% 
   mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0)) %>% 
   filter(overfill.flag == 1) %>% 
   select(treso.id.pos, overfill.flag) %>% 
@@ -273,6 +321,9 @@ pos_overfill <- school_forecast %>%
 
 # Calculate the total overfilled ADE
 overfill_ade <- school_forecast %>% 
+  select(-simulated.ade) %>% 
+  left_join(select(pos_redist, sfis, simulated.ade.rev), by = c('sfis')) %>% 
+  rename(simulated.ade = simulated.ade.rev) %>% 
   mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
          overfill.ade = simulated.ade - otg.threshold) %>% 
   filter(overfill.flag == 1) %>% 
@@ -282,6 +333,9 @@ overfill_ade <- school_forecast %>%
 # Create a POS vector with schools under OTG Threshold - pos_underfill
 # Use the difference between OTG Threshold and Simulated ADE as the weight
 pos_underfill <- school_forecast %>% 
+  select(-simulated.ade) %>% 
+  left_join(select(pos_redist, sfis, simulated.ade.rev), by = c('sfis')) %>% 
+  rename(simulated.ade = simulated.ade.rev) %>% 
   mutate(underfill.flag = ifelse(simulated.ade < otg.threshold, 1, 0)) %>% 
   filter(underfill.flag == 1) %>%
   mutate(otg.leftover = otg.threshold - simulated.ade) %>% 
@@ -304,7 +358,6 @@ por_overfill <- prop_matrix_balanced %*% pos_overfill %>%
   mutate(sumADE = sum(ade)) %>% 
   select(treso.id.por, ade.overfill)
 
-# TODO ask Alec as to what is this for again?
 por_additional <- por_overfill %>% 
   filter(ade.overfill >= 15) %>% 
   select(ade.overfill, treso.id.por) %>% 
@@ -342,7 +395,7 @@ school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, scho
                                                     new_school, year_id = year_id, panel_id = panel_id,
                                                     board_id = board_id)[[1]]
 
-# Calculate the ADE overfill for each school, so the overfill ADE can be removed in the summary
+# Calculate the ADE overfill for each school, so it can be removed in the summary
 school_summary_ade_overfill <- school_forecast %>% 
   mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
          overfill.ade = simulated.ade - otg.threshold) %>% 
@@ -365,16 +418,17 @@ school_summary_20xx <- full_join(school_summary_20xx, school_summary_20xx_iterat
 
 ```{r application of gravity model - step 6}
 # Take the difference between the simulated ADEs
-trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, by="sfis", suffix=c(".2017", ".20xx")) %>% 
-  replace_na(list(simulated.ade.base = 0, simulated.ade.20xx = 0)) %>% 
-  mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
+trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, 
+                                                  by="sfis", suffix=c(".2017", ".20xx")) %>% 
+  replace_na(list(simulated.ade.2017 = 0, simulated.ade.20xx = 0)) %>% 
+  mutate(change.ade = simulated.ade.20xx - simulated.ade.2017)
 
-school_forecast_final <- school_master_base %>% 
+school_forecast_final <- school_master_2017 %>% 
   filter((status == "Open" | is.na(status)), otg != 0, ade != 0) %>% 
   filter(panel == panel_id, board_type_name == board_id) %>% 
   # Bind in list of new schools
   bind_rows(., new_school) %>% 
-  full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), 
+  full_join(select(trip_list_schools_summary_difference, sfis, simulated.ade.20xx, simulated.ade.2017, change.ade), 
             by="sfis") %>% 
   replace_na(list(ade = 0, change.ade = 0)) %>% 
   mutate(simulated.ade.raw = ade + change.ade) %>% 
@@ -1172,6 +1226,72 @@ rm(g, g_subtotal)
 
 ## Travel Time TLFD plots
 
+### Intra-zonal travel time assumptions
+
+The TLFD estimation has some assumptions made for intra-zonal travel times and extremely large travel times.
+
+- The intra-zonal travel times from TRESO is 0, this requires some extra work to take care of.
+- Assumptions made are the following:
+  - Known intra-zonal trips which are less than or equal to 2.5 km in length are performed by walking at an average speed of 5 km/hr. 
+  - Known intra-zonal trips more than 2.5 km in length are performed by driving at an average speed of 30 km/hr.
+  - Extremely long inter-zonal travel times (greater than 30 min difference between travel time skim and euclidean travel time at 30 km/hr) are set to euclidean travel time.
+  - Leaving unknown intra-zonal travel time to be estimated from the size of the TRESO shapefile. Four levels of TRESO sizes are determined from quantile calculation. Level 1 and 2 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 15 km/hr. Level 2 and 3 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 60 km/hr.
+
+```{r create travel time master list, echo=FALSE, eval=FALSE}
+# The reason for creating a master list is to save time computation time on left_join()
+travel_time <- readRDS("output/edu/observed_por_pos_90.rds") %>%
+  drop_na(treso.id.por) %>%
+  group_by(treso.id.por, treso.id.pos) %>%
+  summarise(euclidean.dist = weighted.mean(euclidean.dist, enrolment)) %>%
+  ungroup() %>%
+  right_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value)
+
+summary(travel_time$travel.time)
+
+treso_area <- treso_shp@data %>%
+  select(treso.id = Treso_ID, area = Area) %>%
+  mutate(area.km = area / 1000000) %>%
+  mutate(length = sqrt(area.km))
+treso_area_quantile <- quantile(treso_area$area.km)
+
+print(paste0("Zones with an area between ", round(treso_area_quantile[4][[1]], 2), " - ",
+             round(treso_area_quantile[5][[1]], 2), " km^2 are categorized as extra large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[3][[1]], 2), " - ",
+             round(treso_area_quantile[4][[1]], 2), " km^2 are categorized as large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[2][[1]], 2), " - ",
+             round(treso_area_quantile[3][[1]], 2), " km^2 are categorized as medium"))
+print(paste0("Zones with an area between ", round(treso_area_quantile[1][[1]], 2), " - ",
+             round(treso_area_quantile[2][[1]], 2), " km^2 are categorized as small"))
+
+treso_intrazonal_travel_time <- treso_area %>%
+  mutate(size.category = "extra large") %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[4][[1]], "large", size.category)) %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[3][[1]], "medium", size.category)) %>%
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[2][[1]], "small", size.category)) %>% 
+  mutate(intra.zonal.travel.time = ifelse(size.category %in% c("extra large", "large"), length / 60 * 60, length / 15 * 60))
+
+travel_time1 <- travel_time %>%
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
+  mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  left_join(treso_intrazonal_travel_time, by=c("treso.id.pos"="treso.id")) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & treso.id.por == treso.id.pos), 
+                              intra.zonal.travel.time,
+                              travel.time)) %>%
+  select(treso.id.por, treso.id.pos, value = travel.time) %>%
+  arrange(treso.id.por, treso.id.pos)
+
+saveRDS(travel_time1, "output/treso/treso_travel_time.rds")
+```
+
 ### 90th Percentile plots
 
 ```{r tlfd plots for 90th percentile, fig.width = 10, fig.height = 28, echo = FALSE}
@@ -1549,7 +1669,7 @@ cd_panel_proj_mrktshr <- brd_cd_mrktshr_chg_raw2%>%
          ifelse(proj_cd_mrktshr>(avg+range),(avg+range)/proj_cd_mrktshr,1)))
   
 ##scale up or down individual brd_cd_panel mrktshares to bring into acceptable totals for the cd/panel
-brd_cd_mrktshr_proj_in <- brd_cd_mrktshr_chg_raw2%>%
+brd_cd_mrktshr_proj_in<-brd_cd_mrktshr_chg_raw2%>%
   select(year,dsb.index,panel,cduid,mrktshr_yrx)%>%
   left_join(cd_panel_proj_mrktshr, by=c('cduid','year','panel'))%>%
   mutate(mrktshr_yrx=mrktshr_yrx*factor)%>%
@@ -1557,7 +1677,7 @@ brd_cd_mrktshr_proj_in <- brd_cd_mrktshr_chg_raw2%>%
 
 ##market share rates are fixed for years beyond the 10th in the forecast
 ## this table creates an copies of the final year for an extension that will be unioned with the first
-brd_cd_mrktshr_ext <- brd_cd_mrktshr_proj_in %>%
+brd_cd_mrktshr_ext<-brd_cd_mrktshr_proj_in %>%
   filter(year==max(year))%>%
   slice(rep(row_number(),30))%>%
   mutate(ticker=1)%>%
@@ -2093,7 +2213,7 @@ observed_2011_treso <- readRDS("cache/treso/treso_tb.rds") %>%
             by = c("treso_zone" = "treso_id")) %>% 
   rename(treso.id.por = treso_zone)
 
-board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds")
+board_type_sample_spread <- readRDS("output/edu/board_type_sample_spread.rds")
 
 # Apply the board sampling probabilities to the students
 treso_level_sampling_2011 <- observed_2011_treso %>%
