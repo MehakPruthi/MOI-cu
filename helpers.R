@@ -1128,8 +1128,9 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   #' @return A dataframe with population segmented by panel and board type
   #' 
   set.seed(42)
-  forecast_population_by_board <- treso_forecast_population %>%
-    left_join(board_type_sample_spread, by = c("panel", "cduid")) %>% 
+  forecast_population_by_board <- forecast_population %>%
+    left_join(board_type_sample, by = c("panel", "cduid")) %>%
+    filter(!is.na(cduid)) %>%
     # Create probability list for sample
     unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
     rowwise() %>%

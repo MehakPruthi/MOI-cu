@@ -146,10 +146,8 @@ prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 pos <- create_pos_vector(school_master, new_school=NULL, pos_full, year_id=base_year, panel_id=panel_id, board_id=board_id)
 
 # Apply the board sampling probabilities to the student population from TRESO
-treso_forecast_population_board <- apply_sampling_to_population(
-  forecast_population = treso_forecast_population,
-  board_type_sample = board_type_sample_spread) 
-
+treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                board_type_sample = board_type_sample_spread) 
 # Create forecast por vector
 por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
                                   panel_id=panel_id, board_id=board_id)
@@ -165,8 +163,7 @@ colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the simulated ADE for each school
 school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
-                                           year_id = base_year, panel_id = panel_id, 
-                                           board_id = board_id)[[1]]
+                                           year_id = base_year, panel_id = panel_id, board_id = board_id)[[1]]
 
 # There are a handful of schools that does not get any simulated ADE due to a variety of reasons. 
 # It is a very small percentage of total schools in the segment x board type combination
@@ -251,6 +248,7 @@ trip_list_schools_summary_difference <- full_join(school_summary_2017, school_su
 ### Step 4 - Apply delta to 2017 Observed ADE. Create POR and POS vectors with overflow students.
 
 ```{r application of gravity model - step 4}
+
 # User input for capacity constraint
 CAPACITY_CONSTRAINED = TRUE # TODO: Replace this hard-coded value with user-input value from visualization
 
@@ -367,7 +365,6 @@ trip_list_schools_summary_difference <- full_join(school_summary_2017, school_su
 
 school_forecast_final <- create_forecast_school_list(school_master_base, new_school, panel_id, board_id,
                                                      trip_list_schools_summary_difference, schools_consolidated_closed)
-
 # POR will remain the same
 por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id=panel_id, board_id=board_id)
 
