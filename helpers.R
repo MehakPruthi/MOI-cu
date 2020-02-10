@@ -1100,7 +1100,7 @@ create_pos_vector <- function(df, new_school, full_vector, year_id, panel_id, bo
 }
 
 create_por_forecast_vector <- function(df, full_vector, panel_id, board_id) {
-  #' Creates a POR vecotr from the input dataframe
+  #' Creates a POR vector from the input dataframe
   #' 
   #' @param df The input dataframe, expects the forecasted treso population
   #' @param full_vector The full list of TRESo zones in order
@@ -1180,6 +1180,7 @@ create_forecast_school_list <- function(school_df, new_school_df, panel_id, boar
     mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
   
+  # Redistribute students from overfilled schools to underfilled schools in the same zone
   school_forecast_redist_df <- school_forecast_df %>% 
     mutate(ade.diff = simulated.ade - otg.threshold,
            overfill = pmax(ade.diff, 0),
@@ -1243,6 +1244,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
     arrange(Var1, Var2)
   colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
   
+  # Save a list of schools with 0 students assigned
   df_0 <- df %>% 
     group_by(treso.id.pos) %>% 
     summarise(enrolment.rounded = sum(enrolment.rounded)) %>% 
