@@ -57,16 +57,15 @@ print(paste0("There are ", length(filter(eqao_2017, is.na(sfis))$sfis), " school
 eqao_2017 <- drop_na(eqao_2017, sfis)
 saveRDS(eqao_2017, "cache/edu/eqao_2017.rds")
 
-
- #TODO: Replace these values provided by user through the visualization interface
+# TODO: Replace these values provided by user through the visualization interface
 # Read in user-set travel-time threshold as a function of mean system-wide travel time
-travel_time_threshold_factor <- 1.5
+TRAVEL_TIME_THRESHOLD_FACTOR <- 1.5
 
 # Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
-zone_proximity_threshold <- 15
+ZONE_PROXIMITY_THRESHOLD <- 15
 
 # Define excess travel time below which it is not worthwhile to consider building a school
-min_tt_threshold <- 550
+MIN_TT_THRESHOLD <- 550
 
 # Define threshold below which existing schools should be consolidated, assuming existing schools are elible for consolidation
 consolidation_threshold <- 0.25
@@ -243,6 +242,10 @@ df_0 <- school_summary_df_list[[2]]
 trip_list_schools_summary_difference <- full_join(school_summary_2017, school_summary_20xx, by="sfis", suffix=c(".base", ".20xx")) %>% 
   replace_na(list(simulated.ade.base = 0, simulated.ade.20xx = 0)) %>% 
   mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
+
+# Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
+school_forecast <- create_forecast_school_list(school_master_base, new_school, panel_id, board_id, 
+                                               trip_list_schools_summary_difference, schools_consolidated_closed)
 ```
 
 ### Step 4 - Apply delta to 2017 Observed ADE. Create POR and POS vectors with overflow students.
@@ -251,10 +254,6 @@ trip_list_schools_summary_difference <- full_join(school_summary_2017, school_su
 
 # User input for capacity constraint
 CAPACITY_CONSTRAINED = TRUE # TODO: Replace this hard-coded value with user-input value from visualization
-
-# Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
-school_forecast <- create_forecast_school_list(school_master_base, new_school, panel_id, board_id, 
-                                               trip_list_schools_summary_difference, schools_consolidated_closed)
 
 # Create a POS vector with schools over OTG Threshold after redistributing to other schools within the TRESO zone
 pos_overfill <- school_forecast %>%
@@ -304,8 +303,8 @@ por_overfill <- prop_matrix_balanced %*% pos_overfill %>%
 # Store a list of TRESO zones where the students are assigned to overfilled schools
 por_additional <- por_overfill %>% 
   filter(ade.overfill >= 15) %>% 
-  select(ade.overfill, treso.id.por) %>% 
-  mutate(treso.id.por = as.numeric(treso.id.por))
+  mutate(treso.id.por = as.numeric(treso.id.por)) %>% 
+  select(treso.id.por, ade.overfill)
 
 # Add in any origin zones sending students to school zones still overfilled after several rounds of balancing
 por_overfill <- por_overfill %>% 
@@ -438,33 +437,32 @@ schools_consolidated_closed <- readRDS("cache/edu/schools_consolidated_closed_fi
 
 if (dm == TRUE) {
 
-# Determine potential TRESO zones in which to build schools
-df_list <- edu_dm(travel_time_skim, trip_list, treso_zone_def, travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold, por_additional)
-
-# Temporarily set OTG for proposed schools being added to zones with existing schools in order to calculate an appropriate weight factor. OTG to be set to average of existing schools in that zone.
-
-treso_otg_avg <- school_master %>% 
-  select(year, treso.id.pos, sfis, otg) %>% 
-  filter(year == year_id) %>% 
-  group_by(treso.id.pos) %>%
-  summarise(avg.otg = round(sum(otg) / n(), 0))
-
-new_school <- df_list[[1]] %>% 
-  rename(treso.id.pos = zone) %>% 
-  mutate(panel = panel_id,
-         board_type_name = board_id,
-         year = year_id,
-         build.priority = 1:n(),
-         sfis = as.numeric(paste0(treso.id.pos, '000'))) %>% 
-  # Join to treso_otg_avg to pull average OTG
-  left_join(treso_otg_avg, by = c('treso.id.pos')) %>% 
-  rename(otg = avg.otg) %>% 
-  mutate(otg = replace_na(otg, 1)) # OTG must be > 0 for some distribution functions to run
-
-# Create list of TRESO zones ruled out from consideration due to proximity to higher-ranked zone
-proximity_df <- df_list[[2]] %>% 
-  anti_join(new_school, by = c('treso.id.por' = 'treso.id.pos'))
-
+  # Determine potential TRESO zones in which to build schools
+  df_list <- edu_dm(treso_travel_time, trip_list, treso_zone_def, por_additional, 
+                    TRAVEL_TIME_THRESHOLD_FACTOR, ZONE_PROXIMITY_THRESHOLD, MIN_TT_THRESHOLD)
+  
+  # Temporarily set OTG for proposed schools being added to zones with existing schools in order to calculate an appropriate weight factor. OTG to be set to average of existing schools in that zone.
+  
+  treso_otg_avg <- school_master %>% 
+    select(year, treso.id.pos, sfis, otg) %>% 
+    filter(year == year_id) %>% 
+    group_by(treso.id.pos) %>%
+    summarise(avg.otg = round(sum(otg) / n(), 0))
+  
+  new_school <- df_list[[1]] %>% 
+    rename(treso.id.pos = zone) %>% 
+    mutate(panel = panel_id,
+           board_type_name = board_id,
+           year = year_id,
+           build.priority = 1:n(),
+           sfis = as.numeric(paste0(treso.id.pos, '000'))) %>% 
+    left_join(treso_otg_avg, by = c('treso.id.pos')) %>% 
+    rename(otg = avg.otg) %>% 
+    # IFfthere are no existing schools in the TRESO zone, assign a default value of 1 to that new school
+    mutate(otg = replace_na(otg, 1)) # OTG must be > 0 for some distribution functions to run
+  
+  # Create list of TRESO zones ruled out from consideration due to proximity to higher-ranked zone
+  proximity_df <- df_list[[2]] 
 }
 
 # Run model capacity unconstrained to see how many students choose each school, new and existing
