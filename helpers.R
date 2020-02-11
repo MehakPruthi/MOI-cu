@@ -1147,6 +1147,75 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   return(forecast_population_by_board)
 }
 
+distribute_students_to_schools <- function(school_master, new_school_df, por, pos_full, prop_matrix, year_id, panel_id, board_id, is_weight_continuous) {
+  #' Creates a new POS vector with new schools and distribute the students to the schools
+  #' 
+  #' @param school_df
+  #' @param new_school_df
+  #' @param por
+  #' @param pos_full
+  #' @param prop_matrix
+  #' @param panel_id
+  #' @param board_id
+  #' @param school_diff
+  #' @param schools_consolidated_closed
+  #' @return A dataframe of schools with simulated ADE 
+  
+  pos <- create_pos_vector(school_master, new_school_df, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+  
+  print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
+  
+  prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=is_weight_continuous)
+  trip_list <- reshape2::melt(prop_matrix_balanced) %>%
+    arrange(Var1, Var2)
+  colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+  
+  # Distribute the ADE at each zone to the individual schools of the zone
+  school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school_df,
+                                                year_id, panel_id, board_id)
+  
+  school_summary <- school_summary_df_list[[1]]
+  
+  return(school_summary)
+}
+
+distribute_students_within_zones <- function(school_forecast_df) {
+  #' Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
+  #' Also redistribute any overfilled schools in a zone to 
+  #' 
+  #' @param school_forecast_df
+  #' @return A dataframe of schools with ADE distributed among underfilled schools in the TRESO zone 
+  
+  school_forecast_distributed_df <- school_forecast_df %>% 
+    mutate(ade.diff = simulated.ade - otg.threshold,
+           overfill = pmax(ade.diff, 0),
+           underfill = pmin(ade.diff, 0)) %>% 
+    # Create flag to determine if there is capacity remaining in each school
+    mutate(capacity.flag = 1 - pmax(pmin(ade.diff, 1), 0)) %>%
+    group_by(treso.id.pos) %>% 
+    mutate(treso.capacity = sum(underfill),
+           treso.overfill = sum(overfill)) %>%
+    # Calculate likelihood of going each of the other school(s) in the TRESO zone if redirected from full school
+    mutate(otg.weight.underfill = otg * capacity.flag,
+           underfill.share = otg.weight.underfill / sum(otg.weight.underfill),
+           underfill.share = replace_na(underfill.share, 0)) %>%
+    # Calculate likelihood of coming from each overfilled school in a TRESO zone
+    mutate(otg.weight.overfill = overfill * (1 - capacity.flag),
+           overfill.share = otg.weight.overfill / sum(otg.weight.overfill),
+           overfill.share = replace_na(overfill.share, 0)) %>%
+    # Determine how many students will be redistributed within zone
+    mutate(treso.redist = min(abs(treso.overfill), abs(treso.capacity)),
+           school.redist.to = treso.redist * underfill.share,
+           school.redist.from = treso.redist * overfill.share) %>% 
+    # Adjust simulated ADE to account for shift from one school to another within zones
+    mutate(simulated.ade.rev = simulated.ade + school.redist.to - school.redist.from) %>% 
+    ungroup() %>% 
+    select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade = simulated.ade.rev)
+  
+  
+  return(school_forecast_distributed_df)
+}
+
 create_forecast_school_list <- function(school_df, new_school_df, panel_id, board_id, school_diff, schools_consolidated_closed) {
   # TODO remove schools_consolidated_closed when it is in the original school_df
   
@@ -1182,33 +1251,9 @@ create_forecast_school_list <- function(school_df, new_school_df, panel_id, boar
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
   
   # Redistribute students from overfilled schools to underfilled schools in the same zone
-  school_forecast_redist_df <- school_forecast_df %>% 
-    mutate(ade.diff = simulated.ade - otg.threshold,
-           overfill = pmax(ade.diff, 0),
-           underfill = pmin(ade.diff, 0)) %>% 
-    # Create flag to determine if there is capacity remaining in each school
-    mutate(capacity.flag = 1 - pmax(pmin(ade.diff, 1), 0)) %>%
-    group_by(treso.id.pos) %>% 
-    mutate(treso.capacity = sum(underfill),
-           treso.overfill = sum(overfill)) %>%
-    # Calculate likelihood of going each of the other school(s) in the TRESO zone if redirected from full school
-    mutate(otg.weight.underfill = otg * capacity.flag,
-           underfill.share = otg.weight.underfill / sum(otg.weight.underfill),
-           underfill.share = replace_na(underfill.share, 0)) %>%
-    # Calculate likelihood of coming from each overfilled school in a TRESO zone
-    mutate(otg.weight.overfill = overfill * (1 - capacity.flag),
-           overfill.share = otg.weight.overfill / sum(otg.weight.overfill),
-           overfill.share = replace_na(overfill.share, 0)) %>%
-    # Determine how many students will be redistributed within zone
-    mutate(treso.redist = min(abs(treso.overfill), abs(treso.capacity)),
-           school.redist.to = treso.redist * underfill.share,
-           school.redist.from = treso.redist * overfill.share) %>% 
-    # Adjust simulated ADE to account for shift from one school to another within zones
-    mutate(simulated.ade.rev = simulated.ade + school.redist.to - school.redist.from) %>% 
-    ungroup() %>% 
-    select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade = simulated.ade.rev)
+  school_forecast_distributed_df <- distribute_students_within_zones(school_forecast_df)
   
-  return(school_forecast_redist_df)
+  return(school_forecast_distributed_df)
 }
   
 forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017, new_school, year_id, panel_id, board_id) {

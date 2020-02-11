@@ -141,28 +141,15 @@ print(segment_id)
 # Read the propensity matrix
 prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 
-# Create pos vector
-pos <- create_pos_vector(school_master, new_school=NULL, pos_full, year_id=base_year, panel_id=panel_id, board_id=board_id)
-
 # Apply the board sampling probabilities to the student population from TRESO
 treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
                                                                 board_type_sample = board_type_sample_spread) 
 # Create forecast por vector
-por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
-                                  panel_id=panel_id, board_id=board_id)
-
-print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
-
-# 1D balancing
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=TRUE)
-
-trip_list <- reshape2::melt(prop_matrix_balanced) %>%
-    arrange(Var1, Var2)
-colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id=panel_id, board_id=board_id)
 
 # Produce the simulated ADE for each school
-school_summary_2017 <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
-                                           year_id = base_year, panel_id = panel_id, board_id = board_id)[[1]]
+school_summary_2017 <- distribute_students_to_schools(school_master, new_school=NULL, por, pos_full, prop_matrix,
+                                                      year_id, panel_id, board_id, is_weight_continuous = TRUE)
 
 # There are a handful of schools that does not get any simulated ADE due to a variety of reasons. 
 # It is a very small percentage of total schools in the segment x board type combination
@@ -206,32 +193,13 @@ print(segment_id)
 # Read the propensity matrix
 prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 
-# Create pos vector
-pos <- create_pos_vector(school_master, new_school, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
-
 # Apply the board sampling probabilities to the student population from TRESO
 treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
-                                                                board_type_sample = board_type_sample_spread) 
+                                                                board_type_sample = board_type_sample_spread)
+por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id=panel_id, board_id=board_id)
 
-por <- create_por_forecast_vector(treso_forecast_population_board, por_full, 
-                                  panel_id=panel_id, board_id=board_id)
-
-print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
-
-# 1D balancing
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=TRUE)
-trip_list <- reshape2::melt(prop_matrix_balanced) %>%
-    arrange(Var1, Var2)
-colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
-
-# Produce the simulated ADE for each school
-school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
-                                              year_id = year_id, panel_id = panel_id, board_id = board_id)
-
-school_summary_20xx <- school_summary_df_list[[1]]
-
-# Create dataframe containing list of schools which do not receive any ADE in model run
-df_0 <- school_summary_df_list[[2]]
+school_summary_20xx <- distribute_students_to_schools(school_master, new_school, por, pos_full, prop_matrix,
+                                                      year_id, panel_id, board_id, is_weight_continuous=TRUE)
 
 ```
 
@@ -465,24 +433,13 @@ if (dm == TRUE) {
   proximity_df <- df_list[[2]] 
 }
 
-# Run model capacity unconstrained to see how many students choose each school, new and existing
-# Create pos vector and re-run key components of Step 2
-pos <- create_pos_vector(school_master, new_school, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
-
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=FALSE)
-trip_list <- reshape2::melt(prop_matrix_balanced) %>%
-    arrange(Var1, Var2)
-colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
-
-# Produce the raw simulated ADE for each school
-school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
-                                           year_id = year_id, panel_id = panel_id, board_id = board_id)
-
-school_summary_20xx <- school_summary_df_list[[1]]
+# Distribute the students to see where they choose each school, new and existing; without constraining the capacity
+school_summary_20xx <- distribute_students_to_schools(school_master, new_school, por, pos_full, prop_matrix,
+                                                      year_id, panel_id, board_id, is_weight_continous=FALSE)
 
 last_run_step <- 'Determine which TRESO zones should...'
 
-# Run Steps 3, 4 to get adjusted simulated ADE for each school (stored under school_forecast dataframe)
+# Run Steps 3 to get adjusted simulated ADE for each school (stored under school_forecast dataframe)
 
 # new_school_check <- new_school %>% 
 #   inner_join(df_0, by = 'treso.id.pos')
