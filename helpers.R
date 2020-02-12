@@ -11,7 +11,7 @@ if (exists("nest_legacy", where="package:tidyr", mode="function")) {
 
 # Common Helpers -----
 write_excel <- function(x,row.names=FALSE,col.names=TRUE,...) {
-  #' Copies the entire dataframe into clipboard
+  #' Copies the entire Dataframe into clipboard
   write.table(x, "clipboard", sep="\t", row.names=row.names, col.names=col.names,...)
 }
 
@@ -91,9 +91,7 @@ sample_by_row <- function(row) {
   
   x <- row["sfis.list"][[1]]
   size <- row["enrolment.rounded"][[1]]
-  
-  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
-  
+
   if (length(x) == 1) {
     # Quirk 
     prob = c(rep(0, x - 1), row["school.weight.prob.list"][[1]])
@@ -338,7 +336,7 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
 trip_mean <- function(trip_df, calc_type="time") {
   #' Calculate mean travel time or distance for trips
   #' 
-  #' @param trip_df A dataframe for all zone pairs the number trips, enrolment, travel time or distance
+  #' @param trip_df A Dataframe for all zone pairs the number trips, enrolment, travel time or distance
   #' @param calc_type A string of either 'time' or 'distance'
   #' @return The mean value
   
@@ -360,7 +358,7 @@ trip_mean <- function(trip_df, calc_type="time") {
 trip_percentile <- function(trip_df, calc_type="time", percentile) {
   #' Calculate percentile travel time or distance for trips
   #' 
-  #' @param trip_df A dataframe for all zone pairs the number trips, enrolment, travel time or distance
+  #' @param trip_df A Dataframe for all zone pairs the number trips, enrolment, travel time or distance
   #' @param calc_type A string of either 'time' or 'distance'
   #' @param percentile A double that represent the percentile the user wish to calculate
   #' @return The percentile value
@@ -389,13 +387,13 @@ trip_percentile <- function(trip_df, calc_type="time", percentile) {
 }
 
 generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
-  #' Combine the observed trips and simulated trips into a binned dataframe. Used to plot trip length frequency diagrams
+  #' Combine the observed trips and simulated trips into a binned Dataframe. Used to plot trip length frequency diagrams
   #' 
-  #' @param observed_trips A dataframe of observed trips
-  #' @param simulated_trips A dataframe of simulated trips
+  #' @param observed_trips A Dataframe of observed trips
+  #' @param simulated_trips A Dataframe of simulated trips
   #' @param max_value An integer specifying the maximum binned value 
   #' @param bin_size An numeric specifying the bin size
-  #' @return A dataframe with both types of trips and binned
+  #' @return A Dataframe with both types of trips and binned
   
   obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
     mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
@@ -409,7 +407,7 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
     summarise(enrolment = sum(enrolment)) %>%
     transform(., flag = "model")
   
-  # Combine into one dataframe and plot TLFD
+  # Combine into one Dataframe and plot TLFD
   combined_tlfd <- rbind(obs_tlfd, sim_tlfd)
   return(combined_tlfd)
 }
@@ -493,10 +491,10 @@ plot_travel_time_tlfd <- function(tlfd) {
 }
 
 create_overlay <- function(xy_location, treso_shp, type='student') {
-  #' This function takes the SpatialPointsDataFrame and maps the XY location of the object on the 
+  #' This function takes the SpatialPointsDataframe and maps the XY location of the object on the 
   #' TRESO shapefile and returns the appropriate TRESO zone ID the objects fall on top of.
   #' 
-  #' @param xy_location A SpatialPointsDataFrame of the object
+  #' @param xy_location A SpatialPointsDataframe of the object
   #' @param treso_shp A Shapefile of the TRESO zones
   #' @param type A string indicating the type of the object in order to pull the correct metadata fields
   #' @return A database with the TRESO zone ID for each object
@@ -587,9 +585,9 @@ create_overlay <- function(xy_location, treso_shp, type='student') {
 create_student_xy <- function(student_travel, treso_shp) {
   #' This function transforms each student location into the same projection as the TRESO shapefiles
   #' 
-  #' @param student_travel A dataframe of the students and schools within a certain catchment distance of the school
+  #' @param student_travel A Dataframe of the students and schools within a certain catchment distance of the school
   #' @param treso_shp A Shapefile of TRESO zones
-  #' @return A SpatialPointsDataFrame 
+  #' @return A SpatialPointsDataframe 
 
   student_spdf <- student_travel %>%
     ungroup() %>%
@@ -616,9 +614,9 @@ create_student_xy <- function(student_travel, treso_shp) {
 create_school_xy <- function(student_travel, treso_shp) {
   #' This function transforms each school location into the same projection as the TRESO shapefiles
   #' 
-  #' @param student_travel A dataframe of the students and schools within a certain catchment distance of the school
+  #' @param student_travel A Dataframe of the students and schools within a certain catchment distance of the school
   #' @param treso_shp A Shapefile of TRESO zones
-  #' @return A SpatialPointsDataFrame 
+  #' @return A SpatialPointsDataframe 
   
   school_spdf <- student_travel %>%
     ungroup() %>%
@@ -645,7 +643,7 @@ create_school_xy <- function(student_travel, treso_shp) {
 buffer_zones <- function(school_xy, treso_shp) {
   #' Performs spatial buffers to select the TRESO zones within the catchment distance of a school.
   #' 
-  #' @param school_xy A SpatialPointsDataFrame of the schools
+  #' @param school_xy A SpatialPointsDataframe of the schools
   #' @param treso_shp A Shapefile of TRESO zones
   #' @return A Dataframe of TRESO zones in close proximity to each school
   
@@ -817,26 +815,22 @@ construction_cost <- function(user_input_inflation, user_input_scenario_year, cu
 } 
 
 # EDU Model -----
-create_pos_vector <- function(df, new_school, full_vector, year_id, panel_id, board_id) {
-  #' Creates a POS vector from the input dataframe
+create_pos_vector <- function(school_df, new_school, full_vector) {
+  #' Creates a POS vector from the input Dataframe
   #' 
-  #' @param df The input dataframe, expects the master school list
-  #' @param new_school Input dataframe of new schools added by user/decision-making layer
+  #' @param school_df The input Dataframe, expects a list of school
+  #' @param new_school Input Dataframe of new schools added by user/decision-making layer
   #' @param full_vector The full list of TRESO zones in order
-  #' @param year_id Integer indicating the modelling year
-  #' @param panel_id String indicating the modelling panel
-  #' @param board_id String indicating the modelling board type
   #' @return a data matrix
   #' 
 
   # Include the new_school in the master school list
   if(!is.null(new_school)){
-    df <- df %>% 
+    school_df <- school_df %>% 
       bind_rows(new_school)
   }
   
-  pos <- df %>% 
-    filter(year == year_id, panel == panel_id, board_type_name == board_id) %>%
+  pos <- school_df %>% 
     select(treso.id.pos, otg) %>%
     group_by(treso.id.pos) %>%
     summarise(otg = sum(otg)) %>%
@@ -850,9 +844,9 @@ create_pos_vector <- function(df, new_school, full_vector, year_id, panel_id, bo
 }
 
 create_por_forecast_vector <- function(df, full_vector, panel_id, board_id) {
-  #' Creates a POR vector from the input dataframe
+  #' Creates a POR vector from the input Dataframe
   #' 
-  #' @param df The input dataframe, expects the forecasted treso population
+  #' @param df The input Dataframe, expects the forecasted treso population
   #' @param full_vector The full list of TRESo zones in order
   #' @param panel_id String indicating the modelling panel
   #' @param board_id String indicating the modelling board type
@@ -871,11 +865,11 @@ create_por_forecast_vector <- function(df, full_vector, panel_id, board_id) {
 }
 
 apply_sampling_to_population <- function(forecast_population, board_type_sample) {
-  #' Apply the board type sample to the forecasted population dataframe
+  #' Apply the board type sample to the forecasted population Dataframe
   #' 
-  #' @param forecast_population The dataframe with forecasted population information
-  #' @param board_type_sample The dataframe with the board type sampling probabilities for each CSD and Panel
-  #' @return A dataframe with population segmented by panel and board type
+  #' @param forecast_population The Dataframe with forecasted population information
+  #' @param board_type_sample The Dataframe with the board type sampling probabilities for each CSD and Panel
+  #' @return A Dataframe with population segmented by panel and board type
   #' 
   set.seed(42)
   forecast_population_by_board <- forecast_population %>%
@@ -897,34 +891,26 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   return(forecast_population_by_board)
 }
 
-calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school,
-                                                year_id, panel_id, board_id) {
+calculate_school_weight_forecasting <- function(trip_list, school_df, eqao_2017, new_school) {
   #' Calculate weight factor for distributing students between two or more schools within a single TRESO zone
   #' 
   #' @param trip_list
-  #' @param school_list_master
+  #' @param school_df
   #' @param eqao_2017
   #' @param new_school
-  #' @param year_id
-  #' @param panel_id
-  #' @param board_id
   #' @return
   
   # Include the new_school in the master school list
   if(!is.null(new_school)){
-    school_list_master <- school_list_master %>% 
+    school_df <- school_df %>% 
       bind_rows(new_school)
   }
-  
-  # Filter school list based on panel and board type
-  school_list_master <- school_list_master %>%
-    filter(year == year_id, panel == panel_id, board_type_name == board_id)
-  
+
   # Calculate school weighting for TRESO zones with multiple schools and export it for
   pos_school <- trip_list %>%
     group_by(treso.id.pos) %>%
     summarise(trips = sum(trips)) %>%
-    right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("treso.id.pos") ) %>% 
+    right_join(select(school_df, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("treso.id.pos") ) %>% 
     left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
     mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
   
@@ -951,7 +937,7 @@ calculate_school_weight_forecasting <- function(trip_list, school_list_master, e
   return(pos_school_weight_new)
 }
 
-distribute_students_to_schools <- function(school_master, new_school_df, por, pos_full, prop_matrix, year_id, panel_id, board_id, is_weight_continuous) {
+distribute_students_to_schools <- function(school_df, new_school_df, por, pos_full, prop_matrix, is_weight_continuous) {
   #' Creates a new POS vector with new schools and distribute the students to the schools
   #' 
   #' @param school_df
@@ -959,13 +945,11 @@ distribute_students_to_schools <- function(school_master, new_school_df, por, po
   #' @param por
   #' @param pos_full
   #' @param prop_matrix
-  #' @param panel_id
-  #' @param board_id
   #' @param school_diff
   #' @param schools_consolidated_closed
-  #' @return A dataframe of schools with simulated ADE 
+  #' @return A Dataframe of schools with simulated ADE 
   
-  pos <- create_pos_vector(school_master, new_school_df, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+  pos <- create_pos_vector(school_df, new_school_df, pos_full)
   
   print(paste0("ADE is: ", sum(por), ". OTG is: ", sum(pos), "."))
   
@@ -975,12 +959,11 @@ distribute_students_to_schools <- function(school_master, new_school_df, por, po
   colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
   
   # Distribute the ADE at each zone to the individual schools of the zone
-  school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school_df,
-                                                year_id, panel_id, board_id)
+  school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_df, eqao_2017, new_school_df)
   
   school_summary <- school_summary_df_list[[1]]
   
-  return(school_summary)
+  return(list(school_summary, prop_matrix_balanced))
 }
 
 distribute_students_within_zones <- function(school_forecast_df) {
@@ -988,7 +971,7 @@ distribute_students_within_zones <- function(school_forecast_df) {
   #' Also redistribute any overfilled schools in a zone to 
   #' 
   #' @param school_forecast_df
-  #' @return A dataframe of schools with ADE distributed among underfilled schools in the TRESO zone 
+  #' @return A Dataframe of schools with ADE distributed among underfilled schools in the TRESO zone 
   
   school_forecast_distributed_df <- school_forecast_df %>% 
     mutate(ade.diff = simulated.ade - otg.threshold,
@@ -1020,7 +1003,7 @@ distribute_students_within_zones <- function(school_forecast_df) {
   return(school_forecast_distributed_df)
 }
 
-create_forecast_school_list <- function(school_df, new_school_df, panel_id, board_id, school_diff, schools_consolidated_closed) {
+create_forecast_school_list <- function(school_df, new_school_df, school_diff, schools_consolidated_closed) {
   # TODO remove schools_consolidated_closed when it is in the original school_df
   
   #' Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
@@ -1028,15 +1011,11 @@ create_forecast_school_list <- function(school_df, new_school_df, panel_id, boar
   #' 
   #' @param school_df
   #' @param new_school_df
-  #' @param panel_id
-  #' @param board_id
   #' @param school_diff
   #' @param schools_consolidated_closed
-  #' @return A dataframe of schools with forecasted/simulated ADE and 
+  #' @return A Dataframe of schools with forecasted/simulated ADE and 
   
   school_forecast_df <- school_df %>% 
-    filter((status == "Open" | is.na(status)), otg != 0, ade != 0) %>% 
-    filter(panel == panel_id, board_type_name == board_id) %>% 
     # Add in new schools
     bind_rows(new_school_df) %>% 
     full_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by="sfis") %>%
@@ -1060,23 +1039,19 @@ create_forecast_school_list <- function(school_df, new_school_df, panel_id, boar
   return(school_forecast_distributed_df)
 }
   
-forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017, new_school, year_id, panel_id, board_id) {
-  #' Produce a dataframe with the summary of the school's forecasted ADE
+forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, new_school) {
+  #' Produce a Dataframe with the summary of the school's forecasted ADE
   #'
   #' @param prop_matrix
   #' @param trip_list The trip list from the balanced matrix
-  #' @param school_master
+  #' @param school_df
   #' @param eqao_2017
   #' @param new_school
-  #' @param year_id
-  #' @param panel_id
-  #' @param board_id
-  #' @return A dataframe of schools with forecasted ADE
+  #' @return A Dataframe of schools with forecasted ADE
   #' 
   # Calculate the school weight
-  pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_master, eqao_2017, new_school = new_school,
-                                                           year_id, panel_id, board_id)
-  print(paste0("For ", panel_id, "-", board_id, ", there are ",
+  pos_school_weight <- calculate_school_weight_forecasting(trip_list, school_df, eqao_2017, new_school = new_school)
+  print(paste0("There are ",
                nrow(filter(pos_school_weight, length(school.weight.prob.list) == 1)),
                " TRESO zones with a single school, and ",
                nrow(filter(pos_school_weight, length(school.weight.prob.list) > 1)),
@@ -1085,7 +1060,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
   # Apply bucket rounding to chunks of data by TRESO POS
   results <- by(trip_list$trips, trip_list[c("treso.id.pos")], smart_round, simplify = TRUE)
   
-  # Convert the output of by() to a dataframe
+  # Convert the output of `by()` to a Dataframe
   results2 <- sapply(results, I)
   colnames(results2) <- colnames(prop_matrix)
   rownames(results2) <- rownames(prop_matrix)
@@ -1122,22 +1097,21 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_master, eqao_2017
   df_list <- list(schools_summary, df_0)
   
   return(df_list)
-  
 }
 
 edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional, travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold) {
-  #' Produce a list of 2 dataframes containing: 
+  #' Produce a list of 2 Dataframes containing: 
   #' 1. Dataframe of TRESO zones in which to consider building schools
   #' 2. Dataframe of TRESO zones ruled out from building schools due to proximity to higher-ranked location for building school
   #'
-  #' @param treso_travel_time A dataframe containing travel times to and from all origin-destination TRESO pairs
+  #' @param treso_travel_time A Dataframe containing travel times to and from all origin-destination TRESO pairs
   #' @param trip_list The trip list from the balanced matrix
   #' @param treso_zone_def Details of treso zones, e.g., CSDUID/CDUID
   #' @param por_additional A list of TRESO origins which have residual students due to school overfills --> candidate zones for building a new school
   #' @param travel_time_threshold_factor A user-set factor for selecting how much travel time is considered 'excess' time
   #' @param zone_proximity_threshold A user-set threshold to preclude construction of schools in each of two TRESO zones too close together
   #' @param min_tt_threshold A user-set threshold to preclude construction of schools in TRESO zones without sufficient 'excess' travel time
-  #' @return A list of 2 dataframes with TRESO zones in which to build, and TRESO zones ruled out due to proximity
+  #' @return A list of 2 Dataframes with TRESO zones in which to build, and TRESO zones ruled out due to proximity
   
   # Create full matrix of travel times for students across the province
   potential_zones <- cbind(trip_list, select(treso_travel_time, value)) %>%
@@ -1182,7 +1156,7 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
   print(paste0("The number of zones in shortlist is: ", nrow(shortlist_zones)))
   print(paste0("The number of zone pairs in shortlist is: ", nrow(shortlist_pairs)))
   
-  # Initialize dataframes and while-loop check
+  # Initialize Dataframes and while-loop check
   num_shortlist_zones <- nrow(shortlist_zones)
   build_df <- tibble(zone = integer())
   proximity_df <- tibble(zone = integer())
@@ -1238,15 +1212,40 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
   return(list(build_df, proximity_df))
 }
 
+calculate_delta_between_simulated_scenarios <- function(school_base, school_summary_base, school_summary_forecast, new_school, 
+                                                        schools_consolidated_closed) {
+  # TODO: find a way to remove school_consolidated close eventually
+
+  #' Calculate the delta between the two simulated scenarios. Apply this delta to the `school_base` Dataframe in order to obtain the
+  #' forecasted ADE of the schools.
+  #'
+  #' @param school_base A Dataframe of the master list of schools
+  #' @param school_summary_base A Dataframe of simulated ADE for schools in the base scenario
+  #' @param school_summary_forecast A Dataframe of simulated ADE for schools in the forecast scenario
+  #' @param new_school A Dataframe of new schools
+  #' @param schools_consolidated_closed A Dataframe of consolidated closed schools
+  #' @return A Dataframe of schools with the forecasted ADE
+  
+  # Take the difference between the simulated ADEs
+  trip_list_schools_summary_difference <- full_join(school_summary_base, school_summary_forecast, by="sfis", suffix=c(".base", ".20xx")) %>% 
+    replace_na(list(simulated.ade.base = 0, simulated.ade.20xx = 0)) %>% 
+    mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
+  
+  # Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
+  school_forecast <- create_forecast_school_list(school_base, new_school, trip_list_schools_summary_difference, schools_consolidated_closed)
+  
+  return(school_forecast)
+}
+
 # MOH ----
 ## MOH Cleaning ----
 
 create_hospital_xy <- function(hospital_master) {
   #' This function transforms each hospital location into the same projection as the TRESO shapefiles
   #' 
-  #' @param hospital_master A dataframe of the hospitals
+  #' @param hospital_master A Dataframe of the hospitals
   #' @param treso_shp A Shapefile of TRESO zones
-  #' @return A SpatialPointsDataFrame 
+  #' @return A SpatialPointsDataframe 
 
   hospital_spdf <- hospital_master %>%
     ungroup() %>%
@@ -1270,9 +1269,9 @@ create_hospital_xy <- function(hospital_master) {
 create_court_xy <- function(court_master) {
   #' This function transforms each court location into the same projection as the TRESO shapefiles
   #' 
-  #' @param court_master A dataframe of the courts
+  #' @param court_master A Dataframe of the courts
   #' @param treso_shp A Shapefile of TRESO zones
-  #' @return A SpatialPointsDataFrame 
+  #' @return A SpatialPointsDataframe 
   
   court_spdf <- court_master %>%
     ungroup() %>%
