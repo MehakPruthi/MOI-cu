@@ -363,6 +363,32 @@ schoolLocCombinedFix <- schoolLocCombined %>%
 schoolLocCombinedDistinct <- schoolLocCombinedFix %>%
   distinct(sfis, school.lat, school.long)
 
+create_school_xy_simple <- function(school_sfis) {
+  '
+  This function differs from `create_school_xy` in that this takes in the school dataframe
+  without the catchment distnace. This function differs from `create_school_xy_from_schools`
+  in that it pulls different metadata fields.
+  
+  input: Dataframe of school with lat long
+  output: SpatialPointsDataFrame of each school
+  '
+  # Convert the school dataframe into SpatialPointsDataframe
+  school_spdf <- school_sfis %>%
+    ungroup() %>%
+    select(sfis, school.lat, school.long) %>%
+    mutate(schoolLat = school.lat, schoolLong = school.long) %>%
+    mutate(id = row_number())
+  coordinates(school_spdf) <- c('schoolLong', 'schoolLat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(school_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  school_xy <- spTransform(school_spdf, CRS(treso_projarg))
+  
+  return(school_xy)
+}
+
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 school_xy <- create_school_xy_simple(schoolLocCombinedDistinct)
 

@@ -9,8 +9,10 @@ if (exists("nest_legacy", where="package:tidyr", mode="function")) {
   nest <- nest_legacy
 }
 
+# Common Helpers -----
 write_excel <- function(x,row.names=FALSE,col.names=TRUE,...) {
-  write.table(x,"clipboard",sep="\t",row.names=row.names,col.names=col.names,...)
+  #' Copies the entire dataframe into clipboard
+  write.table(x, "clipboard", sep="\t", row.names=row.names, col.names=col.names,...)
 }
 
 convertDegrees <- function(deg) {
@@ -67,6 +69,38 @@ haverFunctionManhattan <- function(lat1, lon1, lat2, lon2) {
   d = d1 + d2
   
   return(d)
+}
+
+smart_round <- function(x, digits = 0) {
+  #' Bucket rounding
+  #' [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
+  up <- 10 ^ digits
+  x <- x * up
+  y <- floor(x)
+  # Get the biggest residuals that will add up the difference
+  # from the floor round
+  indices <- tail(order(x-y), round(sum(x)) - sum(y))
+  y[indices] <- y[indices] + 1
+  y / up
+}
+
+sample_by_row <- function(row) {
+  #' Apply `sample()`` row by row
+  #' 
+  #' @param row A row of data
+  
+  x <- row["sfis.list"][[1]]
+  size <- row["enrolment.rounded"][[1]]
+  
+  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
+  
+  if (length(x) == 1) {
+    # Quirk 
+    prob = c(rep(0, x - 1), row["school.weight.prob.list"][[1]])
+  } else {
+    prob = row["school.weight.prob.list"][[1]]
+  }
+  list(sample(x, size=size, replace=TRUE, prob=prob))
 }
 
 balance <- function(matrix, tot, axis) {
@@ -165,7 +199,6 @@ matrix_balancing_1d <- function(matrix, a, weight, axis=1, is_weight_continuous=
   return(matrix2)
 }
 
-
 matrix_balancing_2d <- function(matrix, a, b, totals_to_use="raise", max_iterations=10000, rel_error=0.007) {
   #' Two dimensional balances a matrix
   #' 
@@ -230,6 +263,8 @@ matrix_balancing_2d <- function(matrix, a, b, totals_to_use="raise", max_iterati
   return(matrix2)
 }
 
+# Transportation Related Helpers -----
+
 calculate_simulated_trips <- function(observed_trips, travel_time, alpha, beta) {
   #' Calculate the simulated trips based on alpha and beta values
   #' 
@@ -263,7 +298,6 @@ calculate_simulated_trips <- function(observed_trips, travel_time, alpha, beta) 
   return(simulated_trips)
 }
 
-# TODO check that renaming school_panel_def didn't mess anything up
 read_observed_trips <- function(filepath, school_board_def, treso_zone_def, school_panel_def, travel_time_skim,
                                 panel_id = "", board_id = "") {
   #' Read the observed trip list and return the trips of the specified panel and board type with travel time, travel distance and enrolment
@@ -301,64 +335,68 @@ read_observed_trips <- function(filepath, school_board_def, treso_zone_def, scho
   return(observed_trips)
 }
 
-trip_mean <- function(zone_trips, calc_type) {
-  '
-  Calculate mean travel time or distance for students based on TRESO zone trips and associated travel times / distances
+trip_mean <- function(trip_df, calc_type="time") {
+  #' Calculate mean travel time or distance for trips
+  #' 
+  #' @param trip_df A dataframe for all zone pairs the number trips, enrolment, travel time or distance
+  #' @param calc_type A string of either 'time' or 'distance'
+  #' @return The mean value
   
-  Input: Dataframe describing, for all relevant zone pairs: number of trips; enrolment; travel time or distance
-  Ouput: Mean student travel time or distance
-  '
-  if(tolower(calc_type) == 'time')
-  {
-    meanVal <- zone_trips %>%
+  if (tolower(calc_type) == 'time') {
+    meanVal <- trip_df %>%
       ungroup() %>%
-      summarise(mean_time = sum(value * enrolment) / sum(enrolment))
-  }
-  
-  if(tolower(calc_type) == 'distance')
-  {
-    meanVal <- zone_trips %>%
+      summarise(mean.time = sum(value * enrolment) / sum(enrolment))
+  } else if (tolower(calc_type) == 'distance') {
+    meanVal <- trip_df %>%
       ungroup() %>%
-      summarise(mean_distance = sum(distance * enrolment) / sum(enrolment))
+      summarise(mean.distance = sum(distance * enrolment) / sum(enrolment))
+  } else {
+    stop("Expecting `calc_type` to be a string of 'time' or 'distance'")
   }
   
   return(meanVal)
 }
 
-trip_percentile <- function(zone_trips, calc_type, percentile) {
-  '
-  Calculate the x percentile travel time or distance for students based on TRESO zone trips and associated travel times / distance
-  
-  Input: Dataframe describing, for all relevant zone pairs: number of trips; enrolment; travel time or distance
-  Ouput: x Percentile student travel time or distance
-  
-  '
-  if(tolower(calc_type) == 'time')
-  {
-    percentileVal <- zone_trips %>% 
+trip_percentile <- function(trip_df, calc_type="time", percentile) {
+  #' Calculate percentile travel time or distance for trips
+  #' 
+  #' @param trip_df A dataframe for all zone pairs the number trips, enrolment, travel time or distance
+  #' @param calc_type A string of either 'time' or 'distance'
+  #' @param percentile A double that represent the percentile the user wish to calculate
+  #' @return The percentile value
+
+  if (tolower(calc_type) == 'time') {
+    percentileVal <- trip_df %>% 
       ungroup() %>%
       arrange(value) %>% 
       mutate(cumSumEnrol = cumsum(enrolment)) %>%
       mutate(enrol90 = (0.9 * max(cumSumEnrol))) %>% 
       filter(cumSumEnrol >= enrol90) %>%
       summarise(timePercent = first(value))
-  }
-  
-  if(tolower(calc_type) == 'distance')
-  {
-    percentileVal <- zone_trips %>% 
+  } else if (tolower(calc_type) == 'distance') {
+    percentileVal <- trip_df %>% 
       ungroup() %>%
       arrange(distance) %>% 
       mutate(cumSumEnrol = cumsum(enrolment)) %>%
       mutate(enrolPercent = (percentile * max(cumSumEnrol))) %>% 
       filter(cumSumEnrol >= enrolPercent) %>%
       summarise(distPercent = first(distance))
+  } else {
+    stop("Expecting `calc_type` to be a string of 'time' or 'distance'")
   }
   
   return(percentileVal)
 }
 
 generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_size=1) {
+  #' Combine the observed trips and simulated trips into a binned dataframe. Used to plot trip length frequency diagrams
+  #' 
+  #' @param observed_trips A dataframe of observed trips
+  #' @param simulated_trips A dataframe of simulated trips
+  #' @param max_value An integer specifying the maximum binned value 
+  #' @param bin_size An numeric specifying the bin size
+  #' @return A dataframe with both types of trips and binned
+  
   obs_tlfd <- select(observed_trips, treso.id.por, treso.id.pos, enrolment, value) %>%
     mutate(bin = cut(value, seq(0, max_value, bin_size), labels = seq(bin_size, max_value, bin_size))) %>%
     group_by(bin) %>%
@@ -376,143 +414,9 @@ generate_tlfd <- function(observed_trips, simulated_trips, max_value=85, bin_siz
   return(combined_tlfd)
 }
 
-calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school,
-                                                year_id, panel_id, board_id) {
-  
-  #' Calculate weight factor for distributing students between two or more schools within a single TRESO zone
-  #' 
-  #' @param trip_list
-  #' @param school_list_master
-  #' @param eqao_2017
-  #' @param new_school
-  #' @param year_id
-  #' @param panel_id
-  #' @param board_id
-  #' @return
-  
-  # Include the new_school in the master school list
-  if(!is.null(new_school)){
-    school_list_master <- school_list_master %>% 
-      bind_rows(new_school)
-  }
-  
-  # Filter school list based on panel and board type
-  school_list_master <- school_list_master %>%
-    filter(year == year_id, panel == panel_id, board_type_name == board_id)
-  
-  print(head(trip_list))
-  print(head(school_list_master))
-  
-  # Calculate school weighting for TRESO zones with multiple schools and export it for
-  pos_school <- trip_list %>%
-    group_by(treso.id.pos) %>%
-    summarise(trips = sum(trips)) %>%
-    right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("treso.id.pos") ) %>% 
-    left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-    mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
-  
-  print(head(pos_school))
-  
-  # calculate a combined weight between eqao and otg ratio
-  pos_school_weight <- pos_school %>%
-    group_by(treso.id.pos) %>% 
-    mutate(school.weight = eqao.standardized * (otg / sum(otg)), 
-           school.weight.prob = school.weight / sum(school.weight))
-  
-  # school weight
-  pos_school_weight_new <- pos_school_weight %>%
-    select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
-    group_by(treso.id.pos) %>%
-    summarise(
-      sfis.list = paste(sfis, collapse = ","),
-      school.name.list = paste(school.name, collapse = ","),
-      dsb.index.list = paste(dsb.index, collapse = ","),
-      school.weight.prob.list = paste(school.weight.prob, collapse = ",")
-    ) %>%
-    rowwise() %>%
-    mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
-    mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
-  
-  return(pos_school_weight_new)
-}
-
-calculate_school_weight <- function(observed_trips, school_board_def, school_sfis_2017,
-                                    eqao_2017, panel_id = "Elementary", board_id = "English Public") {
-  
-  # Calculate school weighting for TRESO zones with multiple schools and export it for
-  pos_school_EPE <- select(observed_trips, school.name, sfis, treso.id.pos, dsb.index) %>%
-    left_join(select(school_board_def, dsb, board_type_name), by = c("dsb.index" = "dsb")) %>%
-    left_join(select(school_sfis_2017, sfis, panel), by = "sfis") %>%
-    filter(panel == panel_id, board_type_name == board_id) %>%
-    group_by(sfis, school.name) %>%
-    summarise(treso.id.pos = first(treso.id.pos), dsb.index = first(dsb.index)) %>%
-    left_join(select(school_sfis_2017, sfis, otg), by = "sfis") %>%
-    left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
-    mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE))) 
-  
-  # get treso zone otg totals
-  pos_otg_total <- pos_school_EPE %>%
-    group_by(treso.id.pos) %>%
-    summarise(otg.total = sum(otg))
-  
-  # calculate a combined weight between eqao and otg ratio
-  pos_school_weight <- left_join(pos_school_EPE, pos_otg_total, by = "treso.id.pos") %>%
-    mutate(school.weight = eqao.standardized * (otg / otg.total)) 
-  
-  # get treso zone school.weight totals
-  pos_school_weight_total <- pos_school_weight %>%
-    group_by(treso.id.pos) %>%
-    summarise(school.weight.total = sum(school.weight))
-  
-  # school weight
-  pos_school_weight <- left_join(pos_school_weight, pos_school_weight_total, by = "treso.id.pos") %>%
-    mutate(school.weight.prob = school.weight/school.weight.total) %>%
-    select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
-    group_by(treso.id.pos) %>%
-    summarise(
-      sfis.list = paste(sfis, collapse = ","),
-      school.name.list = paste(school.name, collapse = ","),
-      dsb.index.ist = paste(dsb.index, collapse = ","),
-      school.weight.prob.list = paste(school.weight.prob, collapse = ",")
-    ) %>%
-    rowwise() %>%
-    mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
-    mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
-  
-  return(pos_school_weight)
-}
-
-# Bucket rounding
-# [https://stackoverflow.com/questions/32544646/round-vector-of-numerics-to-integer-while-preserving-their-sum]
-smart_round <- function(x, digits = 0) {
-  up <- 10 ^ digits
-  x <- x * up
-  y <- floor(x)
-  # Get the biggest residuals that will add up the difference
-  # from the floor round
-  indices <- tail(order(x-y), round(sum(x)) - sum(y))
-  y[indices] <- y[indices] + 1
-  y / up
-}
-
-# Apply sample() row by row
-sample_by_row <- function(row) {
-  x <- row["sfis.list"][[1]]
-  size <- row["enrolment.rounded"][[1]]
-  
-  print(paste0("Number of schools in selection is: ", length(x), ". Size of students: ", size))
-  
-  if (length(x) == 1) {
-    # Quirk 
-    prob = c(rep(0, x - 1), row["school.weight.prob.list"][[1]])
-  } else {
-    prob = row["school.weight.prob.list"][[1]]
-  }
-  list(sample(x, size=size, replace=TRUE, prob=prob))
-}
-
-# Plot TLFD with segmentation
 plot_straight_line_tlfd <- function(tlfd) {
+  #' Plot TLFD with segmentation
+  
   g1 <- ggplot(tlfd, aes(dist, color = as.factor(board_type_name))) +
     geom_freqpoly(stat = 'bin', binwidth = 0.1, size = 1) + 
     facet_wrap(vars(board_type_name), scales = 'free_y') +
@@ -550,8 +454,9 @@ plot_straight_line_tlfd <- function(tlfd) {
   grid.arrange(g1, g2, g3, g4, nrow = 4)
 }
 
-# Plot TLFD with segmentation
 plot_travel_time_tlfd <- function(tlfd) {
+  #' Plot TLFD with segmentation
+
   g1 <- ggplot(tlfd, aes(travel.time, color = as.factor(board_type_name))) +
     geom_freqpoly(stat = 'bin', binwidth = 2, size = 1) + 
     facet_wrap(vars(board_type_name), scales = 'free_y') +
@@ -587,16 +492,105 @@ plot_travel_time_tlfd <- function(tlfd) {
   g <- arrangeGrob(g1, g2, g3, g4, nrow = 4)
 }
 
-# Obtain school and student xy from `student_travel_##` where ## is the catchment distance
-create_student_xy <- function(student_travel) {
-  '
-  This function filters the individual student information and transform the projection to the same
-  as the TRESO shapefiles
+create_overlay <- function(xy_location, treso_shp, type='student') {
+  #' This function takes the SpatialPointsDataFrame and maps the XY location of the object on the 
+  #' TRESO shapefile and returns the appropriate TRESO zone ID the objects fall on top of.
+  #' 
+  #' @param xy_location A SpatialPointsDataFrame of the object
+  #' @param treso_shp A Shapefile of the TRESO zones
+  #' @param type A string indicating the type of the object in order to pull the correct metadata fields
+  #' @return A database with the TRESO zone ID for each object
+  
+  if (type == 'student') {
+    # Find the treso zones which the student points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(manhattan.dist = xy_location@data$manhattan.dist,
+            euclidean.dist = xy_location@data$euclidean.dist,
+            student.postal.code = xy_location@data$student.postal.code,
+            school.name = xy_location@data$school.name,
+            sfis = xy_location@data$sfis,
+            enrolment = xy_location@data$enrolment) %>%
+      as_tibble() %>%
+      select(Treso_ID, manhattan.dist, euclidean.dist, student.postal.code, enrolment, school.name, sfis) %>%
+      rename(
+        treso.id.por = Treso_ID
+      )
+  } else if (type == 'school') {
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(catchment.dist = xy_location@data$catchment.dist,
+            dsb.index= xy_location@data$dsb.index,
+            school.name = xy_location@data$school.name,
+            sfis = xy_location@data$sfis,
+            bsid = xy_location@data$bsid) %>%
+      as_tibble() %>%
+      select(Treso_ID, catchment.dist, dsb.index, school.name, sfis, bsid) %>%
+      rename(
+        treso.id.pos = Treso_ID
+      )
+  } else if (type == 'schoolSimple') {
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(school.lat = xy_location@data$school.lat,
+            school.long = xy_location@data$school.long,
+            sfis = xy_location@data$sfis) %>%
+      as_tibble() %>%
+      select(Treso_ID, sfis, school.lat, school.long) %>%
+      rename(treso.id.pos = Treso_ID)
+  } else if (type == 'court') {
+    # Find the treso zones which the school points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(lat = xy_location@data$courthouse.lat,
+            long = xy_location@data$courthouse.long,
+            bid = xy_location@data$bid) %>%
+      as_tibble() %>%
+      mutate(bid = as.character(bid)) %>%  
+      select(Treso_ID, bid, lat, long) %>%
+      rename(treso.id.pos = Treso_ID)
+  } else if (type == 'hospital') {
+    # Find the treso zones which the hospital points layover
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
+      cbind(lat = xy_location@data$hospital.lat,
+            long = xy_location@data$hospital.long,
+            id = xy_location@data$id) %>%
+      as_tibble() %>%
+      mutate(bid = as.character(id)) %>%  
+      select(Treso_ID, id, lat, long) %>%
+      rename(treso.id.pos = Treso_ID)
+  } else if (type == 'marker') {
+    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>% 
+      cbind(., school.name = xy_location@data$school.name,
+            year = xy_location@data$year,
+            sfis = xy_location@data$sfis,
+            dsb.index = xy_location@data$dsb.index,
+            school.lat = xy_location@data$school.lat,
+            school.long = xy_location@data$school.long,
+            board_type_name = xy_location@data$board_type_name,
+            board.name = xy_location@data$board.name,
+            panel = xy_location@data$panel,
+            otg = xy_location@data$otg) %>% 
+      as_tibble() %>%
+      mutate(year = as.integer(as.character(year)), school.name = as.character(school.name),
+             board.name = as.character(board.name),
+             board_type_name = as.character(board_type_name), panel = as.character(panel)) %>% 
+      select(Treso_ID, year, dsb.index, school.name, school.lat, school.long, sfis, board.name, board_type_name, panel, otg) %>% 
+      rename(treso.id.pos = Treso_ID)
+  } else {
+    stop("Expecting `type` to be either 'student', 'school', 'schoolSimple', 'court', 'hospital' or 'marker'.")
+  }
+  return(overlay)
+}
 
-  inputs: Dataframe of the students within a certain catchment distance of the school
-  output: SpatialPointsDataFrame of each student
-  '
-  # Convert the student dataframe into SpatialPointsDataframe
+# EDU -----
+## EDU Cleaning ----
+
+create_student_xy <- function(student_travel, treso_shp) {
+  #' This function transforms each student location into the same projection as the TRESO shapefiles
+  #' 
+  #' @param student_travel A dataframe of the students and schools within a certain catchment distance of the school
+  #' @param treso_shp A spatial file of TRESO
+  #' @return A SpatialPointsDataFrame 
+
   student_spdf <- student_travel %>%
     ungroup() %>%
     select(student.lat, student.long, dist, man.dist, school.name, sfis, dsb.index, panel, enrolment, student.postal.code) %>%
@@ -619,15 +613,13 @@ create_student_xy <- function(student_travel) {
   return(student_xy)
 }
 
-create_school_xy <- function(student_travel) {
-  '
-  This function filters the individual school information and transform the projection to the same
-  as the TRESO shapefiles
-
-  inputs: Dataframe of the students within a certain catchment distance of the school
-  output: SpatialPointsDataFrame of each school
-  '
-  # Convert the school dataframe into SpatialPointsDataframe
+create_school_xy <- function(student_travel, treso_shp) {
+  #' This function transforms each school location into the same projection as the TRESO shapefiles
+  #' 
+  #' @param student_travel A dataframe of the students and schools within a certain catchment distance of the school
+  #' @param treso_shp A spatial file of TRESO
+  #' @return A SpatialPointsDataFrame 
+  
   school_spdf <- student_travel %>%
     ungroup() %>%
     select(school.name, school.lat, school.long, dsb.index, bsid, sfis, panel, perc.dist) %>%
@@ -648,200 +640,6 @@ create_school_xy <- function(student_travel) {
   school_xy <- spTransform(school_spdf, CRS(treso_projarg))
   
   return(school_xy)
-}
-
-create_school_xy_from_school <- function(school_sfis) {
-  '
-  This function differs from `create_school_xy` in that this takes in the school dataframe
-  without the catchment distance
-  
-  input: Dataframe of school with lat long
-  output: SpatialPointsDataFrame of each school
-  '
-  # Convert the school dataframe into SpatialPointsDataframe
-  school_spdf <- school_sfis %>%
-    ungroup() %>%
-    select(school.name, school.lat, school.long, dsb.index, bsid, sfis) %>%
-    rename(
-      lat = school.lat,
-      long = school.long
-    ) %>%
-    mutate(id = row_number())
-  coordinates(school_spdf) <- c('long', 'lat')
-  
-  # Project the student and school points from lat/long to TRESO's LCC specification
-  proj4string(school_spdf) <- CRS('+proj=longlat +datum=WGS84')
-  treso_projarg = treso_shp@proj4string@projargs
-  
-  school_xy <- spTransform(school_spdf, CRS(treso_projarg))
-  
-  return(school_xy)
-}
-
-create_school_xy_simple <- function(school_sfis) {
-  '
-  This function differs from `create_school_xy` in that this takes in the school dataframe
-  without the catchment distnace. This function differs from `create_school_xy_from_schools`
-  in that it pulls different metadata fields.
-  
-  input: Dataframe of school with lat long
-  output: SpatialPointsDataFrame of each school
-  '
-  # Convert the school dataframe into SpatialPointsDataframe
-  school_spdf <- school_sfis %>%
-    ungroup() %>%
-    select(sfis, school.lat, school.long) %>%
-    mutate(schoolLat = school.lat, schoolLong = school.long) %>%
-    mutate(id = row_number())
-  coordinates(school_spdf) <- c('schoolLong', 'schoolLat')
-  
-  # Project the student and school points from lat/long to TRESO's LCC specification
-  proj4string(school_spdf) <- CRS('+proj=longlat +datum=WGS84')
-  treso_projarg = treso_shp@proj4string@projargs
-  
-  school_xy <- spTransform(school_spdf, CRS(treso_projarg))
-  
-  return(school_xy)
-}
-
-create_court_xy <- function(court_master) {
-  '
-  This function takes in the court dataframe. 
-  
-  input: Dataframe of court with lat long
-  output: SpatialPointsDataFrame of each court
-  '
-  # Convert the school dataframe into SpatialPointsDataframe
-  court_spdf <- court_master %>%
-    ungroup() %>%
-    select(bid, courthouse.lat, courthouse.long) %>%
-    mutate(lat = courthouse.lat, long = courthouse.long) %>%
-    mutate(id = row_number())
-  coordinates(court_spdf) <- c('long', 'lat')
-  
-  # Project the student and school points from lat/long to TRESO's LCC specification
-  proj4string(court_spdf) <- CRS('+proj=longlat +datum=WGS84')
-  treso_projarg = treso_shp@proj4string@projargs
-  
-  court_xy <- spTransform(court_spdf, CRS(treso_projarg))
-  
-  return(court_xy)
-}
-
-create_overlay <- function(xy_location, treso_shp, type = 'student') {
-  '
-  This function takes the SpatialPointsDataFrame of either school or students and maps the
-  XY location of the object to the TRESO zone and returns the appropriate TRESO zone ID.
-
-  inputs: SpatialPointsDataFrame of school/student, TRESO shapefile, string indicating what is the object
-  output: Dataframe of the school or student with the appropriate TRESO zone ID
-  '
-  if (type == 'student') {
-    # Find the treso zones which the student points layover
-    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(manhattan.dist = xy_location@data$manhattan.dist,
-            euclidean.dist = xy_location@data$euclidean.dist,
-            student.postal.code = xy_location@data$student.postal.code,
-            school.name = xy_location@data$school.name,
-            sfis = xy_location@data$sfis,
-            enrolment = xy_location@data$enrolment) %>%
-      as_tibble() %>%
-      select(Treso_ID, manhattan.dist, euclidean.dist, student.postal.code, enrolment, school.name, sfis) %>%
-      rename(
-        treso.id.por = Treso_ID
-      )
-  }
-  else if (type == 'school') {
-    # Find the treso zones which the school points layover
-    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(catchment.dist = xy_location@data$catchment.dist,
-            dsb.index= xy_location@data$dsb.index,
-            school.name = xy_location@data$school.name,
-            sfis = xy_location@data$sfis,
-            bsid = xy_location@data$bsid) %>%
-      as_tibble() %>%
-      select(Treso_ID, catchment.dist, dsb.index, school.name, sfis, bsid) %>%
-      rename(
-        treso.id.pos = Treso_ID
-      )
-  }
-  else if (type == 'schoolSimple') {
-    # Find the treso zones which the school points layover
-    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(school.lat = xy_location@data$school.lat,
-            school.long = xy_location@data$school.long,
-            sfis = xy_location@data$sfis) %>%
-      as_tibble() %>%
-      select(Treso_ID, sfis, school.lat, school.long) %>%
-      rename(treso.id.pos = Treso_ID)
-  }
-  else if (type == 'court') {
-    # Find the treso zones which the school points layover
-    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(lat = xy_location@data$courthouse.lat,
-            long = xy_location@data$courthouse.long,
-            bid = xy_location@data$bid) %>%
-      as_tibble() %>%
-      mutate(bid = as.character(bid)) %>%  
-      select(Treso_ID, bid, lat, long) %>%
-      rename(treso.id.pos = Treso_ID)
-  }
-  else if (type == 'hospital') {
-    # Find the treso zones which the hospital points layover
-    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>%
-      cbind(lat = xy_location@data$hospital.lat,
-            long = xy_location@data$hospital.long,
-            id = xy_location@data$id) %>%
-      as_tibble() %>%
-      mutate(bid = as.character(id)) %>%  
-      select(Treso_ID, id, lat, long) %>%
-      rename(treso.id.pos = Treso_ID)
-  }
-  else if (type == 'marker') {
-    overlay <- over(xy_location, treso_shp, returnList = FALSE) %>% 
-      cbind(., school.name = xy_location@data$school.name,
-            year = xy_location@data$year,
-            sfis = xy_location@data$sfis,
-            dsb.index = xy_location@data$dsb.index,
-            school.lat = xy_location@data$school.lat,
-            school.long = xy_location@data$school.long,
-            board_type_name = xy_location@data$board_type_name,
-            board.name = xy_location@data$board.name,
-            panel = xy_location@data$panel,
-            otg = xy_location@data$otg) %>% 
-      as_tibble() %>%
-      mutate(year = as.integer(as.character(year)), school.name = as.character(school.name),
-             board.name = as.character(board.name),
-             board_type_name = as.character(board_type_name), panel = as.character(panel)) %>% 
-      select(Treso_ID, year, dsb.index, school.name, school.lat, school.long, sfis, board.name, board_type_name, panel, otg) %>% 
-      rename(treso.id.pos = Treso_ID)
-  }
-  
-  return(overlay)
-}
-
-create_hospital_xy <- function(hospital_master) {
-  '
-  This function takes in the court dataframe. 
-  
-  input: Dataframe of court with lat long
-  output: SpatialPointsDataFrame of each court
-  '
-  # Convert the school dataframe into SpatialPointsDataframe
-  hospital_spdf <- hospital_master %>%
-    ungroup() %>%
-    select(id, hospital.lat, hospital.long) %>%
-    mutate(lat = hospital.lat, long = hospital.long) %>%
-    mutate(ref = row_number())
-  coordinates(hospital_spdf) <- c('long', 'lat')
-  
-  # Project the hospital lat/long to TRESO's LCC specification
-  proj4string(hospital_spdf) <- CRS('+proj=longlat +datum=WGS84')
-  treso_projarg = treso_shp@proj4string@projargs
-  
-  hospital_xy <- spTransform(hospital_spdf, CRS(treso_projarg))
-  
-  return(hospital_xy)
 }
 
 # Buffer the TRESO zones for each school based on the catchment distance
@@ -1147,6 +945,60 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   return(forecast_population_by_board)
 }
 
+calculate_school_weight_forecasting <- function(trip_list, school_list_master, eqao_2017, new_school,
+                                                year_id, panel_id, board_id) {
+  #' Calculate weight factor for distributing students between two or more schools within a single TRESO zone
+  #' 
+  #' @param trip_list
+  #' @param school_list_master
+  #' @param eqao_2017
+  #' @param new_school
+  #' @param year_id
+  #' @param panel_id
+  #' @param board_id
+  #' @return
+  
+  # Include the new_school in the master school list
+  if(!is.null(new_school)){
+    school_list_master <- school_list_master %>% 
+      bind_rows(new_school)
+  }
+  
+  # Filter school list based on panel and board type
+  school_list_master <- school_list_master %>%
+    filter(year == year_id, panel == panel_id, board_type_name == board_id)
+  
+  # Calculate school weighting for TRESO zones with multiple schools and export it for
+  pos_school <- trip_list %>%
+    group_by(treso.id.pos) %>%
+    summarise(trips = sum(trips)) %>%
+    right_join(select(school_list_master, otg, sfis, treso.id.pos, school.name, dsb.index), by = c("treso.id.pos") ) %>% 
+    left_join(select(eqao_2017, eqao.standardized, sfis), by = "sfis") %>%
+    mutate(eqao.standardized = replace_na(eqao.standardized, mean(.$eqao.standardized, na.rm=TRUE)))
+  
+  # calculate a combined weight between eqao and otg ratio
+  pos_school_weight <- pos_school %>%
+    group_by(treso.id.pos) %>% 
+    mutate(school.weight = eqao.standardized * (otg / sum(otg)), 
+           school.weight.prob = school.weight / sum(school.weight))
+  
+  # school weight
+  pos_school_weight_new <- pos_school_weight %>%
+    select(treso.id.pos, sfis, school.name, dsb.index, school.weight.prob) %>%
+    group_by(treso.id.pos) %>%
+    summarise(
+      sfis.list = paste(sfis, collapse = ","),
+      school.name.list = paste(school.name, collapse = ","),
+      dsb.index.list = paste(dsb.index, collapse = ","),
+      school.weight.prob.list = paste(school.weight.prob, collapse = ",")
+    ) %>%
+    rowwise() %>%
+    mutate(school.weight.prob.list = list(as.numeric(unlist(strsplit(school.weight.prob.list, ","))))) %>%
+    mutate(sfis.list = list(as.numeric(unlist(strsplit(sfis.list, ",")))))
+  
+  return(pos_school_weight_new)
+}
+
 distribute_students_to_schools <- function(school_master, new_school_df, por, pos_full, prop_matrix, year_id, panel_id, board_id, is_weight_continuous) {
   #' Creates a new POS vector with new schools and distribute the students to the schools
   #' 
@@ -1434,9 +1286,57 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
   return(list(build_df, proximity_df))
 }
 
+# MOH ----
+## MOH Cleaning ----
 
+create_hospital_xy <- function(hospital_master) {
+  #' This function transforms each hospital location into the same projection as the TRESO shapefiles
+  #' 
+  #' @param hospital_master A dataframe of the hospitals
+  #' @param treso_shp A spatial file of TRESO
+  #' @return A SpatialPointsDataFrame 
 
+  hospital_spdf <- hospital_master %>%
+    ungroup() %>%
+    select(id, hospital.lat, hospital.long) %>%
+    mutate(lat = hospital.lat, long = hospital.long) %>%
+    mutate(ref = row_number())
+  coordinates(hospital_spdf) <- c('long', 'lat')
+  
+  # Project the hospital lat/long to TRESO's LCC specification
+  proj4string(hospital_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  hospital_xy <- spTransform(hospital_spdf, CRS(treso_projarg))
+  
+  return(hospital_xy)
+}
 
+# MAG -----
+## MAG Cleaning ----
+
+create_court_xy <- function(court_master) {
+  #' This function transforms each court location into the same projection as the TRESO shapefiles
+  #' 
+  #' @param court_master A dataframe of the courts
+  #' @param treso_shp A spatial file of TRESO
+  #' @return A SpatialPointsDataFrame 
+  
+  court_spdf <- court_master %>%
+    ungroup() %>%
+    select(bid, courthouse.lat, courthouse.long) %>%
+    mutate(lat = courthouse.lat, long = courthouse.long) %>%
+    mutate(id = row_number())
+  coordinates(court_spdf) <- c('long', 'lat')
+  
+  # Project the student and school points from lat/long to TRESO's LCC specification
+  proj4string(court_spdf) <- CRS('+proj=longlat +datum=WGS84')
+  treso_projarg = treso_shp@proj4string@projargs
+  
+  court_xy <- spTransform(court_spdf, CRS(treso_projarg))
+  
+  return(court_xy)
+}
 
 
 

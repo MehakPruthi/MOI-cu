@@ -441,6 +441,7 @@ last_run_step <- 'Determine which TRESO zones should...'
 
 # Run Steps 3 to get adjusted simulated ADE for each school (stored under school_forecast dataframe)
 
+
 # new_school_check <- new_school %>% 
 #   inner_join(df_0, by = 'treso.id.pos')
 ```
@@ -793,8 +794,8 @@ g
 - Plot a map of the entire dataset with students and schools
 
 ```{r plotting shapefiles, echo = FALSE}
-student_xy <- create_student_xy(student_travel_90)
-school_xy <- create_school_xy(student_travel_90)
+student_xy <- create_student_xy(student_travel_90, treso_shp)
+school_xy <- create_school_xy(student_travel_90, treso_shp)
 
 # Convert the SpatialDataframe to normal Dataframe for ggplot()
 treso_shp_df <- fortify(treso_shp) %>%
@@ -848,8 +849,8 @@ for (dist in percentile_dist) {
   student_travel <- get(paste0("student_travel_", dist))
 
   # Spatial transformation to XY
-  student_xy <- create_student_xy(student_travel)
-  school_xy <- create_school_xy(student_travel)
+  student_xy <- create_student_xy(student_travel, treso_shp)
+  school_xy <- create_school_xy(student_travel, treso_shp)
 
   # Create the overlays to get the TRESO zone each XY coordinate falls on
   student_overlay <- create_overlay(student_xy, treso_shp, "student")
@@ -875,8 +876,8 @@ for (dist in percentile_dist) {
 # Select a specific buffer
 school_of_interest <- "Holy Trinity CSS"
 student_travel <- get("student_travel_90")
-student_xy <- create_student_xy(student_travel)
-school_xy <- create_school_xy(student_travel)
+student_xy <- create_student_xy(student_travel, treso_shp)
+school_xy <- create_school_xy(student_travel, treso_shp)
 buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment.dist * 1000, byid = TRUE)
 buffer <- buffered_points[buffered_points@data$school.name == school_of_interest, ]
 
@@ -941,8 +942,8 @@ rm(school_of_interest, buffer, treso_overlay, treso_zones_interest, buffer_df, s
 student_xy_90 <- student_travel_90 %>%
   select(sfis, bsid, school.name, school.lat, school.long, dsb.index, panel, 
          enrolment, student.postal.code, student.lat, student.long, dist, man.dist) %>%
-  create_student_xy()
-school_xy <- create_school_xy(student_travel_90)
+  create_student_xy(., treso_shp)
+school_xy <- create_school_xy(student_travel_90, treso_shp)
 
 student_buffered <- gBuffer(student_xy_90, width = (student_xy_90@data$manhattan.dist * 1000 + 25), byid = TRUE)
 
