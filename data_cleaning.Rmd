@@ -1077,9 +1077,10 @@ saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
   - Calculate Annualization factor
   - Calculate Operational and Physical Capacity
 ```{r}
-#Count Daily Entries by Year: 2017:294 / 2018: 324
+#Count Daily Entries by Year: 2017:294 / 2018: 324 #DBC Data Extract has complete 2018 data
 dailybedcensusprepagg <- dailybedcensusprep %>%
-  filter(year == 2017) %>% 
+ #filter(year == 2017) %>% #filter by census date instead of fiscal year
+  filter(format(as.Date(censusdate, format="%d/%m/%Y"),"%Y") == 2018) %>%
   group_by(censusdate) %>% 
   mutate(sumbeds = sum())
   # group_by(year) %>% 
