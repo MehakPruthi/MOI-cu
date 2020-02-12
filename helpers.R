@@ -588,7 +588,7 @@ create_student_xy <- function(student_travel, treso_shp) {
   #' This function transforms each student location into the same projection as the TRESO shapefiles
   #' 
   #' @param student_travel A dataframe of the students and schools within a certain catchment distance of the school
-  #' @param treso_shp A spatial file of TRESO
+  #' @param treso_shp A Shapefile of TRESO zones
   #' @return A SpatialPointsDataFrame 
 
   student_spdf <- student_travel %>%
@@ -617,7 +617,7 @@ create_school_xy <- function(student_travel, treso_shp) {
   #' This function transforms each school location into the same projection as the TRESO shapefiles
   #' 
   #' @param student_travel A dataframe of the students and schools within a certain catchment distance of the school
-  #' @param treso_shp A spatial file of TRESO
+  #' @param treso_shp A Shapefile of TRESO zones
   #' @return A SpatialPointsDataFrame 
   
   school_spdf <- student_travel %>%
@@ -642,14 +642,13 @@ create_school_xy <- function(student_travel, treso_shp) {
   return(school_xy)
 }
 
-# Buffer the TRESO zones for each school based on the catchment distance
 buffer_zones <- function(school_xy, treso_shp) {
-  "
-  Performs spatial buffers to select the TRESO zones within the catchment distance of a school.
-
-  Inputs: School's XY location, TRESO shapefile
-  Output: Dataframe of TRESO zones within each School
-  "
+  #' Performs spatial buffers to select the TRESO zones within the catchment distance of a school.
+  #' 
+  #' @param school_xy A SpatialPointsDataFrame of the schools
+  #' @param treso_shp A Shapefile of TRESO zones
+  #' @return A Dataframe of TRESO zones in close proximity to each school
+  
   buffered_points <- gBuffer(school_xy, width = school_xy@data$catchment.dist * 1000, byid = TRUE)
   
   tic('Multi-Core Buffering')
@@ -659,7 +658,7 @@ buffer_zones <- function(school_xy, treso_shp) {
   cl <- parallel::makeCluster(cores[1] - 1)
   registerDoParallel(cl)
   
-  # foreach() loop to find the TRESO zones touching the school buffers
+  # `foreach()` loop to find the TRESO zones touching the school buffers
   datalist <- list()
   datalist <- foreach(i = 1:nrow(buffered_points@data), .packages=c('sp', 'tidyverse', 'rgeos')) %dopar% {
     
@@ -688,18 +687,18 @@ buffer_zones <- function(school_xy, treso_shp) {
   return(datalist_df)
 }
 
-# Condense the socio-economic information of the buffered TRESO zones for each school
 summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_board_def, treso_zone_def) {
-  '
-  This function takes the Dataframe of TRESO zones associated with each school and summarize the socio-economic
-  data for each school.
+  #' Summarize the socio-economic information of the buffered TRESO zones for each school.
+  #' 
+  #' @param buffered_df A Dataframe of the buffered TRESO zones
+  #' @param treso_tb A Dataframe of TRESO socio-economic information
+  #' @param school_ade A Dataframe of the school's ADE information
+  #' @param school_board_def A Dataframe with the school board definitions
+  #' @param treso_zone_def A Dataframe with the TRESO zone definitions
+  #' @return A Dataframe of the summarized socio-economic information for each school
 
-  inputs: SpatialPointsDataFrame of school/student, TRESO shapefile, string indicating what is the object
-  output: Dataframe of the school or student with the appropriate TRESO zone ID
-  '
   # First summarise data that is calculated with `mean()` or `first()`
   # I think using purr, one could summarise different columns with different functions in one go
-  
   school_tb_temp <- as_tibble(buffered_df) %>%
     left_join(select(treso_tb, treso_zone, mean_income, mean_age), by = c('treso.id' = 'treso_zone')) %>%
     left_join(select(school_board_def, dsb, board_type_name), by = c('dsb.index' = 'dsb')) %>%
@@ -717,7 +716,7 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
       mof.region = names(which.max(table(mof_region)))
     )
   
-  # Then, combine with data  that is calculated with sum
+  # Then, combine with data that is calculated with sum
   school_tb <- as_tibble(buffered_df) %>%
     left_join(treso_tb, by = c('treso.id' = 'treso_zone')) %>%
     replace(is.na(.), 0) %>%
@@ -735,60 +734,13 @@ summarize_buffered_zones <- function(buffered_df, treso_tb, school_ade, school_b
   return(school_tb)
 }
 
-getUtilizationColor <- function(value) {
-  sapply(value, function(value) {
-    if (value <= 0.75) {
-      "green"
-    } else if (value > 0.75 & value < 1.0) {
-      "orange"
-    } else {
-      "red"
-    }
-  })
-}
-
-utility_rename <- function(x) {
-  #' Rename columns by taking in x and adding "courtrooms.needed." as a prefix to x
-  #' 
-  #' @param x The string to be renamed
-  #' @return Renamed string
-  name = paste0("courtrooms.needed.", x)
-}
-
-courtroom_size <- function(courtrooms) {
-  # Determine appropriate area per courtroom as a function of number of courtrooms in a courthouse
-  
-  # Gross Area for smallest courthouses: 1,600 sqm per courtroom
-  courtroom_count_min = 1
-  area_max_sqm = 1600
-  
-  # Gross Area for largest courthouses: 1,200 sqm per courtroom
-  courtroom_count_max = 50
-  area_min_sqm = 1200
-  
-  # Gross Area function calculation
-  area_diff = area_max_sqm - area_min_sqm
-  courtroom_diff = courtroom_count_max - courtroom_count_min
-  area_change_per_courtroom = area_diff / courtroom_diff
-  
-  courtroom_count_scaled = max(min(courtrooms, 50), 1) # Setting area standard to have a minimum courtroom count of 1 and a max of 50 in linear sizing scale
-  required_area_per_courtroom = area_max_sqm - courtroom_count_scaled * area_change_per_courtroom
-  
-  required_area_per_courtroom_sqft = required_area_per_courtroom * 3.28^2
-  
-  return(required_area_per_courtroom_sqft)
-  
-}
-
-# Calculate the Geographic Adjustment Factor of a new school based on its enrolment, panel, and location
 school_gaf <- function(row, gaf_lookup) {
-  '
-  This function calculates the geographic adjustment factor for a school based on its location.
-
-  inputs: list of new schools containing postal code by school, and list of geographic adjustment factors by postal code
-  output: GAF of school for all schools in list
-  '
-  # Using function to calculate GAF on a per-row basis
+  #' Calculate the Geographic Adjustment Factor of a new school based on its enrolment, panel, and location
+  #' 
+  #' @param row A row in a Dataframe that contains the postal code by school
+  #' @param gaf_lookup A Dataframe of geographic adjustment factors by postal code
+  #' @return GAF of school for all schools in list
+  
   user_input_pcode <- row['user_input_pcode']
   
   # Determine number of digits for GAF lookup in postal_code lookup table
@@ -813,22 +765,22 @@ school_gaf <- function(row, gaf_lookup) {
     select(gaf) %>% 
     pull()
   
-return(gaf)
+  return(gaf)
 }  
 
-# Calculate the inflated cost of construction of one or more facilities based on time horizon
 construction_cost <- function(user_input_inflation, user_input_scenario_year, currency_year, current_year, new_facility_list) {
-  '
-  This function calculates the annualized, inflated construction cost for a list of new facilities, and sums the 
-  inflated costs together. The function assumes total capital cost is split equally over construction years, and
-  that inflation is constant throughout the time horizon. The total cost presented is a sum of nominal dollars from
-  each year, in keeping with Treasury Board budget estimates, though in reality the unit of currency is therefore an
-  amalgam of dollars belonging to each year in the time horizon.
-
-  inputs: user provided inflation rate; year of scenario being tested; base year of cost estimates; current year upon
-    which construction timelines are set; list of new facilities to be built
-  output: list of spending in nominal dollars per year, and in total, to build the new facilities
-  '
+  #' Calculates the annualized, inflated construction cost for a list of new facilities, and sums the 
+  #' inflated costs together. The function assumes total capital cost is split equally over construction years, and
+  #' that inflation is constant throughout the time horizon. The total cost presented is a sum of nominal dollars from
+  #' each year, in keeping with Treasury Board budget estimates, though in reality the unit of currency is therefore an
+  #' amalgam of dollars belonging to each year in the time horizon.
+  #' 
+  #' @param user_input_inflation A numeric value that represents the inflation rate
+  #' @param user_input_scenario_year An integer that represents the forecast scenario year
+  #' @param currency_year An integer that represents the base year of cost esimates
+  #' @param current_year An integer that represents the current year upon which construction timelines are set
+  #' @param new_facility_list A list of new facilities to be built
+  #' @return A list of spending in nominal dollars per year, and in total, to build the new facilities
 
   # Determine min and max years for building inflation index
   min_year = min(user_input_scenario_year, current_year) 
@@ -1293,7 +1245,7 @@ create_hospital_xy <- function(hospital_master) {
   #' This function transforms each hospital location into the same projection as the TRESO shapefiles
   #' 
   #' @param hospital_master A dataframe of the hospitals
-  #' @param treso_shp A spatial file of TRESO
+  #' @param treso_shp A Shapefile of TRESO zones
   #' @return A SpatialPointsDataFrame 
 
   hospital_spdf <- hospital_master %>%
@@ -1319,7 +1271,7 @@ create_court_xy <- function(court_master) {
   #' This function transforms each court location into the same projection as the TRESO shapefiles
   #' 
   #' @param court_master A dataframe of the courts
-  #' @param treso_shp A spatial file of TRESO
+  #' @param treso_shp A Shapefile of TRESO zones
   #' @return A SpatialPointsDataFrame 
   
   court_spdf <- court_master %>%
@@ -1336,6 +1288,55 @@ create_court_xy <- function(court_master) {
   court_xy <- spTransform(court_spdf, CRS(treso_projarg))
   
   return(court_xy)
+}
+
+courtroom_size <- function(courtrooms) {
+  #' Determine the appropriate area per courtroom as a function of number of courtrooms in a courthouse
+  #' 
+  #' @param courtrooms An integer for the number of courtrooms
+  #' @return An numeric value of the required area per courtroom
+  #' 
+  
+  # Gross Area for smallest courthouses: 1,600 sqm per courtroom
+  courtroom_count_min = 1
+  area_max_sqm = 1600
+  
+  # Gross Area for largest courthouses: 1,200 sqm per courtroom
+  courtroom_count_max = 50
+  area_min_sqm = 1200
+  
+  # Gross Area function calculation
+  area_diff = area_max_sqm - area_min_sqm
+  courtroom_diff = courtroom_count_max - courtroom_count_min
+  area_change_per_courtroom = area_diff / courtroom_diff
+  
+  courtroom_count_scaled = max(min(courtrooms, 50), 1) # Setting area standard to have a minimum courtroom count of 1 and a max of 50 in linear sizing scale
+  required_area_per_courtroom = area_max_sqm - courtroom_count_scaled * area_change_per_courtroom
+  
+  required_area_per_courtroom_sqft = required_area_per_courtroom * 3.28^2
+  
+  return(required_area_per_courtroom_sqft)
+}
+
+# Shiny Helpers ----
+getUtilizationColor <- function(value) {
+  sapply(value, function(value) {
+    if (value <= 0.75) {
+      "green"
+    } else if (value > 0.75 & value < 1.0) {
+      "orange"
+    } else {
+      "red"
+    }
+  })
+}
+
+utility_rename <- function(x) {
+  #' Rename columns by taking in x and adding "courtrooms.needed." as a prefix to x
+  #' 
+  #' @param x The string to be renamed
+  #' @return Renamed string
+  name = paste0("courtrooms.needed.", x)
 }
 
 
