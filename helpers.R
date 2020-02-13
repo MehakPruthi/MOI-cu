@@ -1003,32 +1003,30 @@ distribute_students_within_zones <- function(school_forecast_df) {
   return(school_forecast_distributed_df)
 }
 
-create_forecast_school_list <- function(school_df, new_school_df, school_diff, schools_consolidated_closed) {
-  # TODO remove schools_consolidated_closed when it is in the original school_df
-  
+create_forecast_school_list <- function(school_base, new_school_df, school_diff) {
+
   #' Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
   #' Also redistribute any overfilled schools in a zone to 
   #' 
-  #' @param school_df
+  #' @param school_base
   #' @param new_school_df
   #' @param school_diff
-  #' @param schools_consolidated_closed
   #' @return A Dataframe of schools with forecasted/simulated ADE and 
   
-  school_forecast_df <- school_df %>% 
+  school_forecast_df <- school_base %>% 
     # Add in new schools
     bind_rows(new_school_df) %>% 
     full_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by="sfis") %>%
-    # Anti-join to remove any schools which existed in 2017 but no longer exist in future year
-    anti_join(select(schools_consolidated_closed, sfis), by = c('sfis')) %>% 
+    # Keep only schools which are not planned to be closed in forecast year
+    filter(is.closed == 0) %>% 
     replace_na(list(ade = 0, change.ade = 0)) %>%                 
     # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
-    mutate(simulated.ade.raw = ade + change.ade) %>% 
+    mutate(simulated.ade = ade + change.ade) %>% 
     # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school.
     # However, by rounding up to 0, the model could be adding 'phantom' students to the system
     # So the total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts.
     # However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
-    mutate(simulated.ade = ifelse(ade + change.ade < 0, 0, ade + change.ade)) %>%
+    mutate(simulated.ade = ifelse(simulated.ade < 0, 0, simulated.ade)) %>%
     # Create OTG threshold based on user input
     mutate(otg.threshold = otg * USER_OTG_THRESHOLD) %>% 
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
@@ -1212,9 +1210,7 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
   return(list(build_df, proximity_df))
 }
 
-calculate_delta_between_simulated_scenarios <- function(school_base, school_summary_base, school_summary_forecast, new_school, 
-                                                        schools_consolidated_closed) {
-  # TODO: find a way to remove school_consolidated close eventually
+calculate_delta_between_simulated_scenarios <- function(school_base, school_summary_base, school_summary_forecast, new_school) {
 
   #' Calculate the delta between the two simulated scenarios. Apply this delta to the `school_base` Dataframe in order to obtain the
   #' forecasted ADE of the schools.
@@ -1232,7 +1228,7 @@ calculate_delta_between_simulated_scenarios <- function(school_base, school_summ
     mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
   
   # Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
-  school_forecast <- create_forecast_school_list(school_base, new_school, trip_list_schools_summary_difference, schools_consolidated_closed)
+  school_forecast <- create_forecast_school_list(school_base, new_school, trip_list_schools_summary_difference)
   
   return(school_forecast)
 }
