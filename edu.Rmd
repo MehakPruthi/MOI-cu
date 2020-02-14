@@ -121,9 +121,6 @@ treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>%
 new_school <- tibble(treso.id.pos = integer(), panel = character(), board_type_name = character(), year = integer(), 
                      build.priority = integer(), sfis.temp = integer(), otg = integer())
 
-# Initialize consolidated schools dataframe for use in Step 4 and decision-making layer
-schools_consolidated <- tibble(sfis = integer())
-
 segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
                     str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
                     str_split(panel_id, "")[[1]][1])
@@ -524,17 +521,15 @@ last_run_step <- 'Uncosolidate schools'
 ### Calculate number of portables needed by school
 ```{r}
 # Calculate number of students in portables and number of portables
-if panel_id == 'Elementary' {
+if (panel_id == 'Elementary') {
   portable_class_size <- ELE_STUDENTS_UNIT_CLASS
-}
-
-else {
+} else if (panel_id == 'Secondary') {
   portable_class_size <- SEC_STUDENTS_UNIT_CLASS
 }
 
 school_summary_20xx_final_portables <- school_summary_20xx_final %>% 
   mutate(portable.ade = pmax(simulated.ade - otg, 0), 
-         portable.count = roundup(portable.ade / portable_class_size)
+         portable.count = roundup(portable.ade / portable_class_size))
 ```
 
 

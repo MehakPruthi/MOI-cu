@@ -1455,6 +1455,7 @@ utility_rename <- function(x) {
   name = paste0("courtrooms.needed.", x)
 }
 
+utilizationColorLegend <- data.frame(x = c("green", "orange", "red"), y = c("<= 0.75", "0.75 to 1.0", ">= 1.0"))
 
 
 
