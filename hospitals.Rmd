@@ -1015,7 +1015,6 @@ crm_hosp <- crm_alc %>%
   # Check to make sure capacity not overwhelmed?
 ```
 
-
 ## Redistribute demand from existing hospitals to new hospital within CSDs
 ```{r}  
 # Build list of all existing and new hospitals, caretypes, ageclusters, and distribute some of existing cases and demand days from existing hospitals to new hospitals built in the same CSD  
