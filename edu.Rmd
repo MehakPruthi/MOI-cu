@@ -90,6 +90,7 @@ TARGET_UTILIZATION <- 0.9
 
 # Base scenario year
 base_year <- 2017
+
 # Future scenario year
 year_id <- 2025 
 board_id <- "English Public"
@@ -217,9 +218,12 @@ school_forecast <- calculate_delta_between_simulated_scenarios(school_base, scho
 CAPACITY_CONSTRAINED <- TRUE
 
 # Rerun steps 3, 4 until treshoold (takes about 55 iterations for 100 threshold)
-school_forecast_final <- distribution_model(school_base, school_20xx, school_summary_2017, school_summary_20xx, prop_matrix,
-                                            prop_matrix_balanced, new_school_iteration, pos, pos_full,
-                                            overfill_threshold = 2000, capacity_constrained = CAPACITY_CONSTRAINED) 
+df_list <- distribution_model(school_base, school_20xx, school_summary_2017, school_summary_20xx, prop_matrix,
+                                            prop_matrix_balanced, new_school=NULL, pos, pos_full,
+                                            overfill_threshold = 2000, capacity_constrained = CAPACITY_CONSTRAINED)
+
+school_forecast_final <- df_list[[1]]
+por_additional <- df_list[[2]]
 ```
 
 ### Step 5 - Run 20xx Forecast Model with 2D constrained to the final ADE values to obtain OD pairs
@@ -452,13 +456,6 @@ last_run_step <- 'Run capacity constrained...'
 ```{r}
 # Rerun components of DM calculation to figure out average travel times / travel times by zone, see if they exceed acceptable tolerances
 
-# Start by finding zones with schools which were eliminated due to under-utilization, and keep the largest consolidated school from zones with consolidated schools
-# zones_consolidated <- schools_consolidated %>% 
-#   group_by(treso.id.pos) %>% 
-#   arrange(desc(otg)) %>% 
-#   mutate(school.count = 1:n()) %>% 
-#   ungroup() %>% 
-
 # Filter trip list down to include only zones which have more than 10 trips to a destination zone AND have long trips
 trip_length_check <- cbind(trip_list, travel_time_skim) %>%
   rename(travel.time = value) %>%
@@ -474,32 +471,42 @@ trip_length_check <- cbind(trip_list, travel_time_skim) %>%
    select(-orig, -dest)
 
 # Unconsolidate schools in origin TRESO zones which have long tavel times
-unconsolidate_treso_por <- trip_length_check %>% 
-  inner_join(schools_consolidated, by = c('treso.id.por' = 'treso.id.pos')) %>%
-  mutate(time.critical.flag = 1)
+# unconsolidate_treso_por <- trip_length_check %>% 
+#   inner_join(schools_consolidated, by = c('treso.id.por' = 'treso.id.pos')) %>%
+#   mutate(time.critical.flag = 1)
+
+school_20xx <- school_20xx %>% 
+  left_join(select(trip_length_check, treso.id.por, total.por.trips), by = c('treso.id.pos' = 'treso.id.por')) %>% 
+  left_join(select(trip_length_check, treso.id.pos, travel.time), by = c('treso.id.pos')) %>% 
+  # Replace is.consolidated flag with 0 if total.por.trips or travel.time is not NA (i.e., if that treso zone is in trip_length_check)
+  mutate(is.consolidated = ifelse(is.na(total.por.trips), is.consolidated, 0),
+         is.consolidated = ifelse(is.na(travel.time), is.consolidated, 0)) %>% 
+  select(-total.por.trips, -travel.time)
   
-# Unconsolidate schools in destination TRESO zones which have long travel times
-unconsolidate_treso_pos <- trip_length_check %>% 
-  inner_join(schools_consolidated, by = c('treso.id.pos')) %>%
-  mutate(time.critical.flag = 1) 
-  anti_join(unconsolidate_treso_por, by = c('sfis'))
+# # Unconsolidate schools in destination TRESO zones which have long travel times
+# unconsolidate_treso_pos <- trip_length_check %>% 
+#   inner_join(schools_consolidated, by = c('treso.id.pos')) %>%
+#   mutate(time.critical.flag = 1) %>% 
+#   anti_join(unconsolidate_treso_por, by = c('sfis'))
 
 # Combine lists of unconsolidated schools
-unconsolidated_schools <- unconsolidate_treso_por %>% 
-  bind_rows(., unconsolidate_treso_pos)
+# unconsolidated_schools <- unconsolidate_treso_por %>% 
+#   bind_rows(., unconsolidate_treso_pos)
 
 # Redefine school_master to include existing schools which are in zones with otherwise high travel times
-school_master_backup2 <- school_master
-school_master <- unconsolidated_schools %>% 
-  distinct(sfis, time.critical.flag) %>% 
-  left_join(schools_consolidated, by = c('sfis')) %>% 
-  bind_rows(., school_master)
+# school_master_backup2 <- school_master
+# school_master <- unconsolidated_schools %>% 
+#   distinct(sfis, time.critical.flag) %>% 
+#   left_join(schools_consolidated, by = c('sfis')) %>% 
+#   bind_rows(., school_master)
+# 
+# schools_consolidated_closed <- schools_consolidated_closed %>% 
+#   anti_join(unconsolidated_schools, by = c('sfis'))
+# 
+# schools_consolidated_final <- schools_consolidated %>% 
+#   anti_join(unconsolidated_schools, by = c('sfis'))
 
-schools_consolidated_closed <- schools_consolidated_closed %>% 
-  anti_join(unconsolidated_schools, by = c('sfis'))
-
-schools_consolidated_final <- schools_consolidated %>% 
-  anti_join(unconsolidated_schools, by = c('sfis'))
+######## REPLACE THE NEXT STEP WITH FUNCTION(S) FROM STEP 2
 
 # Create pos vector and re-run key components of Step 2 below
 pos <- create_pos_vector(school_master, new_school, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
@@ -510,12 +517,12 @@ trip_list <- reshape2::melt(prop_matrix_balanced) %>%
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the raw simulated ADE for each school
-school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_master, eqao_2017, new_school,
-                                           year_id = year_id, panel_id = panel_id, board_id = board_id)
+school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.consolidated == 0), new_school_iteration,
+                                                      por, pos_full, prop_matrix, is_weight_continuous = FALSE)[[1]]
 
-school_summary_20xx <- school_summary_df_list[[1]]
+# REPLACE COMMENT BELOW WITH FUNCTION(S) FROM STEPS 3, 4, 5
 
-# Rerun Steps 3, 4, 5, 6
+# Rerun Steps 3, 4, 5
 
 last_run_step <- 'Uncosolidate schools'
 
