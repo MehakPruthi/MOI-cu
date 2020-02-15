@@ -271,6 +271,7 @@ saveRDS(school_summary_20xx, "cache/edu/school_summary_20xx.rds")
 saveRDS(school_summary_2017, "cache/edu/school_summary_2017.rds")
 saveRDS(por, "cache/edu/por.rds")
 saveRDS(pos, "cache/edu/pos.rds")
+saveRDS(prop_matrix, "cache/edu/prop_matrix_segmented.rds")
 
 school_base <- readRDS("cache/edu/school_base.rds")
 school_20xx <- readRDS("cache/edu/school_20xx.rds")
@@ -282,6 +283,7 @@ school_summary_20xx <- readRDS("cache/edu/school_summary_20xx.rds")
 school_summary_2017 <- readRDS("cache/edu/school_summary_2017.rds")
 por <- readRDS("cache/edu/por.rds")
 pos <- readRDS("cache/edu/pos.rds")
+prop_matrix <- readRDS("cache/edu/prop_matrix_segmented.rds")
 
 DECISION_MAKING_FLAG <- TRUE
 
@@ -452,9 +454,6 @@ last_run_step <- 'Run capacity constrained...'
 
 ```{r}
 # Rerun components of DM calculation to figure out average travel times / travel times by zone, see if they exceed acceptable tolerances
-
-head(treso_travel_time)
-head(trip_list)
 
 # Filter trip list down to include only zones which have more than 10 trips to a destination zone AND have long trips
 trip_length_check <- cbind(trip_list, select(treso_travel_time, value)) %>%
