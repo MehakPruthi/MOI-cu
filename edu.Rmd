@@ -438,7 +438,7 @@ last_run_step <- 'Set OTG at new schools...'
 school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.consolidated == 0), new_school_iteration, 
                                                       por, pos_full, prop_matrix, is_weight_continuous = FALSE)[[1]]
 
-# Rerun steps 3, 4 until treshoold (takes about 55 iterations for 100 threshold)
+# Rerun steps 3, 4 until threshold (takes about 55 iterations for 100 threshold)
 school_forecast <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017, 
                                       school_summary_20xx, prop_matrix,
                                       prop_matrix_balanced, new_school_iteration, pos, pos_full,
@@ -453,8 +453,11 @@ last_run_step <- 'Run capacity constrained...'
 ```{r}
 # Rerun components of DM calculation to figure out average travel times / travel times by zone, see if they exceed acceptable tolerances
 
+head(treso_travel_time)
+head(trip_list)
+
 # Filter trip list down to include only zones which have more than 10 trips to a destination zone AND have long trips
-trip_length_check <- cbind(trip_list, travel_time_skim) %>%
+trip_length_check <- cbind(trip_list, select(treso_travel_time, value)) %>%
   rename(travel.time = value) %>%
   filter(travel.time > 60) %>% 
   # Filter out any zone pairs with fewer than 5 trips occuring between zones
@@ -463,14 +466,16 @@ trip_length_check <- cbind(trip_list, travel_time_skim) %>%
   mutate(total.por.trips = sum(trips)) %>% 
   ungroup() %>% 
   # Filter out any home (origin)
-  filter(total.por.trips > 10) %>% 
-  # left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>% 
-   select(-orig, -dest)
+  filter(total.por.trips > 10)
+  # left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>%
 
 # Unconsolidate schools in origin TRESO zones which have long tavel times
 # unconsolidate_treso_por <- trip_length_check %>% 
 #   inner_join(schools_consolidated, by = c('treso.id.por' = 'treso.id.pos')) %>%
 #   mutate(time.critical.flag = 1)
+
+# school_20xx_backup <- school_20xx
+# school_20xx <- school_20xx_backup
 
 school_20xx <- school_20xx %>% 
   left_join(select(trip_length_check, treso.id.por, total.por.trips), by = c('treso.id.pos' = 'treso.id.por')) %>% 
@@ -478,7 +483,8 @@ school_20xx <- school_20xx %>%
   # Replace is.consolidated flag with 0 if total.por.trips or travel.time is not NA (i.e., if that treso zone is in trip_length_check)
   mutate(is.consolidated = ifelse(is.na(total.por.trips), is.consolidated, 0),
          is.consolidated = ifelse(is.na(travel.time), is.consolidated, 0)) %>% 
-  select(-total.por.trips, -travel.time)
+  select(-total.por.trips, -travel.time) %>% 
+  distinct()
   
 # # Unconsolidate schools in destination TRESO zones which have long travel times
 # unconsolidate_treso_pos <- trip_length_check %>% 
@@ -505,21 +511,39 @@ school_20xx <- school_20xx %>%
 
 ######## REPLACE THE NEXT STEP WITH FUNCTION(S) FROM STEP 2
 
-# Create pos vector and re-run key components of Step 2 below
-pos <- create_pos_vector(school_master, new_school, pos_full, year_id=year_id, panel_id=panel_id, board_id=board_id)
+# Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
+school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.consolidated == 0), new_school_iteration,
+                                                      por, pos_full, prop_matrix, is_weight_continuous = FALSE)[[1]]
+ 
+school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+                                                               new_school_iteration)
 
-prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por, pos, axis=1, is_weight_continuous=FALSE)
+# Rerun step 4 until treshoold (takes about 55 iterations for 100 threshold)
+school_forecast_final <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017,
+                                            school_summary_20xx, prop_matrix, prop_matrix_balanced, new_school_iteration, pos,
+                                            pos_full, overfill_threshold = 2000, capacity_constrained = TRUE)[[1]]
+
+# Rerun Step 5
+pos <- school_forecast_final %>% 
+    select(treso.id.pos, simulated.ade) %>%
+    group_by(treso.id.pos) %>%
+    summarise(simulated.ade = sum(simulated.ade)) %>%
+    right_join(pos_full, by=c("treso.id.pos" = "dest")) %>%
+    replace_na(list(simulated.ade = 0)) %>%
+    arrange(treso.id.pos) %>%
+    column_to_rownames(var = "treso.id.pos") %>%
+    data.matrix()
+
+print(paste0("The total ADE assigned is: ", sum(por), ". The total OTG available is: ", sum(pos), "."))
+
+# 2D balancing, scale the total to the POR side to determine final distribution to TRESO zones
+prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="rows", max_iterations = 1000)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
-# Produce the raw simulated ADE for each school
-school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.consolidated == 0), new_school_iteration,
-                                                      por, pos_full, prop_matrix, is_weight_continuous = FALSE)[[1]]
-
-# REPLACE COMMENT BELOW WITH FUNCTION(S) FROM STEPS 3, 4, 5
-
-# Rerun Steps 3, 4, 5
+# Produce the simulated ADE for each school within each TRESO zone
+school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, filter(school_20xx, is.consolidated == 0), eqao_2017, new_school_iteration)[[1]]
 
 last_run_step <- 'Uncosolidate schools'
 
@@ -534,7 +558,7 @@ if (panel_id == 'Elementary') {
   portable_class_size <- SEC_STUDENTS_UNIT_CLASS
 }
 
-school_summary_20xx_final_portables <- school_summary_20xx_final %>% 
+school_summary_20xx_final <- school_summary_20xx_final %>% 
   mutate(portable.ade = pmax(simulated.ade - otg, 0), 
          portable.count = roundup(portable.ade / portable_class_size))
 ```
