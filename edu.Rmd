@@ -272,6 +272,7 @@ saveRDS(school_summary_2017, "cache/edu/school_summary_2017.rds")
 saveRDS(por, "cache/edu/por.rds")
 saveRDS(pos, "cache/edu/pos.rds")
 saveRDS(prop_matrix, "cache/edu/prop_matrix_segmented.rds")
+saveRDS(prop_matrix_balanced, "cache/edu/prop_matrix_balanced_segmented.rds")
 
 school_base <- readRDS("cache/edu/school_base.rds")
 school_20xx <- readRDS("cache/edu/school_20xx.rds")
@@ -284,6 +285,7 @@ school_summary_2017 <- readRDS("cache/edu/school_summary_2017.rds")
 por <- readRDS("cache/edu/por.rds")
 pos <- readRDS("cache/edu/pos.rds")
 prop_matrix <- readRDS("cache/edu/prop_matrix_segmented.rds")
+prop_matrix_balanced <- readRDS("cache/edu/prop_matrix_balanced_segmented.rds")
 
 DECISION_MAKING_FLAG <- TRUE
 
