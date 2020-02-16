@@ -1353,7 +1353,8 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
   } else {
     print(paste0("Running distribution capacity unconstrained"))
     # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
-    school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx, new_school)
+    school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx, new_school,
+                                                                   user_otg_threshold)
   }
   
   return(list(school_forecast, por_additional))

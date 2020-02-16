@@ -228,7 +228,7 @@ por_additional <- df_list[[2]]
 ```{r application of gravity model - step 5}
 
 # POR will remain the same
-por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id=panel_id, board_id=board_id)
+por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id, board_id)
 
 # Create final POS with iterated ADE value
 pos <- school_forecast_final %>% 
