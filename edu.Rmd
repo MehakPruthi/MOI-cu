@@ -397,7 +397,7 @@ last_run_step <- 'Consolidate existing schools'
 
 ```{r}
 # Calculate number of new student places needed to achieve target utilization
-otg_existing <- school_base %>% 
+otg_existing <- school_20xx %>% 
   select(otg) %>% 
   sum()
 
@@ -405,30 +405,42 @@ otg_existing <- school_base %>%
 scenario_enrolment <- sum(por)
 
 # Calcualte OTG needed based on user-defined target utilization
-otg_needed <- scenario_enrolment / TARGET_UTILIZATION
-otg_required <- otg_needed - otg_existing
+otg_final <- scenario_enrolment / TARGET_UTILIZATION
+net_otg_required <- otg_final - otg_existing
 
 new_school_potential <- school_forecast %>%
   # Filter out existing schools
   filter(sfis > 99000) %>% 
   filter(simulated.ade >= ade_threshold)
 
-# Determine OTG consolidated by CSD for consolidated schools
-schools_consolidated_closed_otg <- school_20xx %>% 
-  filter(is.consolidated == 1) %>%
-  group_by(csduid) %>% 
-  mutate(csd.otg = sum(otg) * CONSOLIDATION_THRESHOLD) %>% 
-  ungroup()
+# Determine number of new schools required per TRESO zone, adding >1 school where OTG > max school size 
+max.otg <- school_sizes %>% 
+  filter(panel == panel_id) %>% 
+  select(max.otg) %>% 
+  pull()
 
 # Revise list of new schools to have only the previously identified new schools which exceed the minimum ADE threshold
 new_school_iteration <- new_school_iteration %>% 
-  right_join(select(new_school_potential, sfis, simulated.ade), by = c('sfis')) %>% 
+  # right_join(select(new_school_potential, sfis, simulated.ade), by = c('sfis')) %>% 
   mutate(otg = simulated.ade) %>% 
   # Change OTG in new schools to sum to new_otg_reqd
   mutate(sum.otg = sum(otg),
-         revised.otg = round(otg_required / sum.otg * otg, 0)) %>% 
+         revised.otg = round(net_otg_required / sum.otg * otg, 0)) %>% 
   select(-otg) %>% 
-  rename(otg = revised.otg)
+  rename(otg = revised.otg) %>% 
+  # Calculate number of new schools needed per TRESO zone
+  mutate(schools.needed = ceiling(otg / max.otg))
+
+# Expand list of new schools to break schools exceeding max OTG into smaller schools within the TRESO zone
+new_school_iteration <- new_school_iteration[rep(seq_len(nrow(new_school_iteration)), new_school_iteration$schools.needed), 1:ncol(new_school_iteration)]
+
+new_school_iteration <- new_school_iteration_max %>% 
+  mutate(otg = round(otg / schools.needed)) %>% 
+  group_by(treso.id.pos) %>% 
+  mutate(count.per.treso = 1:n()) %>% 
+  ungroup() %>% 
+  mutate(sfis = sfis + count.per.treso) %>% 
+  select(-count.per.treso, -schools.needed, -simulated.ade)
 
 print(paste0("The number of new schools after target utilization is: ", nrow(new_school_iteration)))
 
@@ -469,12 +481,6 @@ trip_length_check <- cbind(trip_list, select(treso_travel_time, value)) %>%
   ungroup() %>% 
   # Filter out any home (origin)
   filter(total.por.trips > 10)
-  # left_join(select(treso_zone_def, treso_id, treso.por.csduid = csduid, treso.por.cduid = cduid), by = c('treso.id.por' = 'treso_id')) %>%
-
-# Unconsolidate schools in origin TRESO zones which have long tavel times
-# unconsolidate_treso_por <- trip_length_check %>% 
-#   inner_join(schools_consolidated, by = c('treso.id.por' = 'treso.id.pos')) %>%
-#   mutate(time.critical.flag = 1)
 
 # school_20xx_backup <- school_20xx
 # school_20xx <- school_20xx_backup
@@ -488,42 +494,32 @@ school_20xx <- school_20xx %>%
   select(-total.por.trips, -travel.time) %>% 
   distinct()
   
-# # Unconsolidate schools in destination TRESO zones which have long travel times
-# unconsolidate_treso_pos <- trip_length_check %>% 
-#   inner_join(schools_consolidated, by = c('treso.id.pos')) %>%
-#   mutate(time.critical.flag = 1) %>% 
-#   anti_join(unconsolidate_treso_por, by = c('sfis'))
-
-# Combine lists of unconsolidated schools
-# unconsolidated_schools <- unconsolidate_treso_por %>% 
-#   bind_rows(., unconsolidate_treso_pos)
-
-# Redefine school_master to include existing schools which are in zones with otherwise high travel times
-# school_master_backup2 <- school_master
-# school_master <- unconsolidated_schools %>% 
-#   distinct(sfis, time.critical.flag) %>% 
-#   left_join(schools_consolidated, by = c('sfis')) %>% 
-#   bind_rows(., school_master)
-# 
-# schools_consolidated_closed <- schools_consolidated_closed %>% 
-#   anti_join(unconsolidated_schools, by = c('sfis'))
-# 
-# schools_consolidated_final <- schools_consolidated %>% 
-#   anti_join(unconsolidated_schools, by = c('sfis'))
-
-######## REPLACE THE NEXT STEP WITH FUNCTION(S) FROM STEP 2
-
 # Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
 school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.consolidated == 0), new_school_iteration,
                                                       por, pos_full, prop_matrix, is_weight_continuous = FALSE)[[1]]
  
-school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
-                                                               new_school_iteration, USER_OTG_THRESHOLD)
+# school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+#                                                                new_school_iteration, USER_OTG_THRESHOLD)
 
-# Rerun step 4 until treshoold (takes about 55 iterations for 100 threshold)
+# Rerun step 4 until threshold (takes about 55 iterations for 100 threshold)
 school_forecast_final <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017,
                                             school_summary_20xx, prop_matrix, prop_matrix_balanced, new_school_iteration, pos,
-                                            pos_full, overfill_threshold = 2000, capacity_constrained = TRUE)[[1]]
+                                            pos_full, overfill_threshold = 20000, USER_OTG_THRESHOLD, capacity_constrained = TRUE)[[1]]
+
+school_forecast_final_old <- school_forecast_final
+school_forecast_final <- school_forecast_final_old
+
+school_forecast_final <- school_forecast_final %>% 
+  left_join(select(school_20xx, sfis, is.consolidated), by = c('sfis')) %>% 
+  # Add an 'is.consolidated' flag for new schools, set to 0, to avoid N/A values below
+  mutate(is.consolidated = replace_na(is.consolidated, 0)) %>% 
+  # Add a flag to see if each TRESO zone has at least one school open
+  mutate(is.open = 1 - is.consolidated) %>% 
+  group_by(treso.id.pos) %>% 
+  mutate(treso.open = min(sum(is.open), 1)) %>% 
+  ungroup() %>% 
+  mutate(simulated.ade = treso.open * simulated.ade) %>% 
+  select(-is.consolidated, -is.open, -treso.open)
 
 # Rerun Step 5
 pos <- school_forecast_final %>% 
@@ -561,8 +557,14 @@ if (panel_id == 'Elementary') {
 }
 
 school_summary_20xx_final <- school_summary_20xx_final %>% 
+  left_join(select(school_20xx, sfis, otg), by = c('sfis')) %>% 
+  left_join(select(new_school_iteration, sfis, otg), by = c('sfis')) %>% 
+  mutate(otg.x = replace_na(otg.x, 0),
+         otg.y = replace_na(otg.y, 0),
+         otg = otg.x + otg.y) %>% 
+  select(-otg.x, -otg.y) %>% 
   mutate(portable.ade = pmax(simulated.ade - otg, 0), 
-         portable.count = roundup(portable.ade / portable_class_size))
+         portable.count = ceiling(portable.ade / portable_class_size))
 ```
 
 ### Plot Results from DM

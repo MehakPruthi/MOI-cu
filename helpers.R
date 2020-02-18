@@ -1249,6 +1249,8 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
                                prop_matrix_balanced, new_school, pos, pos_full,
                                overfill_threshold = 100, user_otg_threshold, capacity_constrained = FALSE) {
   
+  # TODO: Confirm if POS needs to be passed into this function
+  
   # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
   school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
                                                                  new_school, user_otg_threshold)
