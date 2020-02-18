@@ -1097,7 +1097,8 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
   return(df_list)
 }
 
-edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional, travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold) {
+edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
+                   travel_time_threshold_factor, zone_proximity_threshold, min_tt_threshold) {
   #' Produce a list of 2 Dataframes containing: 
   #' 1. Dataframe of TRESO zones in which to consider building schools
   #' 2. Dataframe of TRESO zones ruled out from building schools due to proximity to higher-ranked location for building school
@@ -1131,17 +1132,27 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
     ungroup() %>%
     arrange(desc(excess.travel.time))
   
-  # Calculate zone pairs for consideration due to school overfill
-  additional_pairs <- threshold_tt_zones %>%
-    right_join(select(por_additional, treso.id.por), by = c('treso.id.por'))
-  
-  # Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
-  shortlist_zones <- threshold_tt_zones %>%
-    # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
-    filter(excess.travel.time > min_tt_threshold) %>%
-    select(treso.id.por) %>% 
-    rbind(select(por_additional, treso.id.por)) %>%
-    distinct(treso.id.por)
+  if (!is.null(por_additional)) {
+    # Calculate zone pairs for consideration due to school overfill
+    additional_pairs <- threshold_tt_zones %>%
+      right_join(select(por_additional, treso.id.por), by = c('treso.id.por'))
+    
+    # Determine shortlist of zones within which construction should be considered by ruling out zones too close to superior zones
+    shortlist_zones <- threshold_tt_zones %>%
+      # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
+      filter(excess.travel.time > min_tt_threshold) %>%
+      select(treso.id.por) %>% 
+      rbind(select(por_additional, treso.id.por)) %>%
+      distinct(treso.id.por)
+  } else {
+    additional_pairs <- threshold_tt_zones
+    
+    shortlist_zones <- threshold_tt_zones %>%
+      # Cut down list of zones under consideration based on minimum bar for 'excess' travel time
+      filter(excess.travel.time > min_tt_threshold) %>%
+      select(treso.id.por) %>% 
+      distinct(treso.id.por)
+  }
   
   # Retain the original copy of the shortlisted zones
   shortlist_zones_dup <- shortlist_zones
