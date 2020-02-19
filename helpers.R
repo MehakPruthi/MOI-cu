@@ -854,9 +854,9 @@ create_por_forecast_vector <- function(df, full_vector, panel_id, board_id) {
   #' 
   por <- df %>% 
     filter(panel == panel_id, board_type_name == board_id) %>% 
-    select(treso.id.por, potential.enrolment) %>% 
+    select(treso.id.por, enrolment) %>% 
     right_join(full_vector, by=c("treso.id.por" = "orig")) %>% 
-    replace_na(list(potential.enrolment = 0)) %>% 
+    replace_na(list(enrolment = 0)) %>% 
     arrange(treso.id.por) %>% 
     column_to_rownames(var = "treso.id.por") %>% 
     data.matrix()
@@ -875,18 +875,20 @@ apply_sampling_to_population <- function(forecast_population, board_type_sample)
   forecast_population_by_board <- forecast_population %>%
     left_join(board_type_sample, by = c("panel", "cduid")) %>%
     filter(!is.na(cduid)) %>%
+    # Calculate actual enrolment by multiplying potential.enrolment with the total participations rate
+    mutate(enrolment = potential.enrolment * sample.total) %>% 
     # Create probability list for sample
     unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
     rowwise() %>%
     mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
     # Sample the different board types 
-    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=potential.enrolment, replace=TRUE, prob=prob))) %>%
+    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
     mutate(`English Catholic` = sum(sample.result == "EC"),
            `English Public` = sum(sample.result == "EP"),
            `French Catholic` = sum(sample.result == "FC"),
            `French Public` = sum(sample.result == "FP")) %>% 
     select(treso.id.por, panel, cduid, `English Catholic`:`French Public`) %>%
-    gather(key="board_type_name", value="potential.enrolment", `English Catholic`:`French Public`)
+    gather(key="board_type_name", value="enrolment", `English Catholic`:`French Public`)
   
   return(forecast_population_by_board)
 }

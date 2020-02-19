@@ -110,8 +110,8 @@ school_base <- school_master %>%
 
 # Percentage of students attending each board type, by home origin CD
 # The market share begins from 2018, just using that as the base year application
-board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") %>% 
-  filter(year == 2018)
+board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") %>%
+  filter(year == base_year)
 
 treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
   select(treso.id.por = treso_zone, panel = age.group, csduid, cduid, 
@@ -133,6 +133,7 @@ prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 # Apply the board sampling probabilities to the student population from TRESO
 treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
                                                                 board_type_sample = board_type_sample_spread) 
+
 # Create forecast por vector
 por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id=panel_id, board_id=board_id)
 
@@ -151,6 +152,35 @@ number_of_zero_simulated_schools <- school_base %>%
 print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_simulated_schools))
 
 ```
+
+```{r}
+forecast_population_by_board <- treso_forecast_population %>%
+    left_join(board_type_sample_spread, by = c("panel", "cduid")) %>%
+    filter(!is.na(cduid)) %>%
+    # Create probability list for sample
+    unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
+    rowwise() %>%
+    mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
+    # Sample the different board types 
+    mutate(enrolment = potential.enrolment * sample.total) %>% 
+    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
+    mutate(`English Catholic` = sum(sample.result == "EC"),
+           `English Public` = sum(sample.result == "EP"),
+           `French Catholic` = sum(sample.result == "FC"),
+           `French Public` = sum(sample.result == "FP")) %>% 
+    select(treso.id.por, panel, cduid, `English Catholic`:`French Public`) %>%
+    filter(panel == panel_id)
+
+test <- treso_forecast_population %>% 
+    filter(panel == panel_id) %>% 
+    left_join(board_type_sample_spread, by = c("panel", "cduid")) %>% 
+    mutate(`English Public Enrolment` = potential.enrolment * `English Public`)
+
+full_test <- left_join(test, forecast_population_by_board, by=c("treso.id.por", "panel", "cduid")) %>% 
+  mutate(diff = `English Public.y`-`English Public Enrolment`)
+  
+```
+
 
 ### Step 2 - Run 20xx Forecast Model 
 - The year is set by user
@@ -1182,17 +1212,12 @@ plot(mod)
 # ADE counts are funded and considered the most accurate measure 
 # should not hard code 2017
 ade_dsb_hist <- readRDS('cache/edu/school_treso_master.rds') %>%
-  select(year,
-         dsb.index,
-         panel,
-         ade,
-         cduid) %>%
+  select(year, dsb.index, panel, ade, cduid) %>%
   filter(year <= 2017) %>%
   group_by(year, dsb.index, panel, cduid) %>%
   summarise(ade = sum(ade)) %>%
   ungroup() %>% 
-  arrange(dsb.index, panel, cduid, year)%>%
-  mutate(year = as.numeric(year))
+  arrange(dsb.index, panel, cduid, year)
 
 # Some data issues are apparent. If there is not a CD associated enrolment or enrolment appears is only
 # ocassionally present in a CSD; reassign it on a pro-rated basis to other CDS for that board
@@ -1207,10 +1232,7 @@ ade_dsb_hist_long <- ade_dsb_hist_spread %>%
 
 ## total ADE by DSB, Panel, Year
 ade_dsb_panel_sum <- ade_dsb_hist %>%
-select(year,
-       dsb.index,
-       panel,
-       ade) %>%
+select(year, dsb.index, panel, ade) %>%
   filter(year <= 2017) %>%
   group_by(year, dsb.index, panel) %>%
   summarise(ade = sum(ade)) %>%
@@ -1255,17 +1277,32 @@ rm(ade_dsb_hist, ade_dsb_hist_spread, ade_data_issue_sum, ade_dsb_panel_sum)
 
 ```{r Market share caculations, echo=FALSE}
 # Prepare the population data into Elementary and Secondary groups
-school_population <- read.csv('input/mag/MOF_POP.csv') %>%
+school_population_historical <- read.csv('input/mag/MOF_POP.csv') %>%
   select(year = Year,
          age = Age,
          sex = Sex,
          pop = Population,
          cduid = SGCId) %>%
-  filter(year > 2006, age < 19, age > 3,sex == 3) %>%
+  filter(year > 2006, year < 2017, age < 19, age > 3, sex == 3) %>%
   mutate(panel = ifelse(age < 14, 'Elementary', 'Secondary')) %>%
   group_by(year, cduid, panel) %>%
-  summarise(pop = sum(pop)) %>%
+  summarise(population = sum(pop)) %>%
   ungroup()
+
+school_population <- readRDS('input/edu/treso_population_edu.rds') %>% 
+  filter(age.group != "other") %>% 
+  group_by(cduid, age.group) %>% 
+  summarise_at(vars(contains("population")), list(sum = sum)) %>% 
+  ungroup() %>% 
+  rename(panel = age.group) %>% 
+  pivot_longer(cols = contains("population"),
+               names_to = "year",
+               values_to = "population") %>% 
+  separate(year, c("pop", "year", "sum")) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  select(-pop, -sum)
+
+school_population <- rbind(school_population, school_population_historical)
 
 # Calculate marketshare by cd panel/ This will be used to ensure that individual changes make sense
 # Eg if one board is losing market share another is gaining it
@@ -1274,8 +1311,8 @@ school_population <- read.csv('input/mag/MOF_POP.csv') %>%
 # calculate range of total market share and set limit to +-3%
 panel_cd_mrktshr <- ade_panel_mrktshr %>%
   left_join(school_population, by = c('year', 'cduid', 'panel')) %>%
-  mutate(share = ade.scaled / pop) %>%
-  select(-ade, -pop)
+  mutate(share = ade.scaled / population) %>%
+  select(-ade, -population)
 
 panel_cd_mrktshr_end_yr <- panel_cd_mrktshr %>%
   filter(year == endyear) %>% 
@@ -1299,10 +1336,10 @@ panel_cd_sum_stat <- panel_cd_mrktshr %>%
 # determine degree of change between 2011 to 2013 and 2014 to 2017 for elementary
 # Determine the degree of change between 2011 and 2017 for secondary
 # set maximum change to 5% (95% of all changes are within that band)
-brd_cd_mrktshr <- ade_panel_mrktshr  %>%
+brd_cd_mrktshr <- ade_panel_mrktshr %>%
   left_join(school_population, by = c('year', 'cduid', 'panel')) %>%
-  mutate(share = ade.scaled / pop) %>%
-  select(-ade, -pop, -ade.scaled) %>%
+  mutate(share = ade.scaled / population) %>%
+  select(-ade, -population, -ade.scaled) %>%
   group_by(year, cduid, panel, dsb.index) %>%
   summarise(share=sum(share)) %>%
   ungroup() %>%
@@ -1346,10 +1383,10 @@ brd_cd_mrktshr_chg_raw2<-brd_cd_mrktshr_chg_raw1 %>%
 ## Create cd level totals and cross check against allowed ranges
 ## public schools generally account for about 90 to 95% of possible enrolment
 ## 5% roughly is private school (homeschooling is negligible) and error in the population estimates
-cd_panel_proj_mrktshr <- brd_cd_mrktshr_chg_raw2%>%
-  select (dsb.index, cduid, panel, year, mrktshr_yrx)%>%
-  group_by (cduid, panel, year)%>%
-  summarise(proj_cd_mrktshr=sum(mrktshr_yrx))%>%
+cd_panel_proj_mrktshr <- brd_cd_mrktshr_chg_raw2 %>%
+  select(dsb.index, cduid, panel, year, mrktshr_yrx) %>%
+  group_by(cduid, panel, year) %>%
+  summarise(proj_cd_mrktshr=sum(mrktshr_yrx)) %>%
   left_join(panel_cd_sum_stat, by=c('cduid','panel'))%>%
   select(-min,-max, -keyx)%>%
   mutate(factor=ifelse(proj_cd_mrktshr<(avg-range),(avg-range)/proj_cd_mrktshr,
@@ -1377,9 +1414,16 @@ brd_cd_mrktshr_ext <- brd_cd_mrktshr_proj_in %>%
 ##union the two tables
 brd_cd_mrktshr_proj <- rbind(brd_cd_mrktshr_proj_in, brd_cd_mrktshr_ext)
 
+# Join with 2017 base market share values
+brd_cd_mrktshr_2017 <- brd_cd_mrktshr %>% 
+  select(cduid, panel, dsb.index, mrktshr_yrx = `2017`) %>% 
+  mutate(year = 2017)
+
+brd_cd_mrktshr_proj <- rbind(brd_cd_mrktshr_proj, brd_cd_mrktshr_2017)
+
 ## remove temp tables
 rm(brd_cd_mrktshr_chg_raw1, brd_cd_mrktshr_chg_raw2, brd_cd_mrktshr_proj_in,brd_cd_mrktshr_ext,
-   cd_panel_proj_mrktshr)
+   cd_panel_proj_mrktshr, brd_cd_mrktshr_2017)
 
 ```
 
@@ -1398,7 +1442,7 @@ board_sample_spread <- brd_cd_mrktshr_proj %>%
     `French Catholic` = sum(`French Catholic`, na.rm = TRUE),
     `French Public` = sum(`French Public`, na.rm = TRUE)
   ) %>%
-  ungroup() %>% 
+  ungroup() %>%
   mutate(sample.total = `English Catholic` + `English Public` + `French Catholic` + `French Public`)
 
 saveRDS(board_sample_spread, "cache/edu/board_type_sample_spread.rds")
