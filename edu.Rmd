@@ -156,6 +156,35 @@ print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_
 
 ```
 
+```{r}
+forecast_population_by_board <- treso_forecast_population %>%
+    left_join(board_type_sample_spread, by = c("panel", "cduid")) %>%
+    filter(!is.na(cduid)) %>%
+    # Create probability list for sample
+    unite(prob, `English Catholic`, `English Public`, `French Catholic`, `French Public`, sep = ",") %>%
+    rowwise() %>%
+    mutate(prob = list(as.double(unlist(strsplit(prob, ","))))) %>%
+    # Sample the different board types 
+    mutate(enrolment = potential.enrolment * sample.total) %>% 
+    mutate(sample.result = list(sample(c("EC", "EP", "FC", "FP"), size=enrolment, replace=TRUE, prob=prob))) %>%
+    mutate(`English Catholic` = sum(sample.result == "EC"),
+           `English Public` = sum(sample.result == "EP"),
+           `French Catholic` = sum(sample.result == "FC"),
+           `French Public` = sum(sample.result == "FP")) %>% 
+    select(treso.id.por, panel, cduid, `English Catholic`:`French Public`) %>%
+    filter(panel == panel_id)
+
+test <- treso_forecast_population %>% 
+    filter(panel == panel_id) %>% 
+    left_join(board_type_sample_spread, by = c("panel", "cduid")) %>% 
+    mutate(`English Public Enrolment` = potential.enrolment * `English Public`)
+
+full_test <- left_join(test, forecast_population_by_board, by=c("treso.id.por", "panel", "cduid")) %>% 
+  mutate(diff = `English Public.y`-`English Public Enrolment`)
+  
+```
+
+
 ### Step 2 - Run 20xx Forecast Model 
 - The year is set by user
 
@@ -216,7 +245,7 @@ school_forecast <- calculate_delta_between_simulated_scenarios(school_base, scho
 
 ```{r application of gravity model - step 4}
 # User input for capacity constraint
-CAPACITY_CONSTRAINED <- FALSE
+CAPACITY_CONSTRAINED <- TRUE
 
 # Rerun steps 3, 4 until treshoold (takes about 55 iterations for 100 threshold)
 df_list <- distribution_model(school_base, school_20xx, school_summary_2017, school_summary_20xx, prop_matrix,
