@@ -979,7 +979,10 @@ crm_orig <- crm_alc %>%
     beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
     # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
     specialityfactor = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1) # 1 if hospital is speciality hospital, 0 if not
-  )
+  ) %>% 
+  group_by(id) %>% 
+  mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>% 
+  ungroup()
   
 # TODO: Replace this with list of new hospitals provided by user through visualization tool - NEW HOSPITALS SHOULD HAVE AGECLUSTERS SPECIFIED
   new_hospital <- crossing(new_hospital, AGE_CLUSTER_LIST) %>% 
@@ -1177,24 +1180,42 @@ crm_hosp_agecluster_all <- crm_hosp_agecluster_redist %>%
   left_join(select(speciality_hospitals, id, specialityfactor), by = c('id')) %>%
   mutate(new.hospital = 0) %>% 
   # Join in bed counts for existing hospitals
-  left_join(select(num_beds, id, beds = staffedbeds, total.hosp.beds, caretype), by = c('id', 'caretype')) %>%
-  # Set AM (Emerg) beds to -1 to resize in later step
-  mutate(beds = ifelse(caretype == 'AM', -1, beds)) %>% 
+  left_join(select(num_beds, id, beds = staffedbeds, caretype), by = c('id', 'caretype')) %>%
+  # Join in total bed counts for existing hospitals
+  left_join(distinct(num_beds, id, total.hosp.beds), by = c('id')) %>% 
+  # Address existing hospitals with missing bed counts by estimating beds based on cases relative to other hospitals in CSD
+  mutate(beds = ifelse(caretype == 'AM' & id < 300, -1, beds)) %>% 
   # Join in bed counts and speciality hospital flag for new hospitals
   left_join(distinct(new_hospital, id, caretype, beds, specialityfactor), by = c('id', 'caretype')) %>% 
-  rename(specialityfactor = specialityfactor.x, beds = beds.x) %>% 
+  # Join in total bed counts for new hospitals
+  left_join(distinct(new_hospital, id, total.hosp.beds), by = c('id')) %>% 
+  rename(specialityfactor = specialityfactor.x, beds = beds.x, total.hosp.beds = total.hosp.beds.x) %>% 
   mutate(specialityfactor = ifelse(is.na(specialityfactor), specialityfactor.y, specialityfactor),
          beds = ifelse(is.na(beds), beds.y, beds),
-         beds = replace_na(beds, 0)) %>% 
-  select(-specialityfactor.y, -beds.y) %>%
+         beds = replace_na(beds, 0),
+         total.hosp.beds = ifelse(is.na(total.hosp.beds), total.hosp.beds.y, total.hosp.beds),
+         total.hosp.beds = replace_na(total.hosp.beds, 0)) %>% 
+  select(-specialityfactor.y, -beds.y, -total.hosp.beds.y) %>%
   # Flag new hospitals as new
   mutate(new.hospital = replace_na(new.hospital, 1)) %>% 
+  # Estimate total.hosp.beds for hospitals with no bed data provided, in order to set weighting for AM (emerg) beds
+  group_by(id) %>% 
+  mutate(AM.cases.no.bed.data = sum(cases[caretype == 'AM' & id < 300])) %>% 
+  group_by(hosp.csd) %>% 
+  mutate(AM.cases.bed.data = sum(cases[caretype == 'AM' & id < 300]) - AM.cases.no.bed.data,
+         AM.cases.weight = ifelse(AM.cases.bed.data == 0, 1, AM.cases.no.bed.data / AM.cases.bed.data),
+         AM.cases.weight = replace_na(AM.cases.weight, 0),
+         sum.tot.beds = sum(total.hosp.beds[id < 300]),
+         total.hosp.beds = ifelse(total.hosp.beds == 0, AM.cases.weight * sum(total.hosp.beds[id < 300]), total.hosp.beds),
+         total.hosp.beds = ifelse(total.hosp.beds == 0, 100, total.hosp.beds)) %>% 
+  ungroup() %>% 
   # Set relative size of each Emergency department relative to Emergency Dept's at other hospitals by using sum of inpatient beds (i.e., total hospital beds) as a proxy. Note that this is only used as a weighting factor relative to other Emergency Dept's, so it is the relative size that counts, not the total number of beds
   group_by(id) %>% 
   mutate(beds = ifelse(beds == -1, total.hosp.beds, beds)) %>% 
   # Adjust number of beds for existing hospitals where cases/demand was nonzero in historical years but where the bedcount = 0
   mutate(beds = ifelse(beds == 0 & id < 300, 1, beds)) %>% 
   ungroup() %>% 
+
   # Remove existing hospitals which are speciality hospitals from redistribution
   # filter(new.hospital == 1 | specialityfactor == 0) %>%
   # Calculate percentage of beds by hospital by caretype by agecluster
