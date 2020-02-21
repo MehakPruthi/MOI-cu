@@ -81,6 +81,9 @@ CONSOLIDATION_THRESHOLD <- 0.25
 # Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
 USER_OTG_THRESHOLD = 1.1
 
+#Percentage of OTG beyond which demand is served by portables
+PORTABLE_THRESHOLD = 0.9
+
 # Define portable size
 ELE_STUDENTS_UNIT_CLASS = 23
 SEC_STUDENTS_UNIT_CLASS = 21
@@ -564,7 +567,7 @@ school_summary_20xx_final <- school_summary_20xx_final %>%
          otg.y = replace_na(otg.y, 0),
          otg = otg.x + otg.y) %>% 
   select(-otg.x, -otg.y) %>% 
-  mutate(portable.ade = pmax(simulated.ade - otg, 0), 
+  mutate(portable.ade = pmax(simulated.ade - otg*PORTABLE_THRESHOLD, 0), 
          portable.count = ceiling(portable.ade / portable_class_size))
 ```
 
