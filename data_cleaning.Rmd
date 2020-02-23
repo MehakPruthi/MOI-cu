@@ -1015,9 +1015,6 @@ HBAMhistorical_master <- HBAMhistoricalprep %>%
 #Output cache historical HBAM for use in hospitals.rmd
 saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
 
-
-
-
 # HBAM Projected
 HBAMprojectedprep <- HBAMprojected %>% 
   select(year = Year, 
