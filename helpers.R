@@ -939,7 +939,8 @@ calculate_school_weight_forecasting <- function(trip_list, school_df, eqao_2017,
   return(pos_school_weight_new)
 }
 
-distribute_students_to_schools <- function(school_df, new_school_df, por, pos_full, prop_matrix, is_weight_continuous) {
+distribute_students_to_schools <- function(school_df, new_school_df, por, pos_full, prop_matrix, treso_travel_time,
+                                           is_weight_continuous) {
   #' Creates a new POS vector with new schools and distribute the students to the schools
   #' 
   #' @param school_df
@@ -947,6 +948,7 @@ distribute_students_to_schools <- function(school_df, new_school_df, por, pos_fu
   #' @param por
   #' @param pos_full
   #' @param prop_matrix
+  #' @param treso_travel_time
   #' @param is_weight_continous
   #' @return A Dataframe of schools with simulated ADE 
   
@@ -960,11 +962,13 @@ distribute_students_to_schools <- function(school_df, new_school_df, por, pos_fu
   colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
   
   # Distribute the ADE at each zone to the individual schools of the zone
-  school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_df, eqao_2017, new_school_df)
+  school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_df, eqao_2017, new_school_df,
+                                                treso_travel_time)
   
   school_summary <- school_summary_df_list[[1]]
+  pos_travel_time <- school_summary_df_list[[2]]
   
-  return(list(school_summary, prop_matrix_balanced))
+  return(list(school_summary, prop_matrix_balanced, pos_travel_time))
 }
 
 distribute_students_within_zones <- function(school_forecast_df) {
@@ -1020,7 +1024,7 @@ create_forecast_school_list <- function(school_base, new_school_df, school_diff,
     filter(is.closed == 0) %>% 
     # Add in new schools
     bind_rows(new_school_df) %>% 
-    full_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by="sfis") %>%
+    left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by="sfis") %>%
     replace_na(list(ade = 0, change.ade = 0)) %>%                 
     # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
     mutate(simulated.ade = ade + change.ade) %>% 
@@ -1039,7 +1043,7 @@ create_forecast_school_list <- function(school_base, new_school_df, school_diff,
   return(school_forecast_distributed_df)
 }
 
-forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, new_school) {
+forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, new_school, treso_travel_time=NULL) {
   #' Produce a Dataframe with the summary of the school's forecasted ADE
   #'
   #' @param prop_matrix
@@ -1047,6 +1051,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
   #' @param school_df
   #' @param eqao_2017
   #' @param new_school
+  #' @param treso_travel_time
   #' @return A Dataframe of schools with forecasted ADE
   #' 
   # Calculate the school weight
@@ -1069,11 +1074,15 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
     arrange(Var1, Var2)
   colnames(df) <- c('treso.id.por', 'treso.id.pos', 'enrolment.rounded')
   
-  # Save a list of schools with 0 students assigned
-  df_0 <- df %>% 
-    group_by(treso.id.pos) %>% 
-    summarise(enrolment.rounded = sum(enrolment.rounded)) %>% 
-    filter(enrolment.rounded == 0)
+  if (!is.null(treso_travel_time)) {
+    # Get weighted mean travel time for each treso POS by cbind() the full trip list with travel time
+    pos_travel_time <- bind_cols(df, select(treso_travel_time, value)) %>%
+      group_by(treso.id.pos) %>%
+      summarise(sim.avg.travel.time = weighted.mean(value, enrolment.rounded)) %>% 
+      replace_na(list(sim.avg.travel.time = 0))
+  } else {
+    pos_travel_time <- NULL
+  }
   
   # After combining with travel time, trip list can be shortened
   df <- filter(df, enrolment.rounded != 0)
@@ -1094,7 +1103,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
     group_by(sfis) %>% 
     summarise(simulated.ade = sum(enrol.value))
   
-  df_list <- list(schools_summary, df_0)
+  df_list <- list(schools_summary, pos_travel_time)
   
   return(df_list)
 }
@@ -1249,7 +1258,7 @@ calculate_delta_between_simulated_scenarios <- function(school_base, school_summ
 
 distribution_model <- function(school_base, school_20xx, school_summary_2017, school_summary_20xx, prop_matrix,
                                prop_matrix_balanced, new_school, pos, pos_full,
-                               overfill_threshold = 100, user_otg_threshold, capacity_constrained = FALSE) {
+                               overfill_threshold = 100, user_otg_threshold, capacity_constrained=FALSE) {
   
   # TODO: Confirm if POS needs to be passed into this function
   
@@ -1339,7 +1348,8 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
       colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
       
       # Produce the simulated ADE for each school
-      school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school)[[1]]
+      school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school,
+                                                          treso_travel_time=NULL)[[1]]
       
       # Calculate the ADE overfill for each school, so the overfill ADE can be removed in the summary
       school_summary_ade_overfill <- school_forecast %>% 
@@ -1480,21 +1490,4 @@ utility_rename <- function(x) {
 }
 
 utilizationColorLegend <- data.frame(x = c("green", "orange", "red"), y = c("<= 0.75", "0.75 to 1.0", ">= 1.0"))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
