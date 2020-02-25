@@ -29,6 +29,7 @@ source("helpers.R")
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_tb <- readRDS("cache/treso/treso_tb.rds")
 treso_travel_time <- readRDS("cache/treso/treso_travel_time.rds")
+treso_centroids <- read_csv("cache/treso/treso_centroids.csv")
 
 # Definition files
 school_board_def <- read_csv("input/edu/school_board_types.csv")
@@ -60,13 +61,17 @@ saveRDS(eqao_2017, "cache/edu/eqao_2017.rds")
 # Remove schools with status other than "Open" for modelling
 school_master <- readRDS("cache/edu/school_treso_master.rds") %>% 
   replace_na(list(zero_otg_flag = 1)) %>% 
-  filter((zero_otg_flag == 0 & excessive_util_flag == 0), (status == "Open" | is.na(status)))
-
+  filter((zero_otg_flag == 0 & excessive_util_flag == 0), (status == "Open" | is.na(status))) %>% 
+  # Portables are not forecasted, give values of NA to portable.units and capacity.portable and fill from 2017 onwards
+  mutate(portable.units = replace(portable.units, year > 2017, NA),
+         capacity.portable = replace(capacity.portable, year > 2017, NA)) %>% 
+  arrange(sfis, year) %>% 
+  fill(portable.units, capacity.portable)
+  
 # Read the saved full list of POR and POS TRESO zones once and save it in output
 por_full <- readRDS("output/treso/por_full.rds")
 pos_full <- readRDS("output/treso/pos_full.rds")
 
-# TODO: Replace these values provided by user through the visualization interface
 # Read in user-set travel-time threshold as a function of mean system-wide travel time
 TRAVEL_TIME_THRESHOLD_FACTOR <- 1.5
 
@@ -223,7 +228,7 @@ CAPACITY_CONSTRAINED <- TRUE
 # Rerun steps 3, 4 until treshoold (takes about 55 iterations for 100 threshold)
 df_list <- distribution_model(school_base, school_20xx, school_summary_2017, school_summary_20xx, prop_matrix,
                               prop_matrix_balanced, new_school=NULL, pos, pos_full,
-                              overfill_threshold = 2000, USER_OTG_THRESHOLD, capacity_constrained = CAPACITY_CONSTRAINED)
+                              overfill_threshold = 100, max_iter=2, USER_OTG_THRESHOLD, capacity_constrained = CAPACITY_CONSTRAINED)
 
 school_forecast_final <- df_list[[1]]
 por_additional <- df_list[[2]]
@@ -427,11 +432,10 @@ max.otg <- school_sizes %>%
   select(max.otg) %>% 
   pull()
 
-
 # TODO there is still a bug here
 # Revise list of new schools to have only the previously identified new schools which exceed the minimum ADE threshold
 new_school_iteration <- new_school_iteration %>% 
-  # right_join(select(new_school_potential, sfis, simulated.ade), by = c('sfis')) %>% 
+  right_join(select(new_school_potential, sfis, simulated.ade), by = c('sfis')) %>% 
   mutate(otg = simulated.ade) %>% 
   # Change OTG in new schools to sum to new_otg_reqd
   mutate(sum.otg = sum(otg),
@@ -442,7 +446,8 @@ new_school_iteration <- new_school_iteration %>%
   mutate(schools.needed = ceiling(otg / max.otg))
 
 # Expand list of new schools to break schools exceeding max OTG into smaller schools within the TRESO zone
-new_school_iteration <- new_school_iteration[rep(seq_len(nrow(new_school_iteration)), new_school_iteration$schools.needed), 1:ncol(new_school_iteration)]
+new_school_iteration <- new_school_iteration[rep(seq_len(nrow(new_school_iteration)), new_school_iteration$schools.needed),
+                                             1:ncol(new_school_iteration)]
 
 new_school_iteration <- new_school_iteration_max %>% 
   mutate(otg = round(otg / schools.needed)) %>% 
@@ -470,7 +475,7 @@ school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.con
 school_forecast <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017, 
                                       school_summary_20xx, prop_matrix,
                                       prop_matrix_balanced, new_school_iteration, pos, pos_full,
-                                      overfill_threshold = 2000, USER_OTG_THRESHOLD, capacity_constrained = TRUE)[[1]]
+                                      overfill_threshold=2000, max_iter=10, USER_OTG_THRESHOLD, capacity_constrained = TRUE)[[1]]
 
 last_run_step <- 'Run capacity constrained...'
 ```
@@ -516,7 +521,7 @@ school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.con
 # Rerun step 4 until threshold (takes about 55 iterations for 100 threshold)
 school_forecast_final <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017,
                                             school_summary_20xx, prop_matrix, prop_matrix_balanced, new_school_iteration, pos,
-                                            pos_full, overfill_threshold=20000, USER_OTG_THRESHOLD, capacity_constrained=TRUE)[[1]]
+                                            pos_full, overfill_threshold=20000, max_iter=10, USER_OTG_THRESHOLD, capacity_constrained=TRUE)[[1]]
 
 school_forecast_final_old <- school_forecast_final
 school_forecast_final <- school_forecast_final_old
@@ -1019,7 +1024,7 @@ plot(g)
 ```
 
 ```{r export travel time in 2017, include = FALSE}
-treso_travel_time <- readRDS("output/treso/treso_travel_time.rds")
+treso_travel_time <- readRDS("cache/treso/treso_travel_time.rds")
 school_travel_time <- readRDS("output/edu/observed_por_pos_90.rds") %>% 
   drop_na(treso.id.por) %>%
   left_join(treso_travel_time, by = c("treso.id.por", "treso.id.pos")) %>%
@@ -1028,7 +1033,7 @@ school_travel_time <- readRDS("output/edu/observed_por_pos_90.rds") %>%
   summarise(avg.travel.time = weighted.mean(travel.time, enrolment),
             avg.travel.dist = weighted.mean(manhattan.dist, enrolment))
 
-saveRDS(school_travel_time, "output/edu/school_travel_2017.rds")
+ssaveRDS(school_travel_time, "output/edu/school_travel_2017.rds")
 ```
 
 
@@ -2151,7 +2156,7 @@ ggplot(data_2011, aes(abs.diff, perc.diff, color=method)) +
 ## New School Cost Function
 ```{r school cost function}
 # Read in cost function based on square metres per student as a function of number of pupil places, and $/m2
-area_per_ade <- read.csv("input/edu/school_cost_benchmark_areas.csv", stringsAsFactors = FALSE)
+area_per_otg <- read.csv("input/edu/school_cost_benchmark_areas.csv", stringsAsFactors = FALSE)
 area_rates <- read.csv("input/edu/school_cost_benchmark_area_rates.csv", stringsAsFactors = FALSE)
 
 # Read in Geographic Adjustment Factor based on postal code of proposed school location
@@ -2168,14 +2173,14 @@ gaf_lookup <- gaf_raw %>%
 
 new_school_list <- tibble(user_input_school_size = c(500, 750), user_input_panel = c('Elementary', 'Secondary'), user_input_pcode = c('k0b1e4', 'P6A5K1')) # TODO: Replace this hard-coded value with user-input value from visualization
 
-# Convert area_per_ade to be long format
-area_per_ade_long <- area_per_ade %>% 
+# Convert area_per_otg to be long format
+area_per_otg_long <- area_per_otg %>% 
   rename(Elementary = elementary_sqm_pp, Secondary = secondary_sqm_pp) %>% 
   gather(key = panel, value = 'sqm_pp', 2:3)
 
 # Join new_school_list to join in square metres per student and cost per square metre based on standard values
 new_school_list_area <- new_school_list %>% 
-  left_join(area_per_ade_long, by = c('user_input_school_size' = 'OTG', 'user_input_panel' = 'panel')) %>% 
+  left_join(area_per_otg_long, by = c('user_input_school_size' = 'OTG', 'user_input_panel' = 'panel')) %>% 
   mutate(total_area = user_input_school_size * sqm_pp) %>% 
   left_join(area_rates, by = c('user_input_panel' = 'panel'))
 
@@ -2195,8 +2200,8 @@ new_school_list_complete <- new_school_list_area %>%
 user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
 user_input_scenario_year <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
 
-currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
-current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
+currency_year <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
+current_year <- 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
 
 annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_scenario_year, currency_year,
                                               current_year, new_school_list_complete)
