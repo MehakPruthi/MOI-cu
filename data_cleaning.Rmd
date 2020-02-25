@@ -176,9 +176,43 @@ treso_tb <- socio_economic_tb %>%
 rm(hhld_tb, socio_economic_tb, hhld_structure)
 ```
 
+## TRESO Shapefile Centroids
+
+```{r treso centroids, eval=FALSE, include=FALSE}
+# Read in TRESO shapefile
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+
+# Produce the TRESO zone centroids
+centroids <- SpatialPointsDataFrame(gCentroid(treso_shp, byid=TRUE), 
+                                      treso_shp@data, match.ID=FALSE) %>% 
+  spTransform(CRS('+proj=longlat +datum=WGS84'))
+
+# Find the nearest PCCF lat/long to obtain postal code
+pccfSlim_sp <- pccfSlim
+coordinates(pccfSlim_sp) <- c("long", "lat")
+
+centroids_latlong <- centroids
+  as.tibble() %>% 
+  select(treso_id = Treso_ID, long = x, lat = y) %>% 
+  left_join(treso_zone_def, by=c("treso_id"))
+
+nn <- get.knnx(coordinates(pccfSlim_sp), coordinates(centroids), k = 1)
+nearest_postal_code <- nn$nn.index %>%
+  as.tibble()
+
+pccfSlim_df <- as.tibble(pccfSlim) %>%
+  mutate(index = row_number())
+
+nearest_treso_centroid_postal_code <- cbind(nearest_postal_code, centroids_latlong) %>%
+  left_join(select(pccfSlim_df, index, postal.code), by=c("V1" = "index")) %>% 
+  drop_na(mof_region) %>% 
+  select(treso_id, lat, long, postal.code)
+
+write_csv(nearest_treso_centroid_postal_code, "cache/treso/treso_centroids.csv")
+```
+
 
 # EDU Data Cleaning
-
 
 ## EDU Data Import
 
@@ -484,7 +518,7 @@ schoolSFIS <- schoolSFIS %>%
 
 # The postal code and enrollment dataset is cleaned here
 # We are looking at 2017 student data at this time.
-# TO-DO: Look at all years of student postal code data.
+# TODO: Look at all years of student postal code data.
 studentPostSlim <- studentPost %>%
   select(year = Sch_YR,
          bsid = BSID, 
