@@ -2186,12 +2186,13 @@ new_school_list_complete <- new_school_list_area %>%
 ## Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
-user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
-user_input_scenario_year <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
-
+user_input_inflation <- 0.02 
+user_input_scenario_year <- 2025 
 currency_year <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 current_year <- 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
 
 annualized_inflated_cost <- construction_cost(user_input_inflation, user_input_scenario_year, currency_year,
                                               current_year, new_school_list_complete)
+
+total_cost <- sum(annualized_inflated_cost$annual_cost_inflated)
 ```

@@ -779,7 +779,7 @@ construction_cost <- function(inflation_rate, scenario_year, currency_year, curr
   #' @param current_year An integer that represents the current year upon which construction timelines are set
   #' @param new_facility_list A list of new facilities to be built
   #' @return A list of spending in nominal dollars per year, and in total, to build the new facilities
-  
+
   # Determine min and max years for building inflation index
   min_year = min(scenario_year, current_year) 
   max_year = max(scenario_year, current_year)
@@ -808,8 +808,7 @@ construction_cost <- function(inflation_rate, scenario_year, currency_year, curr
     mutate(annual_cost_inflated = cost_2018 * annual_cost_index_inflated) %>% 
     group_by(index_year) %>% 
     mutate(total_yearly_cost_inflated = sum(annual_cost_inflated)) %>%
-    ungroup() %>% 
-    mutate(total_cost = sum(annual_cost_inflated))
+    ungroup()
   
   return(annualized_inflated_cost)
 } 
