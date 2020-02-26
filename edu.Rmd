@@ -318,9 +318,12 @@ new_school <- df_list[[1]] %>%
          year = year_id,
          build.priority = 1:n(),
          sfis = as.numeric(paste0(treso.id.pos, '000'))) %>% 
+  # Join with TRESO centroid to get postal code
+  left_join(treso_centroids, by=c("treso.id.pos"="treso_id")) %>% 
+  rename(school.lat = lat, school.long = long) %>% 
   left_join(treso_otg_avg, by = c('treso.id.pos')) %>% 
   rename(otg = avg.otg) %>% 
-  # IFfthere are no existing schools in the TRESO zone, assign a default value of 1 to that new school
+  # If there are no existing schools in the TRESO zone, assign a default value of 1 to that new school
   mutate(otg = replace_na(otg, 1)) # OTG must be > 0 for some distribution functions to run
 
 print(paste0("The number of new schools identified is: ", nrow(new_school)))
@@ -406,20 +409,9 @@ school_forecast <- calculate_delta_between_simulated_scenarios(school_base, scho
 last_run_step <- 'Consolidate existing schools'
 ```
 
-###	Set OTG at new schools to be a function of unconstrained ADE (formerly considering OTG from consolidated schools in the CSD)
+###	Set OTG at new schools to be a function of unconstrained ADE
 
 ```{r}
-# Calculate number of new student places needed to achieve target utilization
-otg_existing <- school_20xx %>% 
-  select(otg) %>% 
-  sum()
-
-# Extract enrolment for the board-type/panel in question  
-scenario_enrolment <- sum(por)
-
-# Calcualte OTG needed based on user-defined target utilization
-otg_final <- scenario_enrolment / TARGET_UTILIZATION
-net_otg_required <- otg_final - otg_existing
 
 new_school_potential <- school_forecast %>%
   # Filter out existing schools
@@ -427,37 +419,33 @@ new_school_potential <- school_forecast %>%
   filter(simulated.ade >= ade_threshold)
 
 # Determine number of new schools required per TRESO zone, adding >1 school where OTG > max school size 
-max.otg <- school_sizes %>% 
+max_otg <- school_sizes %>% 
   filter(panel == panel_id) %>% 
   select(max.otg) %>% 
   pull()
 
-# TODO there is still a bug here
 # Revise list of new schools to have only the previously identified new schools which exceed the minimum ADE threshold
 new_school_iteration <- new_school_iteration %>% 
   right_join(select(new_school_potential, sfis, simulated.ade), by = c('sfis')) %>% 
-  mutate(otg = simulated.ade) %>% 
-  # Change OTG in new schools to sum to new_otg_reqd
-  mutate(sum.otg = sum(otg),
-         revised.otg = round(net_otg_required / sum.otg * otg, 0)) %>% 
-  select(-otg) %>% 
-  rename(otg = revised.otg) %>% 
+  mutate(otg = simulated.ade) %>%
   # Calculate number of new schools needed per TRESO zone
-  mutate(schools.needed = ceiling(otg / max.otg))
+  mutate(schools.needed = ceiling(otg / max_otg))
 
 # Expand list of new schools to break schools exceeding max OTG into smaller schools within the TRESO zone
 new_school_iteration <- new_school_iteration[rep(seq_len(nrow(new_school_iteration)), new_school_iteration$schools.needed),
                                              1:ncol(new_school_iteration)]
 
-new_school_iteration <- new_school_iteration_max %>% 
+new_school_iteration <- new_school_iteration %>% 
   mutate(otg = round(otg / schools.needed)) %>% 
   group_by(treso.id.pos) %>% 
   mutate(count.per.treso = 1:n()) %>% 
   ungroup() %>% 
-  mutate(sfis = sfis + count.per.treso) %>% 
+  mutate(sfis = sfis + count.per.treso,
+         school.lat = school.lat + (count.per.treso / 100),
+         school.long = school.long + (count.per.treso / 100)) %>% 
   select(-count.per.treso, -schools.needed, -simulated.ade)
 
-print(paste0("The number of new schools after target utilization is: ", nrow(new_school_iteration)))
+print(paste0("The number of new schools after setting OTG to min(ADE, max_otg): ", nrow(new_school_iteration)))
 
 last_run_step <- 'Set OTG at new schools...'
 
@@ -2170,22 +2158,23 @@ gaf_lookup <- gaf_raw %>%
          pcode_6_digit = ifelse(str_length(postal_code) == 6, toupper(postal_code), 0))
 
 # Min school size: 200 pupil-places (i.e., ADE) for elementary, 300 pupil-places for secondary
-
-new_school_list <- tibble(user_input_school_size = c(500, 750), user_input_panel = c('Elementary', 'Secondary'), user_input_pcode = c('k0b1e4', 'P6A5K1')) # TODO: Replace this hard-coded value with user-input value from visualization
+new_school_list <- tibble(otg = c(500, 750), 
+                          panel = c('Elementary', 'Secondary'), 
+                          postal.code = c('k0b1e4', 'P6A5K1'))
 
 # Convert area_per_otg to be long format
 area_per_otg_long <- area_per_otg %>% 
-  rename(Elementary = elementary_sqm_pp, Secondary = secondary_sqm_pp) %>% 
+  rename(otg = OTG, Elementary = elementary_sqm_pp, Secondary = secondary_sqm_pp) %>% 
   gather(key = panel, value = 'sqm_pp', 2:3)
 
 # Join new_school_list to join in square metres per student and cost per square metre based on standard values
 new_school_list_area <- new_school_list %>% 
-  left_join(area_per_otg_long, by = c('user_input_school_size' = 'OTG', 'user_input_panel' = 'panel')) %>% 
-  mutate(total_area = user_input_school_size * sqm_pp) %>% 
-  left_join(area_rates, by = c('user_input_panel' = 'panel'))
+  left_join(area_per_otg_long, by = c('otg', 'panel')) %>% 
+  mutate(total_area = otg * sqm_pp) %>% 
+  left_join(area_rates, by = c('panel'))
 
 # Determine geogrpahic adjustment factor for each new school in new_school_list_area
-#plan(multiprocess)
+plan(multiprocess)
 gaf <- future_apply(new_school_list_area, MARGIN = 1, FUN = school_gaf, gaf_lookup)
 
 new_school_list_complete <- new_school_list_area %>% 

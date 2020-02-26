@@ -739,7 +739,7 @@ school_gaf <- function(row, gaf_lookup) {
   #' @param gaf_lookup A Dataframe of geographic adjustment factors by postal code
   #' @return GAF of school for all schools in list
   
-  user_input_pcode <- row['user_input_pcode']
+  user_input_pcode <- row['postal.code']
   
   # Determine number of digits for GAF lookup in postal_code lookup table
   for (pcode_length in 3:6) {

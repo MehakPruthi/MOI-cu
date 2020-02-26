@@ -317,6 +317,7 @@ schoolLoc <- schoolCap %>%
          status = Status,
          school.lat = `Latitude`, 
          school.long = `longitude`,
+         postal.code = `PostalCode`,
          otg = OTG,
          ade = ADE,
          board.name = BoardName,
@@ -351,6 +352,7 @@ schoolForecastSimple <- schoolForecast %>%
          dsb.index = DSBINDEX,
          panel = PANEL,
          sfis = SFIS,
+         postal.code = Postal.Code,
          school.name = School.Name, 
          ade = ADE,
          latitude,
@@ -359,7 +361,6 @@ schoolForecastSimple <- schoolForecast %>%
   mutate_if(is.factor, as.character) -> schoolForecastSimple
 
 # Join board type, lat, long, otg to school forecast dataset
-
 school_recent_data <- schoolLocClean %>%
   group_by(sfis) %>%
   filter(year == max(year), status == 'Open' | status == 'Holding' | status == 'Under Construction') %>%
@@ -372,11 +373,9 @@ schoolForecastSimpleJoin <- schoolForecastSimple %>%
   mutate(panel = ifelse(panel == 'E', 'Elementary', ifelse(panel == 'S', 'Secondary', 'ERROR')))
 
 # Bind Historical school data to forecast school data
-
 schoolLocCombined <- bind_rows(schoolLocClean, schoolForecastSimpleJoin)
 
 # Choose single most common lat/long for schools to avoid row duplication and conflicts
-
 schoolLatMode <- schoolLocCombined %>% 
   group_by(sfis) %>%
   count(school.lat, sort=TRUE) %>%
@@ -447,13 +446,14 @@ school_treso_master <- school_treso_data %>%
   left_join(select(schoolAssetsPortablesSlim, sfis, area.m2, num.units.calculated, year), by = c('sfis' = 'sfis', 'year' = 'year')) %>%
   replace_na(list(area.m2 = 0, num.units.calculated = 0)) %>%
   mutate(num.units.calculated = round(num.units.calculated,0)) %>%
-  mutate(capacity.portable = ifelse(panel == 'Elementary', num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
-                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS))%>%
+  mutate(capacity.portable = ifelse(panel == 'Elementary', 
+                                    num.units.calculated * ELE_STUDENTS_UNIT_CLASS, 
+                                    num.units.calculated * SEC_STUDENTS_UNIT_CLASS)) %>%
   rename(portable.units = num.units.calculated) %>% 
   left_join(schoolAssetsSlim, by = 'sfis')
 
 # Export to RDS
-saveRDS(school_treso_master, 'output/school_treso_master.rds')
+saveRDS(school_treso_master, 'cache/edu/school_treso_master.rds')
 
 ```
 
