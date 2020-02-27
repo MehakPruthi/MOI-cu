@@ -191,7 +191,7 @@ centroids <- SpatialPointsDataFrame(gCentroid(treso_shp, byid=TRUE),
 pccfSlim_sp <- pccfSlim
 coordinates(pccfSlim_sp) <- c("long", "lat")
 
-centroids_latlong <- centroids
+centroids_latlong <- centroids %>% 
   as.tibble() %>% 
   select(treso_id = Treso_ID, long = x, lat = y) %>% 
   left_join(treso_zone_def, by=c("treso_id"))
