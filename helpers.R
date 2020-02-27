@@ -779,7 +779,7 @@ construction_cost <- function(inflation_rate, scenario_year, currency_year, curr
   #' @param current_year An integer that represents the current year upon which construction timelines are set
   #' @param new_facility_list A list of new facilities to be built
   #' @return A list of spending in nominal dollars per year, and in total, to build the new facilities
-
+  
   # Determine min and max years for building inflation index
   min_year = min(scenario_year, current_year) 
   max_year = max(scenario_year, current_year)
@@ -961,6 +961,9 @@ distribute_students_to_schools <- function(school_df, new_school_df, por, pos_fu
   colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
   
   # Distribute the ADE at each zone to the individual schools of the zone
+  print('Checking for school is.consolidated flag distribute_students_to_schools:')
+  print(head(school_df$is.consolidated))
+  
   school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_df, eqao_2017, new_school_df,
                                                 treso_travel_time)
   
@@ -1020,11 +1023,11 @@ create_forecast_school_list <- function(school_base, new_school_df, school_diff,
   
   school_forecast_df <- school_base %>% 
     # Keep only schools which are not planned to be closed in forecast year
-    filter(is.closed == 0) %>% 
+    filter(is.closed == 0) %>%
     # Add in new schools
     bind_rows(new_school_df) %>% 
-    left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by="sfis") %>%
-    replace_na(list(ade = 0, change.ade = 0)) %>%                 
+    left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade, is.consolidated), by = "sfis") %>%
+    mutate(ade = replace_na(ade, 0), change.ade = replace_na(change.ade, 0), is.consolidated = replace_na(is.consolidated, 0)) %>%
     # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
     mutate(simulated.ade = ade + change.ade) %>% 
     # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school.
@@ -1032,9 +1035,15 @@ create_forecast_school_list <- function(school_base, new_school_df, school_diff,
     # So the total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts.
     # However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
     mutate(simulated.ade = ifelse(simulated.ade < 0, 0, simulated.ade)) %>%
+    mutate(simulated.ade = (1 - is.consolidated) * simulated.ade) %>% 
     # Create OTG threshold based on user input
     mutate(otg.threshold = otg * otg_threshold) %>% 
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
+  
+  print('debug create_forecast_school_list')
+  print(school_forecast_df %>% filter(treso.id.pos == 6248 | treso.id.pos == 8193))
+  print(school_diff %>% filter(sfis == 10972 | sfis == 9562))
+  
   
   # Redistribute students from overfilled schools to underfilled schools in the same zone
   school_forecast_distributed_df <- distribute_students_within_zones(school_forecast_df)
@@ -1095,12 +1104,28 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
   results_tb <- t(as.data.table(results))
   trip_list_schools <- cbind(trip_list, results_tb)
   
-  schools_summary <- trip_list_schools %>% 
-    unnest(results_tb) %>%
-    mutate(enrol.value = 1) %>%
-    rename(sfis = results_tb) %>% 
-    group_by(sfis) %>% 
-    summarise(simulated.ade = sum(enrol.value))
+  print('Checking for school is.consolidated flag forecast_school_ade:')
+  print(head(school_df))
+  
+  if ("is.consolidated" %in% colnames(school_df)) {
+    schools_summary <- trip_list_schools %>% 
+      unnest(results_tb) %>%
+      mutate(enrol.value = 1) %>%
+      rename(sfis = results_tb) %>%
+      group_by(sfis) %>%
+      summarise(simulated.ade = sum(enrol.value)) %>% 
+      left_join(select(school_df, sfis, is.consolidated), by = c('sfis')) %>% 
+      mutate(is.consolidated = replace_na(is.consolidated, 1),
+             is.consolidated = ifelse(sfis > 99000, 0, is.consolidated))
+    
+  } else {
+    schools_summary <- trip_list_schools %>% 
+      unnest(results_tb) %>%
+      mutate(enrol.value = 1) %>%
+      rename(sfis = results_tb) %>% 
+      group_by(sfis) %>% 
+      summarise(simulated.ade = sum(enrol.value))
+  }
   
   df_list <- list(schools_summary, pos_travel_time)
   

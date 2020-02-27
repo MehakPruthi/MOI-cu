@@ -71,7 +71,18 @@ ALC_idcrosswalk_slim <- ALC_idcrosswalk %>%
 ltc_homes <- readRDS('cache/moh/ltc_homes.rds')
 ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
 
+# Read in user-set factor for how many people will stay in their CSD vs. leave the CSD on a per-bed basis if a new hospital is built in a CSD which previously had no hospitals
 STAY_IN_CSD_FACTOR <- 10
+
+# Read in user-set target utilization factor by subsector
+AT_target <- 0.94
+MH_target <- 0.92
+CR_target <- 0.96
+GR_target <- 0.95
+AM_target <- 0.90
+
+# Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
+min_beds <- 30
 
 ```
 
@@ -946,7 +957,7 @@ crm_hosp_agecluster <- crm_alc %>%
 
 # Calculate number of cases, demand days, and beds needed by CSD, caretype, and agecluster
 crm_csd_agecluster <- crm_alc %>%
-  group_by(hosp.csd, agecluster, caretype) %>%
+  group_by(orig.csd, agecluster, caretype) %>%
   summarise_at(vars(cases:beds.needed), sum) %>%
   ungroup()
 
@@ -1012,6 +1023,36 @@ crm_orig <- crm_alc %>%
     ungroup()
   
 ```
+
+## Decision-Making (Instead of 'Add hospitals')
+
+```{r}
+# Compare demand for beds/bed-days by CSD to existing bed counts to determine gap
+
+# Determine total existing bed count by CSD by caretype
+csd_beds_existing <- num_beds %>% 
+  left_join(select(hospitallocations_tz, id, hosp.csd = csduid), by = ('id')) %>% 
+  rename(beds.existing = staffedbeds) %>% 
+  group_by(hosp.csd, caretype) %>%
+  summarise(csd.beds.existing = sum(beds.existing)) %>% 
+  ungroup()
+
+######### Set up target utilizations as tibble
+######### Join target tibble based on caretype, called 'target'
+######### THen proceed with query below
+
+# Join demand to capacity data
+demand_capacity_difference <- crm_csd_agecluster %>% 
+  left_join(csd_beds_existing, by = c('orig.csd' = 'hosp.csd', 'caretype')) %>% 
+  replace_na(list(csd.beds.existing = 0)) %>% 
+  # Calculate total beds needed across all ageclusters
+  group_by(orig.csd, caretype) %>% 
+  mutate(csd.beds.needed = sum(beds.needed),
+         adjusted.csd.beds.needed = ceiling(csd.beds.needed / target)) %>% 
+  ungroup() %>% 
+  
+```
+
 
 ## Redistribute demand leaving a CSD for other CSDs based on new hospitals
 ```{r}
