@@ -1010,41 +1010,40 @@ distribute_students_within_zones <- function(school_forecast_df) {
   return(school_forecast_distributed_df)
 }
 
-create_forecast_school_list <- function(school_base, new_school_df, school_diff, otg_threshold) {
+create_forecast_school_list <- function(school_base, school_20xx, new_school_df, school_diff, otg_threshold) {
   
   #' Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
   #' Also redistribute any overfilled schools in a zone to 
   #' 
   #' @param school_base
+  #' @param school_20xx
   #' @param new_school_df
   #' @param school_diff
   #' @param otg_threshold
   #' @return A Dataframe of schools with forecasted/simulated ADE and 
   
-  school_forecast_df <- school_base %>% 
-    # Keep only schools which are not planned to be closed in forecast year
-    filter(is.closed == 0) %>%
+  school_forecast_df <- filter(school_base, is.closed == 0) %>% 
+    # Join in the is.consolidated flag from school_20xx
+    left_join(select(school_20xx, sfis, is.consolidated), by="sfis") %>% 
     # Add in new schools
-    bind_rows(new_school_df) %>% 
-    left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade, is.consolidated), by = "sfis") %>%
-    mutate(ade = replace_na(ade, 0), change.ade = replace_na(change.ade, 0), is.consolidated = replace_na(is.consolidated, 0)) %>%
+    bind_rows(new_school_df) %>%
+    left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by = "sfis") %>%
+    replace_na(list(ade = 0, change.ade = 0)) %>%
     # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
     mutate(simulated.ade = ade + change.ade) %>% 
     # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school.
     # However, by rounding up to 0, the model could be adding 'phantom' students to the system
     # So the total ADE as estimated by the distribution model will exceed total ADE estimated in population forecasts.
     # However, in test runs, this did not occur at any schools, so risk appears low. If it were to happen, the result would be a slight increase in the total number of ADE across the province, which would almost certainly be negligible. 
-    mutate(simulated.ade = ifelse(simulated.ade < 0, 0, simulated.ade)) %>%
-    mutate(simulated.ade = (1 - is.consolidated) * simulated.ade) %>% 
+    mutate(simulated.ade = ifelse(simulated.ade < 0, 0, simulated.ade),
+           simulated.ade = simulated.ade * (1 - is.consolidated)) %>%
     # Create OTG threshold based on user input
     mutate(otg.threshold = otg * otg_threshold) %>% 
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
   
   print('debug create_forecast_school_list')
   print(school_forecast_df %>% filter(treso.id.pos == 6248 | treso.id.pos == 8193))
-  print(school_diff %>% filter(sfis == 10972 | sfis == 9562))
-  
-  
+
   # Redistribute students from overfilled schools to underfilled schools in the same zone
   school_forecast_distributed_df <- distribute_students_within_zones(school_forecast_df)
   
@@ -1104,28 +1103,12 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
   results_tb <- t(as.data.table(results))
   trip_list_schools <- cbind(trip_list, results_tb)
   
-  print('Checking for school is.consolidated flag forecast_school_ade:')
-  print(head(school_df))
-  
-  if ("is.consolidated" %in% colnames(school_df)) {
-    schools_summary <- trip_list_schools %>% 
-      unnest(results_tb) %>%
-      mutate(enrol.value = 1) %>%
-      rename(sfis = results_tb) %>%
-      group_by(sfis) %>%
-      summarise(simulated.ade = sum(enrol.value)) %>% 
-      left_join(select(school_df, sfis, is.consolidated), by = c('sfis')) %>% 
-      mutate(is.consolidated = replace_na(is.consolidated, 1),
-             is.consolidated = ifelse(sfis > 99000, 0, is.consolidated))
-    
-  } else {
-    schools_summary <- trip_list_schools %>% 
-      unnest(results_tb) %>%
-      mutate(enrol.value = 1) %>%
-      rename(sfis = results_tb) %>% 
-      group_by(sfis) %>% 
-      summarise(simulated.ade = sum(enrol.value))
-  }
+  schools_summary <- trip_list_schools %>% 
+    unnest(results_tb) %>%
+    mutate(enrol.value = 1) %>%
+    rename(sfis = results_tb) %>% 
+    group_by(sfis) %>% 
+    summarise(simulated.ade = sum(enrol.value))
   
   df_list <- list(schools_summary, pos_travel_time)
   
@@ -1256,13 +1239,14 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
   return(list(build_df, proximity_df))
 }
 
-calculate_delta_between_simulated_scenarios <- function(school_base, school_summary_base, school_summary_forecast, new_school,
-                                                        user_otg_threshold) {
+calculate_delta_between_simulated_scenarios <- function(school_base, school_20xx, school_summary_base, school_summary_forecast, 
+                                                        new_school, user_otg_threshold) {
   
   #' Calculate the delta between the two simulated scenarios. Apply this delta to the `school_base` Dataframe in order to obtain the
   #' forecasted ADE of the schools.
   #'
-  #' @param school_base A Dataframe of the master list of schools
+  #' @param school_base A Dataframe of the base year list of schools
+  #' @param school_20xx A Dataframe of the 20xx list of schools
   #' @param school_summary_base A Dataframe of simulated ADE for schools in the base scenario
   #' @param school_summary_forecast A Dataframe of simulated ADE for schools in the forecast scenario
   #' @param new_school A Dataframe of new schools
@@ -1275,7 +1259,8 @@ calculate_delta_between_simulated_scenarios <- function(school_base, school_summ
     mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
   
   # Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
-  school_forecast <- create_forecast_school_list(school_base, new_school, trip_list_schools_summary_difference, user_otg_threshold)
+  school_forecast <- create_forecast_school_list(school_base, school_20xx, new_school, 
+                                                 trip_list_schools_summary_difference, user_otg_threshold)
   
   return(school_forecast)
 }
@@ -1287,7 +1272,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
   # TODO: Confirm if POS needs to be passed into this function
   
   # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
-  school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+  school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
                                                                  new_school, user_otg_threshold)
   
   if (capacity_constrained) {
@@ -1394,14 +1379,14 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
           select(-overfill.ade)
         
         # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
-        school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx, new_school,
-                                                                       user_otg_threshold)
+        school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, 
+                                                                       school_summary_20xx, new_school, user_otg_threshold)
         
         # Increment the counter
         i <- i + 1
       } else {
         print("Reached Max Iterations")
-        break
+        return(list(school_forecast, por_additional))
       }
     }
     return(list(school_forecast, por_additional))
@@ -1409,8 +1394,8 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
   } else {
     print(paste0("Running distribution capacity unconstrained"))
     # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
-    school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx, new_school,
-                                                                   user_otg_threshold)
+    school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, 
+                                                                   school_summary_20xx, new_school, user_otg_threshold)
     return(list(school_forecast, NULL))
   }
 }

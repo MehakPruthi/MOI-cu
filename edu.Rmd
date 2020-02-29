@@ -102,7 +102,7 @@ base_year <- 2017
 
 # Future scenario year
 year_id <- 2025 
-board_id <- "French Catholic"
+board_id <- "French Public"
 panel_id <- "Secondary"
 
 ```
@@ -215,7 +215,7 @@ prop_matrix_balanced <- result[[2]]
 ### Step 3 - Calculate Delta between Simulated Base and Forecast Models
 
 ```{r application of gravity model - step 3}
-school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
                                                                new_school=NULL, USER_OTG_THRESHOLD)
 ```
 
@@ -336,7 +336,7 @@ school_summary_20xx <- distribute_students_to_schools(school_20xx, new_school, p
                                                       treso_travel_time=NULL, is_weight_continuous=FALSE)[[1]]
 
 # Run Steps 3 to get adjusted simulated ADE for each school (stored under school_forecast dataframe)
-school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx, 
+school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx, 
                                                                new_school, USER_OTG_THRESHOLD)
 
 last_run_step <- 'Determine which TRESO zones should new schools.'
@@ -368,7 +368,7 @@ school_summary_20xx <- distribute_students_to_schools(school_20xx, new_school_it
                                                       treso_travel_time=NULL, is_weight_continuous=FALSE)[[1]]
 
 # Run Steps 3 to get adjusted simulated ADE for each school (stored under school_forecast dataframe)
-school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
                                                                new_school_iteration, USER_OTG_THRESHOLD)
 last_run_step <- 'Delete new schools with ADE < Threshold.'
 ```
@@ -403,7 +403,7 @@ school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.con
                                                       is_weight_continuous = FALSE)[[1]]
 
 # Run Steps 3 to get adjusted simulated ADE for each school (stored under school_forecast dataframe)
-school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
                                                                new_school_iteration, USER_OTG_THRESHOLD)
 
 last_run_step <- 'Consolidate existing schools'
@@ -503,7 +503,7 @@ school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.con
                                                       por, pos_full, prop_matrix, treso_travel_time=NULL,
                                                       is_weight_continuous=FALSE)[[1]]
  
-# school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_summary_2017, school_summary_20xx,
+# school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
 #                                                                new_school_iteration, USER_OTG_THRESHOLD)
 
 # Rerun step 4 until threshold (takes about 55 iterations for 100 threshold)
