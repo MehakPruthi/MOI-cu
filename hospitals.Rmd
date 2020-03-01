@@ -75,11 +75,7 @@ ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
 STAY_IN_CSD_FACTOR <- 10
 
 # Read in user-set target utilization factor by subsector
-AT_target <- 0.94
-MH_target <- 0.92
-CR_target <- 0.96
-GR_target <- 0.95
-AM_target <- 0.90
+utilization_targets <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
 
 # Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
 min_beds <- 30
@@ -1033,23 +1029,51 @@ crm_orig <- crm_alc %>%
 csd_beds_existing <- num_beds %>% 
   left_join(select(hospitallocations_tz, id, hosp.csd = csduid), by = ('id')) %>% 
   rename(beds.existing = staffedbeds) %>% 
-  group_by(hosp.csd, caretype) %>%
-  summarise(csd.beds.existing = sum(beds.existing)) %>% 
+  mutate(hosp.cd = substr(hosp.csd, 1, 4)) %>%
+  # Analyse by CSD and CD
+  group_by(hosp.cd, hosp.csd, caretype) %>%
+  summarise(csd.beds.existing = sum(beds.existing)) %>%
   ungroup()
 
-######### Set up target utilizations as tibble
-######### Join target tibble based on caretype, called 'target'
-######### THen proceed with query below
+# Determine total existing bed count by CD by caretype
+cd_beds_existing <- csd_beds_existing %>%   
+  group_by(hosp.cd, caretype) %>% 
+  summarise(cd.beds.existing = sum(csd.beds.existing)) %>% 
+  ungroup()
 
-# Join demand to capacity data
+# Join demand to capacity data and assess demand and capacity by CSD and CD
 demand_capacity_difference <- crm_csd_agecluster %>% 
+  mutate(orig.cd = substr(orig.csd, 1, 4)) %>%
   left_join(csd_beds_existing, by = c('orig.csd' = 'hosp.csd', 'caretype')) %>% 
-  replace_na(list(csd.beds.existing = 0)) %>% 
+  left_join(cd_beds_existing, by = c('orig.cd' = 'hosp.cd', 'caretype')) %>% 
+  replace_na(list(csd.beds.existing = 0, cd.beds.existing = 0)) %>%
+  # Join in utilization targets provided by user
+  left_join(utilization_targets, by = c('caretype')) %>% 
   # Calculate total beds needed across all ageclusters
   group_by(orig.csd, caretype) %>% 
   mutate(csd.beds.needed = sum(beds.needed),
-         adjusted.csd.beds.needed = ceiling(csd.beds.needed / target)) %>% 
+         adjusted.csd.beds.needed = round(csd.beds.needed / target, 0),
+         csd.beds.to.build = adjusted.csd.beds.needed - csd.beds.existing) %>% 
+  group_by(orig.cd, caretype) %>% 
+  mutate(cd.beds.needed = sum(beds.needed),
+         adjusted.cd.beds.needed = round(cd.beds.needed / target, 0),
+         cd.beds.to.build = adjusted.cd.beds.needed - cd.beds.existing) %>%
+  ungroup()
+
+# Test number of beds required by CSD/CD if maintaining existing travel patterns
+demand_capacity_crm_patterns <- crm_orig %>% 
+  mutate(hosp.cd = substr(hosp.csd, 1, 4)) %>%
+  left_join(select(num_beds, caretype, id, beds.existing = staffedbeds), by = c('id', 'caretype')) %>% 
+  replace_na(list(beds.existing = 0)) %>% 
+  # Calculate the number of beds needed by caretype by hospital
+  group_by(hosp.cd, hosp.csd, id, caretype, beds.existing) %>% 
+  # mutate(hosp.beds.needed = sum(beds.needed)) %>% 
+  summarise(hosp.beds.needed = sum(beds.needed)) %>% 
   ungroup() %>% 
+  left_join(utilization_targets, by = c('caretype')) %>% 
+  mutate(adjusted.hosp.beds.needed = round(hosp.beds.needed / target, 0),
+         hosp.beds.to.build = adjusted.hosp.beds.needed - beds.existing)
+  
   
 ```
 
