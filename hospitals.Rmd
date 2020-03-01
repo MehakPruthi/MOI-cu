@@ -1021,9 +1021,9 @@ crm_orig <- crm_alc %>%
 ```
 
 ## Decision-Making (Instead of 'Add hospitals')
+### Compare demand for beds/bed-days by CSD to existing bed counts to determine gap
 
 ```{r}
-# Compare demand for beds/bed-days by CSD to existing bed counts to determine gap
 
 # Determine total existing bed count by CSD by caretype
 csd_beds_existing <- num_beds %>% 
@@ -1059,6 +1059,10 @@ demand_capacity_difference <- crm_csd_agecluster %>%
          adjusted.cd.beds.needed = round(cd.beds.needed / target, 0),
          cd.beds.to.build = adjusted.cd.beds.needed - cd.beds.existing) %>%
   ungroup()
+```
+
+### Test number of beds required by CSD/CD if maintaining existing travel patterns
+```{r}
 
 # Test number of beds required by CSD/CD if maintaining existing travel patterns
 demand_capacity_crm_patterns <- crm_orig %>% 
@@ -1073,7 +1077,40 @@ demand_capacity_crm_patterns <- crm_orig %>%
   left_join(utilization_targets, by = c('caretype')) %>% 
   mutate(adjusted.hosp.beds.needed = round(hosp.beds.needed / target, 0),
          hosp.beds.to.build = adjusted.hosp.beds.needed - beds.existing)
-  
+
+# Determine how many patients from each CSD/CD go to hospitals in other CSDs/CDs which are overburdened, then determine if it makes sense to build more hospital beds in each origin CSD/CD
+overburden <- demand_capacity_crm_patterns %>% 
+  select(id, caretype, hosp.beds.to.build) %>% 
+  filter(hosp.beds.to.build > 0) %>% 
+  left_join(select(crm_orig, orig.csd, id, caretype, agecluster, cases:beds.needed), by = c('id', 'caretype')) %>% 
+  # Sum cases, demand-days across ageclusters to find total demand by orig.csd, caretype
+  mutate(sumCases = sum(cases)) %>% 
+  group_by(orig.csd, caretype) %>% 
+  mutate(cases = sum(cases), demand.days.total = sum(demand.days.total), demand.days.nonALC = sum(demand.days.nonALC), 
+         demand.days.ALC = sum(demand.days.ALC), beds.needed = sum(beds.needed)) %>% 
+  select(-agecluster, -id, -hosp.beds.to.build) %>%
+  ungroup() %>% 
+  distinct()
+
+# Determine number of beds to be built by CSD which can justify construction of beds (i.e., exceeding minimum build number)
+csd_build <- overburden %>% 
+  # Remove all origin CSD / caretype combinations which do not have enough demand to justify construction of additional beds in the CSD
+  filter(beds.needed >= min_beds) %>% 
+  # Start by determining where new facilities should go - i.e., prioritize CSDs with no hospital (by caretype) on the assumption that these will have relatively high travel times
+  left_join(csd_beds_existing, by = c('orig.csd' = 'hosp.csd')) %>% 
+  replace_na(list(beds.existing = 0))
+
+########### Add travel times in from each treso zone to each hospital to determine longest travel times per capita?
+########### Then build progressively in each CSD to minimize number of beds built while reducing longest travel times?
+########### Is there any reason you can't built a small number of beds per cSD for all CSDs as long as hospitals already exist?
+########## Consider having minimum_new_build_beds vs. minimum_expand_existing_beds
+# OR
+########### ONCE BEDS BUILT AT NEW CSDs, SEE WHICH CSDs still over burdened;
+########### SEE HOW MUCH each CSD is overburdened by - measure sum of beds needed by caretype
+
+# Determine number of beds needed but not built across CSDs going to overburdened hospitals
+csd_no_build <- overburden %>% 
+  filter(beds.needed < min_beds)
   
 ```
 
