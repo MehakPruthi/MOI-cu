@@ -82,8 +82,12 @@ utilization_targets <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target
 # Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
 min_beds <- 20
 
+# New hospital minimum applies to each caretype individually or all caretypes cumulatively? I.e., if minimum new hospital threshold is 25 beds, and if a CSD needs 15 AT beds, 5 MH beds, and 10 GR beds (therefore sum of 30 beds), should the hospital be built because there is demand for 30 beds? Or hospital should not be built because no individual caretype exceeds minimum of 25 beds required?
+min_beds_toggle <- 1 # 1 = Cumulatively, 0 = Individually
+
 # Read in user-set number of one-way trips per hospital case
 trips_per_case <- 1
+
 
 ```
 
@@ -1077,7 +1081,7 @@ overburden_csd_hosp <- demand_capacity_crm_patterns %>%
   # filter(orig.csd != hosp.csd) %>% 
   group_by(orig.csd, caretype) %>% 
   # Caclulate sum of beds.needed by origin CSD 
-  mutate(csd.beds.needed = sum(beds.needed)) %>% 
+  mutate(csd.caretype.beds.needed = sum(beds.needed)) %>% 
   ungroup()
   
 overburden_csd_hosp_new <- overburden_csd_hosp %>% 
@@ -1122,11 +1126,16 @@ overburden_csd_hosp_new <- overburden_csd_hosp %>%
 
   # TODO: Replace this with list of new hospitals provided by user through visualization tool
   new_hosp_beds <- overburden_csd_hosp_new %>% 
-    distinct(orig.csd, caretype, csd.beds.needed) %>% 
-    mutate(csd.beds.needed = ceiling(csd.beds.needed)) %>% 
+    distinct(orig.csd, caretype, csd.caretype.beds.needed) %>%
+    mutate(csd.caretype.beds.needed = ceiling(csd.caretype.beds.needed)) %>%
+    # Calculate sum of beds needed by CSD
+    group_by(orig.csd) %>% 
+    mutate(csd.beds.needed = sum(csd.caretype.beds.needed)) %>% 
+    ungroup() %>% 
     # Limit new hospital beds to be built only if minimum size threshold is crossed
-    filter(csd.beds.needed >= min_beds) %>% 
-    rename(beds.to.build = csd.beds.needed) %>% 
+    mutate(beds.threshold = pmax(min_beds_toggle * csd.beds.needed, csd.caretype.beds.needed)) %>% 
+    filter(beds.threshold >= min_beds) %>% 
+    rename(beds.to.build = csd.caretype.beds.needed) %>% 
     mutate(specialityfactor = 0) %>% 
     # Add beds to largest existing hospital in the CSD if one (or more) exist; otherwise, build new hospital in CSD
     # left_join(select(hospitallocations_tz, id, csduid, hosp.treso = treso_zone, lat, long), by = c('orig.csd' = 'csduid')) %>%
@@ -1157,9 +1166,18 @@ overburden_csd_hosp_new <- overburden_csd_hosp %>%
     ungroup() %>% 
     # Join in treso centroid to get lat/long for new hospitals
     left_join(select(treso_centroids, treso_id, lat, long), by = c('treso_id')) %>% 
-    # Generate name based on hospital ID / TRESO and generate 0 beds for other care types? Or build beds based on their overburden?
+    # Generate hospital name based on ID
+    mutate(hospital.name = paste0('Hospital ', id)) %>% 
+    # Assing zero beds to any caretypes at new hospitals which do not have demand observed
     
-################### work on code above    
+    # Calculate total beds by new hospital
+    group_by(id) %>% 
+    mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>% 
+    ungroup()
+  
+
+  
+  
   
   new_hospital <- tibble(
     id = c(6666, 6666, 6666, 6666, 6666, 7777, 7777, 7777, 7777, 7777), 
