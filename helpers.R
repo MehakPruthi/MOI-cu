@@ -961,9 +961,6 @@ distribute_students_to_schools <- function(school_df, new_school_df, por, pos_fu
   colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
   
   # Distribute the ADE at each zone to the individual schools of the zone
-  print('Checking for school is.consolidated flag distribute_students_to_schools:')
-  print(head(school_df$is.consolidated))
-  
   school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_df, eqao_2017, new_school_df,
                                                 treso_travel_time)
   
@@ -1043,7 +1040,7 @@ create_forecast_school_list <- function(school_base, school_20xx, new_school_df,
   
   print('debug create_forecast_school_list')
   print(school_forecast_df %>% filter(treso.id.pos == 6248 | treso.id.pos == 8193))
-
+  
   # Redistribute students from overfilled schools to underfilled schools in the same zone
   school_forecast_distributed_df <- distribute_students_within_zones(school_forecast_df)
   

@@ -101,8 +101,8 @@ TARGET_UTILIZATION <- 0.9
 base_year <- 2017
 
 # Future scenario year
-year_id <- 2025 
-board_id <- "French Public"
+year_id <- 2017
+board_id <- "English Public"
 panel_id <- "Secondary"
 
 ```
@@ -261,8 +261,14 @@ trip_list <- reshape2::melt(prop_matrix_balanced) %>%
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
 
 # Produce the simulated ADE for each school within each TRESO zone
-school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school,
-                                                 treso_travel_time=NULL)[[1]]
+result <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school,
+                              treso_travel_time)
+school_summary_20xx_final <- result[[1]]
+pos_travel_time <- result[[2]]
+
+test <- left_join(school_summary_20xx_final, school_20xx, by="sfis") %>%
+  left_join(pos_travel_time, by="treso.id.pos") %>%
+  select(sfis, simulated.ade, treso.id.pos, ade, otg, sim.avg.travel.time)
 
 ```
 
@@ -640,6 +646,176 @@ g <- ggplot() +
 ggplotly(g)
 g
 ```
+
+## Determine 2017 Simulated Travel Time
+
+```{r}
+# Used in Step 4 but initialized here before school_master changes
+school_base <- school_master %>% 
+  filter(year == base_year, panel == panel_id, board_type_name == board_id) %>% 
+  mutate(is.closed = 0)
+
+# Percentage of students attending each board type, by home origin CD
+# The market share begins from 2018, just using that as the base year application
+board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") %>%
+  filter(year == base_year)
+
+treso_forecast_population <- readRDS("input/edu/treso_population_edu.rds") %>% 
+  select(treso.id.por = treso_zone, panel = age.group, csduid, cduid, 
+         potential.enrolment = paste0("population.", base_year)) %>%
+  filter(panel != "other")
+
+
+segment_id = paste0(str_split(str_split(board_id, " ")[[1]][1], "")[[1]][1],
+                    str_split(str_split(board_id, " ")[[1]][2], "")[[1]][1],
+                    str_split(panel_id, "")[[1]][1])
+print(segment_id)
+
+# Read the propensity matrix
+prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
+
+# Apply the board sampling probabilities to the student population from TRESO
+treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
+                                                                board_type_sample = board_type_sample_spread) 
+
+# Create forecast por vector
+por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id, board_id)
+
+# Produce the simulated ADE for each school
+school_summary_2017 <- distribute_students_to_schools(school_base, new_school=NULL, por, pos_full, prop_matrix,
+                                                      treso_travel_time=NULL, is_weight_continuous=TRUE)[[1]]
+
+school_forecast
+
+```
+```{r}
+# Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
+
+if (CAPACITY_CONSTRAINED) {
+  overfill_ade <- 999999
+  i <- 1
+  print(paste0("Running distribution capacity constrained"))
+  
+  pos <- create_pos_vector(school_base, new_school, pos_full)
+  
+  # Loop through until the overfill ade is assigned
+  while(overfill_ade >= overfill_threshold) {
+    print(paste0("Iteration: ", i, ". Overfill ADE: ", round(overfill_ade, 0)))
+    if (i <= max_iter) {
+      # Create a POS vector with schools over OTG Threshold after redistributing to other schools within the TRESO zone
+      pos_overfill <- school_forecast %>%
+        mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0)) %>% 
+        filter(overfill.flag == 1) %>% 
+        select(treso.id.pos, overfill.flag) %>% 
+        group_by(treso.id.pos) %>% 
+        summarise(overfill.flag = max(overfill.flag)) %>% 
+        right_join(pos_full, by=c("treso.id.pos" = "dest")) %>% 
+        replace_na(list(overfill.flag = 0)) %>% 
+        arrange(treso.id.pos) %>% 
+        column_to_rownames(var = "treso.id.pos") %>% 
+        data.matrix()
+      
+      # Calculate the total overfilled ADE
+      overfill_ade <- school_forecast %>% 
+        mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
+               overfill.ade = simulated.ade - otg.threshold) %>% 
+        filter(overfill.flag == 1) %>% 
+        select(overfill.ade) %>% 
+        sum()
+      
+      # Create a POS vector with schools under OTG Threshold - pos_underfill
+      # Use the difference between OTG Threshold and Simulated ADE as the weight
+      pos_underfill <- school_forecast %>% 
+        mutate(underfill.flag = ifelse(simulated.ade < otg.threshold, 1, 0)) %>% 
+        filter(underfill.flag == 1) %>%
+        mutate(otg.leftover = otg.threshold - simulated.ade) %>% 
+        select(treso.id.pos, otg.leftover) %>% 
+        group_by(treso.id.pos) %>% 
+        summarise(otg = sum(otg.leftover)) %>% 
+        right_join(pos_full, by=c("treso.id.pos" = "dest")) %>% 
+        replace_na(list(otg = 0)) %>% 
+        arrange(treso.id.pos) %>%
+        column_to_rownames(var = "treso.id.pos") %>% 
+        data.matrix()
+      
+      # Apply pos_overfill to balanced matrix to obtain origin zones of the overflown schools
+      por_overfill <- prop_matrix_balanced %*% pos_overfill %>% 
+        as_tibble(rownames = NA) %>% 
+        rename(ade = overfill.flag) %>% 
+        rownames_to_column(var = "treso.id.por") %>% 
+        # Scale the zone origin ADE to match the overfill ADE total previously calculated (overfill_ade)
+        mutate(ade.overfill = ade * overfill_ade / sum(ade)) %>% 
+        select(treso.id.por, ade.overfill)
+      
+      # Store a list of TRESO zones where the students are assigned to overfilled schools
+      por_additional <- por_overfill %>% 
+        filter(ade.overfill >= 15) %>% 
+        mutate(treso.id.por = as.numeric(treso.id.por)) %>% 
+        select(treso.id.por, ade.overfill)
+      
+      # Add in any origin zones sending students to school zones still overfilled after several rounds of balancing
+      por_overfill <- por_overfill %>% 
+        column_to_rownames(var = "treso.id.por") %>% 
+        data.matrix()
+      
+      # Sanity check with the dot product operation
+      print(paste0("The first element of por_overfill is: ", (prop_matrix_balanced %*% pos_overfill)[1,1]))
+      print(paste0("Compare that with the sum of first column of prop_matrix_balanced: ", sum(prop_matrix_balanced[1,as.logical(pos_overfill)])))
+      
+      print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which should be the same as the overfill_ade: ", overfill_ade))
+      
+      # Balance the por_overfill against pos_underfill schools to redistribute the overfilled ADE
+      print(paste0("ADE overfill total is: ", sum(por_overfill), ". OTG remaining is: ", sum(pos_underfill), "."))
+      
+      # Use total OTG to balance with the POR_OVERFILL 
+      prop_matrix_balanced <- matrix_balancing_1d(prop_matrix, por_overfill, pos, axis=1, is_weight_continuous=TRUE)
+      trip_list <- reshape2::melt(prop_matrix_balanced) %>%
+        arrange(Var1, Var2)
+      colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
+      
+      # Produce the simulated ADE for each school
+      school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school,
+                                                          treso_travel_time = NULL)[[1]]
+      
+      # Calculate the ADE overfill for each school, so the overfill ADE can be removed in the summary
+      school_summary_ade_overfill <- school_forecast %>% 
+        mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
+               overfill.ade = simulated.ade - otg.threshold) %>% 
+        filter(overfill.flag == 1) %>% 
+        select(sfis, overfill.ade)
+      
+      school_summary_20xx <- full_join(school_summary_20xx, school_summary_20xx_iterated,
+                                       by="sfis", suffix=c("", ".iteration")) %>% 
+        replace_na(list(simulated.ade = 0, simulated.ade.iteration = 0)) %>% 
+        mutate(simulated.ade = simulated.ade + simulated.ade.iteration) %>% 
+        select(-simulated.ade.iteration) %>% 
+        left_join(school_summary_ade_overfill, by="sfis") %>% 
+        replace_na(list(overfill.ade = 0)) %>% 
+        mutate(simulated.ade = simulated.ade - overfill.ade) %>% 
+        select(-overfill.ade)
+      
+      # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
+      school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, 
+                                                                     school_summary_20xx, new_school, user_otg_threshold)
+      
+      # Increment the counter
+      i <- i + 1
+    } else {
+      print("Reached Max Iterations")
+      return(list(school_forecast, por_additional))
+    }
+  }
+  return(list(school_forecast, por_additional))
+  
+} else {
+  print(paste0("Running distribution capacity unconstrained"))
+  # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
+  school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, 
+                                                                 school_summary_20xx, new_school, user_otg_threshold)
+  return(list(school_forecast, NULL))
+}
+```
+
 
 
 ## Summary of Education Dataset
