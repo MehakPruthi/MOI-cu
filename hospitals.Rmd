@@ -57,6 +57,8 @@ treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
 treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
+treso_centroids <- read_csv('input/treso/treso_centroids.csv')
+
 travel_time_skim <- readRDS("output/treso/treso_travel_time.rds")
 
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
@@ -78,7 +80,10 @@ STAY_IN_CSD_FACTOR <- 10
 utilization_targets <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
 
 # Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
-min_beds <- 30
+min_beds <- 20
+
+# Read in user-set number of one-way trips per hospital case
+trips_per_case <- 1
 
 ```
 
@@ -970,56 +975,6 @@ crm_orig <- crm_alc %>%
   ungroup()
 ```
 
-## Add hospitals
-```{r}
-
-# Incorporate new hospitals added by redistributing demand from other hospitals and csds
-
-  # TODO: Replace this with list of new hospitals provided by user through visualization tool
-  new_hospital <- tibble(
-    id = c(6666, 6666, 6666, 6666, 6666, 7777, 7777, 7777, 7777, 7777), 
-    hospital.lat = c(43.90032, 43.90032, 43.90032, 43.90032, 43.90032, 43.95, 43.95, 43.95, 43.95, 43.95),
-    hospital.long = c(-78.85863, -78.85863, -78.85863, -78.85863, -78.85863, -78.79, -78.79, -78.79, -78.79, -78.79),
-    name = c('New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2'),
-    caretype = c("AT", "CR", "GR", "MH", "AM", "AT", "CR", "GR", "MH", "AM"),
-    # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
-    beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
-    # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
-    specialityfactor = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1) # 1 if hospital is speciality hospital, 0 if not
-  ) %>% 
-  group_by(id) %>% 
-  mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>% 
-  ungroup()
-  
-# TODO: Replace this with list of new hospitals provided by user through visualization tool - NEW HOSPITALS SHOULD HAVE AGECLUSTERS SPECIFIED
-  new_hospital <- crossing(new_hospital, AGE_CLUSTER_LIST) %>% 
-    rename(agecluster = AGE_CLUSTER_LIST)
-
-  # Overlay with TRESO Shapefile to get the TRESO/CSD Information for new hospitals
-  new_hospital_xy <- create_hospital_xy(new_hospital) 
-  
-  new_hospital_overlay <- create_overlay(new_hospital_xy, treso_shp, type = "hospital") %>% 
-    left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>%
-    distinct() %>% 
-    left_join(new_hospital, by = "id") %>% 
-    mutate_if(is.factor, as.character) %>% 
-    select(-lat, -long, -csdname, -area, -mof_region, -hospital.lat, -hospital.long, -cdname) %>% 
-    rename(treso_zone = treso.id.pos, hosp.csd = csduid, hospitalname = name, hosp.cd = cduid) %>% 
-    mutate(id = as.numeric(id), hosp.cd=as.character(hosp.cd)) %>% 
-    mutate(new.hospital = 1)
-  
-  # Identify the TRESO zones within the CSD of each new hospital, and join in populations
-  new_hospital_CSD_treso <- distinct(new_hospital_overlay, id, hosp.csd) %>% 
-    left_join(select(treso_zone_system, csduid, treso_id), by = c('hosp.csd' = 'csduid')) %>% 
-    left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
-    rename(pop.treso = scen.proj.pop.treso, csduid = hosp.csd) %>% 
-    # Determine percentage of population by agecluster by treso zone per CSD
-    group_by(csduid, agecluster) %>% 
-    mutate(pop.percent = pop.treso / sum(pop.treso)) %>% 
-    ungroup()
-  
-```
-
 ## Decision-Making (Instead of 'Add hospitals')
 ### Compare demand for beds/bed-days by CSD to existing bed counts to determine gap
 
@@ -1078,39 +1033,206 @@ demand_capacity_crm_patterns <- crm_orig %>%
   mutate(adjusted.hosp.beds.needed = round(hosp.beds.needed / target, 0),
          hosp.beds.to.build = adjusted.hosp.beds.needed - beds.existing)
 
+# # Determine travel times by TRESO/CSD if maintaining existing travel patterns
+# crm_travel_time <- crm_alc %>%
+#   rename(orig.treso = orig.treso.zone) %>% 
+#   # Join in treso.zone info for hospitals
+#   left_join(select(hospitallocations_tz, id, hosp.treso = treso_zone), by = c('id')) %>%
+#   # Join in travel times for treso zone to treso zone travel
+#   left_join(travel_time_skim, by = c('orig.treso' = 'treso.id.por', 'hosp.treso' = 'treso.id.pos')) %>%
+#   rename(trip.time = value) %>% 
+#   # Calculate travel time by origin treso zone to hospital treso zone
+#   mutate(cases.travel.time = cases * trip.time * trips_per_case) %>% 
+#   # Find total and average travel time by CSD origin
+#   group_by(orig.csd, caretype) %>% 
+#   mutate(orig.csd.caretype.travel.time = sum(cases.travel.time))
+
 # Determine how many patients from each CSD/CD go to hospitals in other CSDs/CDs which are overburdened, then determine if it makes sense to build more hospital beds in each origin CSD/CD
-overburden <- demand_capacity_crm_patterns %>% 
+# overburden <- demand_capacity_crm_patterns %>% 
+#   select(id, caretype, hosp.beds.to.build) %>% 
+#   filter(hosp.beds.to.build > 0) %>% 
+#   left_join(select(crm_orig, orig.csd, id, caretype, agecluster, cases:beds.needed), by = c('id', 'caretype')) %>% 
+#   # Sum cases, demand-days across ageclusters to find total demand by orig.csd, caretype
+#   mutate(sumCases = sum(cases)) %>% 
+#   group_by(orig.csd, caretype) %>% 
+#   mutate(cases = sum(cases), demand.days.total = sum(demand.days.total), demand.days.nonALC = sum(demand.days.nonALC), 
+#          demand.days.ALC = sum(demand.days.ALC), beds.needed = sum(beds.needed)) %>% 
+#   select(-agecluster, -id, -hosp.beds.to.build) %>%
+#   ungroup() %>% 
+#   distinct()
+
+overburden_csd_hosp <- demand_capacity_crm_patterns %>% 
   select(id, caretype, hosp.beds.to.build) %>% 
   filter(hosp.beds.to.build > 0) %>% 
-  left_join(select(crm_orig, orig.csd, id, caretype, agecluster, cases:beds.needed), by = c('id', 'caretype')) %>% 
+  left_join(select(crm_orig, orig.csd, id, hosp.csd, caretype, agecluster, cases:beds.needed), by = c('id', 'caretype')) %>% 
   # Sum cases, demand-days across ageclusters to find total demand by orig.csd, caretype
   mutate(sumCases = sum(cases)) %>% 
-  group_by(orig.csd, caretype) %>% 
+  group_by(orig.csd, id, caretype) %>% 
   mutate(cases = sum(cases), demand.days.total = sum(demand.days.total), demand.days.nonALC = sum(demand.days.nonALC), 
          demand.days.ALC = sum(demand.days.ALC), beds.needed = sum(beds.needed)) %>% 
-  select(-agecluster, -id, -hosp.beds.to.build) %>%
+  select(-agecluster) %>%
   ungroup() %>% 
-  distinct()
+  distinct() %>% 
+  mutate(tot.cases = sum(cases)) %>% 
+  # filter(orig.csd != hosp.csd) %>% 
+  group_by(orig.csd, caretype) %>% 
+  # Caclulate sum of beds.needed by origin CSD 
+  mutate(csd.beds.needed = sum(beds.needed)) %>% 
+  ungroup()
+  
+overburden_csd_hosp_new <- overburden_csd_hosp %>% 
+  anti_join(select(hospitallocations_tz, csduid), by = c('orig.csd' = 'csduid'))
+  
+# # Determine number of beds to be built by CSD which can justify construction of beds (i.e., exceeding minimum build number)
+# csd_build <- overburden %>% 
+#   # Remove all origin CSD / caretype combinations which do not have enough demand to justify construction of additional beds in the CSD
+#   filter(beds.needed >= min_beds) %>% 
+#   # Start by determining where new facilities should go - i.e., prioritize CSDs with no hospital (by caretype) on the assumption that these will have relatively high travel times
+#   left_join(csd_beds_existing, by = c('orig.csd' = 'hosp.csd')) %>% 
+#   replace_na(list(beds.existing = 0))
+# 
+# # Determine number of beds needed but not built across CSDs going to overburdened hospitals
+# csd_no_build <- overburden %>% 
+#   filter(beds.needed < min_beds)
+#   
+```
 
-# Determine number of beds to be built by CSD which can justify construction of beds (i.e., exceeding minimum build number)
-csd_build <- overburden %>% 
-  # Remove all origin CSD / caretype combinations which do not have enough demand to justify construction of additional beds in the CSD
-  filter(beds.needed >= min_beds) %>% 
-  # Start by determining where new facilities should go - i.e., prioritize CSDs with no hospital (by caretype) on the assumption that these will have relatively high travel times
-  left_join(csd_beds_existing, by = c('orig.csd' = 'hosp.csd')) %>% 
-  replace_na(list(beds.existing = 0))
+## Add hospitals
+```{r}
 
-########### Add travel times in from each treso zone to each hospital to determine longest travel times per capita?
-########### Then build progressively in each CSD to minimize number of beds built while reducing longest travel times?
-########### Is there any reason you can't built a small number of beds per cSD for all CSDs as long as hospitals already exist?
-########## Consider having minimum_new_build_beds vs. minimum_expand_existing_beds
-# OR
-########### ONCE BEDS BUILT AT NEW CSDs, SEE WHICH CSDs still over burdened;
-########### SEE HOW MUCH each CSD is overburdened by - measure sum of beds needed by caretype
+# Incorporate new hospitals added by redistributing demand from other hospitals and csds
 
-# Determine number of beds needed but not built across CSDs going to overburdened hospitals
-csd_no_build <- overburden %>% 
-  filter(beds.needed < min_beds)
+  # TODO: Replace this with list of new hospitals provided by user through visualization tool
+  new_hospital <- tibble(
+    id = c(6666, 6666, 6666, 6666, 6666, 7777, 7777, 7777, 7777, 7777), 
+    hospital.lat = c(43.90032, 43.90032, 43.90032, 43.90032, 43.90032, 43.95, 43.95, 43.95, 43.95, 43.95),
+    hospital.long = c(-78.85863, -78.85863, -78.85863, -78.85863, -78.85863, -78.79, -78.79, -78.79, -78.79, -78.79),
+    name = c('New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2'),
+    caretype = c("AT", "CR", "GR", "MH", "AM", "AT", "CR", "GR", "MH", "AM"),
+    # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
+    beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
+    # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
+    specialityfactor = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1) # 1 if hospital is speciality hospital, 0 if not
+  ) %>% 
+  group_by(id) %>% 
+  mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>% 
+  ungroup()
+
+# ALT: add hospitals based on decision-making calculations
+
+  # TODO: Replace this with list of new hospitals provided by user through visualization tool
+  new_hosp_beds <- overburden_csd_hosp_new %>% 
+    distinct(orig.csd, caretype, csd.beds.needed) %>% 
+    mutate(csd.beds.needed = ceiling(csd.beds.needed)) %>% 
+    # Limit new hospital beds to be built only if minimum size threshold is crossed
+    filter(csd.beds.needed >= min_beds) %>% 
+    rename(beds.to.build = csd.beds.needed) %>% 
+    mutate(specialityfactor = 0) %>% 
+    # Add beds to largest existing hospital in the CSD if one (or more) exist; otherwise, build new hospital in CSD
+    # left_join(select(hospitallocations_tz, id, csduid, hosp.treso = treso_zone, lat, long), by = c('orig.csd' = 'csduid')) %>%
+    # left_join(select(num_beds, id, caretype, beds = staffedbeds), by = c('id', 'caretype')) %>% 
+    # arrange(desc(beds)) %>% 
+    # group_by(orig.csd, caretype) %>% 
+    # mutate(size.rank = 1:n()) %>% 
+    # ungroup() %>% 
+    # filter(size.rank == 1) %>% 
+    # select(-size.rank) %>% 
+    # # Assign ID number to new hospitals; assume max of 1 new hospital per cSD
+    mutate(row = group_indices(., orig.csd),
+           id = 1111 * row) %>% 
+    select(-row) %>%
+    # Determine most populous TRESO zone in CSD and build new hospital there
+    left_join(select(treso_zone_system, csduid, treso_id), by = c('orig.csd' = 'csduid')) %>% 
+    left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
+    rename(pop.treso = scen.proj.pop.treso) %>% 
+    group_by(treso_id) %>% 
+    mutate(pop.treso.all.ages = sum(pop.treso)) %>% 
+    select(-agecluster, -pop.treso) %>% 
+    distinct() %>%
+    arrange(desc(pop.treso.all.ages)) %>% 
+    group_by(orig.csd, caretype) %>% 
+    mutate(row = 1:n()) %>% 
+    filter(row == 1) %>% 
+    select(-row) %>% 
+    ungroup() %>% 
+    # Join in treso centroid to get lat/long for new hospitals
+    left_join(select(treso_centroids, treso_id, lat, long), by = c('treso_id')) %>% 
+    # Generate name based on hospital ID / TRESO and generate 0 beds for other care types? Or build beds based on their overburden?
+    
+################### work on code above    
+  
+  new_hospital <- tibble(
+    id = c(6666, 6666, 6666, 6666, 6666, 7777, 7777, 7777, 7777, 7777), 
+    hospital.lat = c(43.90032, 43.90032, 43.90032, 43.90032, 43.90032, 43.95, 43.95, 43.95, 43.95, 43.95),
+    hospital.long = c(-78.85863, -78.85863, -78.85863, -78.85863, -78.85863, -78.79, -78.79, -78.79, -78.79, -78.79),
+    name = c('New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2'),
+    caretype = c("AT", "CR", "GR", "MH", "AM", "AT", "CR", "GR", "MH", "AM"),
+    # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
+    beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
+    # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
+    specialityfactor = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1) # 1 if hospital is speciality hospital, 0 if not
+  ) %>% 
+  group_by(id) %>% 
+  mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>% 
+  ungroup()
+  
+# TODO: Replace this with list of new hospitals provided by user through visualization tool - NEW HOSPITALS SHOULD HAVE AGECLUSTERS SPECIFIED
+  new_hospital <- crossing(new_hospital, AGE_CLUSTER_LIST) %>% 
+    rename(agecluster = AGE_CLUSTER_LIST)
+
+  # Overlay with TRESO Shapefile to get the TRESO/CSD Information for new hospitals
+  new_hospital_xy <- create_hospital_xy(new_hospital) 
+  
+  new_hospital_overlay <- create_overlay(new_hospital_xy, treso_shp, type = "hospital") %>% 
+    left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>%
+    distinct() %>% 
+    left_join(new_hospital, by = "id") %>% 
+    mutate_if(is.factor, as.character) %>% 
+    select(-lat, -long, -csdname, -area, -mof_region, -hospital.lat, -hospital.long, -cdname) %>% 
+    rename(treso_zone = treso.id.pos, hosp.csd = csduid, hospitalname = name, hosp.cd = cduid) %>% 
+    mutate(id = as.numeric(id), hosp.cd=as.character(hosp.cd)) %>% 
+    mutate(new.hospital = 1)
+  
+  # Identify the TRESO zones within the CSD of each new hospital, and join in populations
+  new_hospital_CSD_treso <- distinct(new_hospital_overlay, id, hosp.csd) %>% 
+    left_join(select(treso_zone_system, csduid, treso_id), by = c('hosp.csd' = 'csduid')) %>% 
+    left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
+    rename(pop.treso = scen.proj.pop.treso, csduid = hosp.csd) %>% 
+    # Determine percentage of population by agecluster by treso zone per CSD
+    group_by(csduid, agecluster) %>% 
+    mutate(pop.percent = pop.treso / sum(pop.treso)) %>% 
+    ungroup()
+  
+```
+
+
+```{r}  
+# TODO: Replace this with list of new hospitals provided by user through visualization tool - NEW HOSPITALS SHOULD HAVE AGECLUSTERS SPECIFIED
+  new_hospital <- crossing(new_hospital, AGE_CLUSTER_LIST) %>% 
+    rename(agecluster = AGE_CLUSTER_LIST)
+
+  # Overlay with TRESO Shapefile to get the TRESO/CSD Information for new hospitals
+  new_hospital_xy <- create_hospital_xy(new_hospital) 
+  
+  new_hospital_overlay <- create_overlay(new_hospital_xy, treso_shp, type = "hospital") %>% 
+    left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>%
+    distinct() %>% 
+    left_join(new_hospital, by = "id") %>% 
+    mutate_if(is.factor, as.character) %>% 
+    select(-lat, -long, -csdname, -area, -mof_region, -hospital.lat, -hospital.long, -cdname) %>% 
+    rename(treso_zone = treso.id.pos, hosp.csd = csduid, hospitalname = name, hosp.cd = cduid) %>% 
+    mutate(id = as.numeric(id), hosp.cd=as.character(hosp.cd)) %>% 
+    mutate(new.hospital = 1)
+  
+  # Identify the TRESO zones within the CSD of each new hospital, and join in populations
+  new_hospital_CSD_treso <- distinct(new_hospital_overlay, id, hosp.csd) %>% 
+    left_join(select(treso_zone_system, csduid, treso_id), by = c('hosp.csd' = 'csduid')) %>% 
+    left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
+    rename(pop.treso = scen.proj.pop.treso, csduid = hosp.csd) %>% 
+    # Determine percentage of population by agecluster by treso zone per CSD
+    group_by(csduid, agecluster) %>% 
+    mutate(pop.percent = pop.treso / sum(pop.treso)) %>% 
+    ungroup()
   
 ```
 
