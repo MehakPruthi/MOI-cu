@@ -1025,7 +1025,7 @@ create_forecast_school_list <- function(school_base, school_20xx, new_school_df,
     # Add in new schools
     bind_rows(new_school_df) %>%
     left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by = "sfis") %>%
-    replace_na(list(ade = 0, change.ade = 0)) %>%
+    replace_na(list(ade = 0, change.ade = 0, is.consolidated = 0)) %>%
     # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
     mutate(simulated.ade = ade + change.ade) %>% 
     # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school.
@@ -1039,7 +1039,7 @@ create_forecast_school_list <- function(school_base, school_20xx, new_school_df,
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
   
   print('debug create_forecast_school_list')
-  print(school_forecast_df %>% filter(treso.id.pos == 6248 | treso.id.pos == 8193))
+  print(school_forecast_df %>% filter(sfis > 99000))
   
   # Redistribute students from overfilled schools to underfilled schools in the same zone
   school_forecast_distributed_df <- distribute_students_within_zones(school_forecast_df)

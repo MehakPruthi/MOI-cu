@@ -88,7 +88,7 @@ CONSOLIDATION_THRESHOLD <- 0.25
 USER_OTG_THRESHOLD = 1.1
 
 #Percentage of OTG beyond which demand is served by portables
-PORTABLE_THRESHOLD = 0.9
+PORTABLE_THRESHOLD = 0.8
 
 # Define portable size
 ELE_STUDENTS_UNIT_CLASS = 23
@@ -101,9 +101,9 @@ TARGET_UTILIZATION <- 0.9
 base_year <- 2017
 
 # Future scenario year
-year_id <- 2017
-board_id <- "English Public"
-panel_id <- "Secondary"
+year_id <- 2028
+board_id <- "French Public"
+panel_id <- "Elementary"
 
 ```
 
@@ -469,7 +469,7 @@ school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.con
 school_forecast <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017, 
                                       school_summary_20xx, prop_matrix,
                                       prop_matrix_balanced, new_school_iteration, pos, pos_full,
-                                      overfill_threshold=2000, max_iter=10, USER_OTG_THRESHOLD, capacity_constrained = TRUE)[[1]]
+                                      overfill_threshold=2000, max_iter=5, USER_OTG_THRESHOLD, capacity_constrained = TRUE)[[1]]
 
 last_run_step <- 'Run capacity constrained...'
 ```
