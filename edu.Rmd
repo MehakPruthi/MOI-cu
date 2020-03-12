@@ -101,7 +101,7 @@ TARGET_UTILIZATION <- 0.9
 base_year <- 2017
 
 # Future scenario year
-year_id <- 2028
+year_id <- 2027
 board_id <- "French Public"
 panel_id <- "Elementary"
 
@@ -183,7 +183,6 @@ if (nrow(schools_closed) != 0) {
 }
 
 # Percentage of students attending each board type, by home origin CD
-# The market share begins from 2018, just using that as the base year application
 board_type_sample_spread <- readRDS("cache/edu/board_type_sample_spread.rds") %>% 
   filter(year == year_id)
 
@@ -1382,9 +1381,9 @@ ade_dsb_hist_long <- ade_dsb_hist_spread %>%
   gather(year, ade, `2007`:`2017`) %>%
   mutate(year = as.numeric(year))
 
-## total ADE by DSB, Panel, Year
+## Total ADE by DSB, Panel, Year
 ade_dsb_panel_sum <- ade_dsb_hist %>%
-select(year, dsb.index, panel, ade) %>%
+  select(year, dsb.index, panel, ade) %>%
   filter(year <= 2017) %>%
   group_by(year, dsb.index, panel) %>%
   summarise(ade = sum(ade)) %>%
@@ -1435,7 +1434,7 @@ school_population_historical <- read.csv('input/mag/MOF_POP.csv') %>%
          sex = Sex,
          pop = Population,
          cduid = SGCId) %>%
-  filter(year > 2006, year < 2017, age < 19, age > 3, sex == 3) %>%
+  filter(year > 2006, year < 2016, age < 19, age > 3, sex == 3) %>%
   mutate(panel = ifelse(age < 14, 'Elementary', 'Secondary')) %>%
   group_by(year, cduid, panel) %>%
   summarise(population = sum(pop)) %>%
@@ -1503,7 +1502,8 @@ brd_cd_mrktshr <- ade_panel_mrktshr %>%
 
 brd_cd_mrktshr %>% 
   group_by(cduid, panel) %>% 
-  summarise(share_2017 = sum(`2017`))
+  summarise(share_2017 = sum(`2017`)) %>% 
+  arrange(desc(share_2017))
 
 # clean up temp tables
 rm(panel_cd_mrktshr, panel_cd_mrktshr_end_yr)
@@ -1531,7 +1531,7 @@ brd_cd_mrktshr_chg_raw2<-brd_cd_mrktshr_chg_raw1 %>%
   mutate(year=year+counter,
          mrktshr_yrx=mrktshr*(chgrt)^counter)%>%
   ungroup()
-  
+
 ## Create cd level totals and cross check against allowed ranges
 ## public schools generally account for about 90 to 95% of possible enrolment
 ## 5% roughly is private school (homeschooling is negligible) and error in the population estimates
@@ -1551,7 +1551,7 @@ brd_cd_mrktshr_proj_in <- brd_cd_mrktshr_chg_raw2%>%
   mutate(mrktshr_yrx=mrktshr_yrx*factor)%>%
   select(-range,-avg,-proj_cd_mrktshr,-factor)
 
-##market share rates are fixed for years beyond the 10th in the forecast
+## market share rates are fixed for years beyond the 10th in the forecast
 ## this table creates an copies of the final year for an extension that will be unioned with the first
 brd_cd_mrktshr_ext <- brd_cd_mrktshr_proj_in %>%
   filter(year==max(year))%>%
