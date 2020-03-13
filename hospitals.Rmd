@@ -29,7 +29,7 @@ source('helpers.r')
 caretypes = c("at", "cr", "gr", "mh", "am")
 agecluster = c('ad', 'ped', 'sr')
 agegroup_ref <- tibble(agecluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
-                          agegroup = as.factor(c(2, 3, 4, 1, 5, 6))) %>% 
+                          agegroup = as.character(c(2, 3, 4, 1, 5, 6))) %>% 
   arrange(agegroup)
 
 #CIHI Bed Data
@@ -117,10 +117,14 @@ new_ltc_cap_csd <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0))
   
 ```{r, include=FALSE}
 # Convert treso population to long format
-treso_population_long <- gather(treso_population_moh, 'year', 'population', population.2011:population.2041, -age_group, -age_cluster) %>% 
+treso_population_moh_agecluster <- treso_population_moh %>% 
+  left_join(agegroup_ref, by = c('age.group' = 'agegroup')) %>% 
+  # Use 2017 population for CSD/agecluster combinations with cases observed in 2016 but with population = 0 in 2016 treso data
+  mutate(population.2016 = ifelse(population.2016 == 0, population.2017, population.2016))
+
+treso_population_long <- gather(treso_population_moh_agecluster, 'year', 'population', population.2041:population.2040, -age.group, -agecluster) %>% 
   separate(year, into = c('pop', 'year'), sep = "n.") %>% 
   mutate(year = as.numeric(year)) %>%
-  rename(agecluster = age_cluster) %>% 
   select(-pop) %>% 
   group_by(year, treso_zone, agecluster) %>% 
   mutate(treso.population.agecluster = sum(population))
@@ -278,7 +282,7 @@ rm(hospital_lookup, dbc_beds)
 
 ### ALC Crosswalk
 ```{r}
-#SUMMARIZE BED INFO BY CSD
+# SUMMARIZE BED INFO BY CSD
 # This assumes that LTC facilities are full, ie., all beds are taken, i.e., capacity (patients) = demand
 ltc_homes_csd <- ltc_homes %>% 
   group_by(csduid, csdname) %>% 
@@ -291,7 +295,7 @@ saveRDS(ltc_homes_csd, file = 'cache/moh/ltc_homes_csd.rds')
 
 hospital_lookup_master <- readRDS('output/moh/hospital_lookup_master.rds')
 
-#LINK ALC SITES WITH MASTER LIST AND CSD DATA
+# LINK ALC SITES WITH MASTER LIST AND CSD DATA
 hospital_lookup_ALC <- hospital_lookup_master %>% 
   ungroup() %>% 
   select(id, pcode, csduid, csdname, name) %>% 
@@ -341,7 +345,7 @@ ALC_madd_clean_ag <- ALC_madd_raw %>%
   filter(!is.na(lhin)) %>% 
   select(year, siteid, lhin, lhin.days.tot = adj.lhin.days.tot, madd, agegroup, patients, hosp.avg.los, hosp.alc.days)
 
-# This step fills in missing patient days for hospitals where the number of days are suppressed based on low patient counts,    but does so for all age groups combined (i.e., agegroup == 9)
+# This step fills in missing patient days for hospitals where the number of days are suppressed based on low patient counts, but does so for all age groups combined (i.e., agegroup == 9)
 ALC_hosp_vol_ag <- ALC_madd_clean_ag %>% 
   group_by(year, lhin) %>% 
   mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0),
@@ -438,7 +442,7 @@ ALC_hosp_vol_disag <- ALC_madd_clean_disag %>%
 
 saveRDS(ALC_hosp_vol_disag, file = 'cache/moh/ALC_hospitals_disaggregated.rds')
   
-#ALC estimation methodology comparison at the provincial-level
+# ALC estimation methodology comparison at the provincial-level
 # This query is a double-check to make sure calculations valid --> not used for production tables below
 ALC_summary <- ALC_hosp_vol_disag %>% 
   group_by(year) %>% 
@@ -452,7 +456,6 @@ ALC_summary <- ALC_hosp_vol_disag %>%
   mutate(lhin.days.tot = sum(adj.lhin.days.tot)) %>% 
   distinct(year, hosp.days.tot.dis, hosp.days.tot.agg, lhin.days.tot) %>%
   left_join(select(ALC_madd_prov_total, year, prov.days.tot), by = 'year')
-#totals for 2017 are far lower than the provincial because of the missing LHIN data
 ```
 
 
@@ -622,8 +625,8 @@ ltc_proj_homes <- ltc_homes %>%
 
 # Calculate population by TRESO zone / CSD for projection year
 proj_pop_control <- treso_population_moh %>%
-  filter(age_group != 1) %>% # Filter out ages 0-17 as this age group is not represented in ALC data
-  mutate(agecluster = ifelse(age_group < 5, 'ad', 'sr')) %>% 
+  filter(age.group != 1) %>% # Filter out ages 0-17 as this age group is not represented in ALC data
+  mutate(agecluster = ifelse(age.group < 5, 'ad', 'sr')) %>% 
   group_by(treso_zone, agecluster, csduid) %>%
   summarise_at(vars(paste0("population.", scenario.year)), sum)
    
@@ -777,7 +780,7 @@ saveRDS(HBAMprojected_alos_adj, file = 'cache/moh/HBAMprojected_alos_adj.rds')
 ```{r}
 # Calculate total cases by hospital, and the percentage of cases belonging to each CSD for each hospital siteid
 HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
-  group_by(year, id, agecluster, caretype, orig_csd, hospitalname, treso_zone, caretype, agecluster, hosp_csduid) %>%
+  group_by(year, id, agecluster, caretype, orig_csd, treso_zone, caretype, hosp_csduid) %>%
   summarise(hosp.csd.agecluster.caretype.cases = sum(cases)) %>%
   ungroup() %>% 
   group_by(year, id, agecluster, caretype) %>% 
@@ -789,29 +792,20 @@ HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
 # Join historical HBAM cases by CSD/hospital pair to TRESO information to get TRESO populations
 # Then calculate case rates for TRESO zones at the CSD-Hospital pair, segmented by caretype, year, and agecluster
 treso_origin_cases <- HBAMhistorical_origcsd_cases %>% 
-  filter(year == 2016) %>% #select most recent historical year
-  left_join(treso_population_long, by = c('year', 'orig_csd' = 'csduid', 'agecluster')) %>% 
+  filter(year == 2016) %>% # select most recent historical year
+  left_join(distinct(treso_population_long, treso_zone, agecluster, csduid, year, treso.population.agecluster), by = c('year', 'orig_csd' = 'csduid', 'agecluster')) %>% 
   rename(orig.treso.zone = treso_zone,
          orig.treso.pop.agecluster = treso.population.agecluster) %>%
-  # Replace N/A populations with 0
-  replace_na(list(orig.treso.pop.agecluster = 0)) %>% 
-  drop_na(orig.treso.zone) %>% # A few CSDs don't exist in TRESO, but very small case volumes (~2,000 rows out of 2.64M) so removed for simplicity
-  select(-age_group, -population) %>%
-  group_by(id) %>%
-  mutate(hospitalname = first(hospitalname)) %>%
-  ungroup() %>%
-  # Remove duplicate rows in going from age_group to agecluster, and any hospital name discrepancies
-  distinct() %>% 
+  # A few CSDs don't exist in TRESO, but small case volumes (~2,700 rows out of 2.64M, or 73,000 cases out of 8.6M) so removed for simplicity
+  drop_na(orig.treso.zone) %>% 
   # Divide market share from CSDs into TRESO zones
-  group_by(year, id, caretype, agecluster, orig_csd) %>% 
-  mutate(treso.agecluster.caretype.mrkt = orig.treso.pop.agecluster / sum(orig.treso.pop.agecluster) * csd.agecluster.caretype.mrkt) %>% 
-  replace_na(list(treso.agecluster.caretype.mrkt = 0)) %>% 
-  mutate(treso.hosp.agecluster.caretype.cases = treso.agecluster.caretype.mrkt * hosp.csd.agecluster.caretype.cases) %>%
-  mutate(sumperc = sum(csd.agecluster.caretype.mrkt)) %>%
-  mutate(treso.caserate = ifelse(treso.hosp.agecluster.caretype.cases > 0, treso.hosp.agecluster.caretype.cases / orig.treso.pop.agecluster, 0)) %>% 
+  group_by(id, caretype, agecluster, orig_csd) %>% 
+  mutate(orig.csd.pop.agecluster = sum(orig.treso.pop.agecluster)) %>% 
+  mutate(treso.caserate = hosp.csd.agecluster.caretype.cases / orig.csd.pop.agecluster) %>% 
+  mutate(testCases = treso.caserate * orig.treso.pop.agecluster) %>% 
+  mutate(hosp.CSD.age.care.cases = sum(testCases)) %>% 
   ungroup() %>% 
   select(id,
-         hospitalname,
          hosp.treso.zone,
          hosp_csduid,
          caretype,
@@ -835,9 +829,8 @@ saveRDS(treso_origin_cases, file = 'cache/moh/treso_origin_cases.rds')
 
 # Calculate TRESO populations at the agecluster level instead of agegroup
 colname <- noquote(paste0('population.', scenario.year))
-treso_population_moh_agecluster <- treso_population_moh %>% 
-  select(-age_group) %>% 
-  rename(agecluster = age_cluster) %>% 
+treso_population_moh_agecluster_scenario <- treso_population_moh_agecluster %>% 
+  select(-age.group) %>% 
   group_by(treso_zone, agecluster, csduid) %>% 
   summarise_all(sum) %>% 
   select(csduid, treso_zone, agecluster, !!as.symbol(colname)) %>% 
@@ -847,7 +840,7 @@ treso_population_moh_agecluster <- treso_population_moh %>%
 # CRM Output table calculates the number of cases, bed-days and beds-needed (bed-days/operating-days) for each hospital-treso pair and then summarizes it to each hospital, calculating the totals for each unique hospital-segment for the given projection year
 # treso_origin_cases <- readRDS('cache/moh/treso_origin_cases.rds') # Use this query if reading in from stored data instead of keeping in RAM
 crm_treso <- treso_origin_cases %>%
-  left_join(treso_population_moh_agecluster, by = c("orig.treso.zone" = "treso_zone", "agecluster")) %>%
+  left_join(treso_population_moh_agecluster_scenario, by = c("orig.treso.zone" = "treso_zone", "agecluster")) %>%
   select(-csduid) %>% 
   left_join(select(HBAMprojected_alos_adj, id, agecluster, caretype, adj.caretype.agecluster.los), by = c('id', "agecluster", "caretype")) %>% 
   # Filter caretypes/ageclusters down to those selected by the user
@@ -884,7 +877,7 @@ crm_alc <- select(hospital_lookup_master, year, id, hosp.csd = csduid) %>%
   select(-year) %>% 
   group_by(id) %>% 
   mutate(hosp.cd = substr(hosp.csd, 1, 4)) %>%
-  left_join(select(crm_treso, id, hospitalname, agecluster, caretype, orig_csd, orig.treso.zone, hosp.treso.cases, hosp.treso.beddays, hosp.treso.bedsneeded), by = c('id')) %>% 
+  left_join(select(crm_treso, id, agecluster, caretype, orig_csd, orig.treso.zone, hosp.treso.cases, hosp.treso.beddays, hosp.treso.bedsneeded), by = c('id')) %>% 
   mutate(hosp.cd = substr(hosp.csd, 1, 4)) %>%
   group_by(id, agecluster) %>%
   ungroup() %>%
@@ -898,7 +891,7 @@ crm_alc <- select(hospital_lookup_master, year, id, hosp.csd = csduid) %>%
          hosp.treso.beddays.percent = replace_na(hosp.treso.beddays.percent, 0),
          hosp.treso.beddays.alc = hosp.treso.beddays.percent * cd.alc.days.agecluster) %>%
   ungroup() %>% 
-  select(id, hosp.csd, hosp.cd, hospitalname, agecluster, caretype, orig.csd = orig_csd, orig.treso.zone, hosp.treso.cases, 
+  select(id, hosp.csd, hosp.cd, agecluster, caretype, orig.csd = orig_csd, orig.treso.zone, hosp.treso.cases, 
          hosp.treso.beddays, hosp.treso.beddays.alc) %>% 
   mutate(hosp.treso.days.total = hosp.treso.beddays + hosp.treso.beddays.alc,
          hosp.treso.bedsneeded = hosp.treso.days.total / hosp.op.days) %>%
@@ -908,7 +901,7 @@ crm_alc <- select(hospital_lookup_master, year, id, hosp.csd = csduid) %>%
          demand.days.nonALC = hosp.treso.beddays,
          demand.days.ALC = hosp.treso.beddays.alc,
          beds.needed = demand.days.total/hosp.op.days) %>% 
-  select(id, hosp.csd, hosp.cd, hospitalname, caretype, agecluster, orig.csd, orig.treso.zone, cases, demand.days.total, demand.days.nonALC, demand.days.ALC, beds.needed)
+  select(id, hosp.csd, hosp.cd, caretype, agecluster, orig.csd, orig.treso.zone, cases, demand.days.total, demand.days.nonALC, demand.days.ALC, beds.needed)
 
 # Calculate number of cases, demand days, and beds needed by hospital, caretype, and agecluster
 crm_hosp_agecluster <- crm_alc %>%
@@ -1080,7 +1073,7 @@ if (decision_making) {
     select(-row) %>%
     # Determine most populous TRESO zone in CSD
     left_join(select(treso_zone_system, csduid, treso_id), by = c('orig.csd' = 'csduid')) %>% 
-    left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
+    left_join(select(treso_population_moh_agecluster_scenario, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
     rename(pop.treso = scen.proj.pop.treso) %>% 
     group_by(treso_id) %>% 
     mutate(pop.treso.all.ages = sum(pop.treso)) %>% 
@@ -1148,7 +1141,7 @@ new_hospital <- bind_rows(new_hospital, new_hospital_user)
   # Identify the TRESO zones within the CSD of each new hospital, and join in populations
   new_hospital_CSD_treso <- distinct(new_hospital_overlay, id, hosp.csd) %>% 
     left_join(select(treso_zone_system, csduid, treso_id), by = c('hosp.csd' = 'csduid')) %>% 
-    left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
+    left_join(select(treso_population_moh_agecluster_scenario, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone')) %>% 
     rename(pop.treso = scen.proj.pop.treso, csduid = hosp.csd) %>% 
     # Determine percentage of population by agecluster by treso zone per CSD
     group_by(csduid, agecluster) %>% 
@@ -1428,7 +1421,7 @@ crm_demand <- crm_hosp_agecluster_all %>%
          demand.days.ALC = demand.days.ALC.revised) %>% 
   # Join in TRESO population data to distribute cases from CSDs to TRESO zones
   left_join(select(treso_zone_system, csduid, treso_id), by = c('orig.csd' = 'csduid')) %>% 
-  left_join(select(treso_population_moh_agecluster, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone', 'agecluster')) %>% 
+  left_join(select(treso_population_moh_agecluster_scenario, treso_zone, agecluster, scen.proj.pop.treso), by = c('treso_id' = 'treso_zone', 'agecluster')) %>% 
   rename(pop.treso = scen.proj.pop.treso, orig.treso = treso_id) %>% 
   # Determine percentage of population by agecluster by treso zone per CSD
   replace_na(list(pop.treso = 0)) %>% 
@@ -1484,17 +1477,17 @@ hospital_wide <- crm_demand %>%
   replace_na(list(total.hosp.beds.existing = 0, beds.existing.AM = 0, beds.existing.AT = 0, beds.existing.CR = 0, beds.existing.GR = 0, 
                   beds.existing.MH = 0)) %>% 
   # Replace beds.needed columns (by caretype) with the pmax of (beds.needed, beds.existing)
-  mutate(beds.forecasted.AT = max(beds.needed_AT, beds.existing.AT),
-         beds.forecasted.CR = max(beds.needed_CR, beds.existing.CR),
-         beds.forecasted.GR = max(beds.needed_GR, beds.existing.GR),
-         beds.forecasted.MH = max(beds.needed_MH, beds.existing.MH)) %>% 
+  mutate(beds.forecasted.AT = pmax(beds.needed_AT, beds.existing.AT),
+         beds.forecasted.CR = pmax(beds.needed_CR, beds.existing.CR),
+         beds.forecasted.GR = pmax(beds.needed_GR, beds.existing.GR),
+         beds.forecasted.MH = pmax(beds.needed_MH, beds.existing.MH)) %>% 
   # Calculate utilization by hospital, caretype
-  group_by(id, caretype) %>% 
+  group_by(id) %>% 
   mutate(utilization.AM = 0,
-         utilization.AT = (sum(demand.days.total_ad_AT)+sum(demand.days.total_ped_AT)+sum(demand.days.total_sr_AT)) / beds.forecasted.AT, 
-         utilization.CR = (sum(demand.days.total_ad_CR)+sum(demand.days.total_ped_CR)+sum(demand.days.total_sr_CR)) / beds.forecasted.CR,
-         utilization.GR = (sum(demand.days.total_ad_GR)+sum(demand.days.total_ped_GR)+sum(demand.days.total_sr_GR)) / beds.forecasted.GR,
-         utilization.MH = (sum(demand.days.total_ad_MH)+sum(demand.days.total_ped_MH)+sum(demand.days.total_sr_MH)) / beds.forecasted.MH) %>% 
+         utilization.AT = (sum(demand.days.total_ad_AT)+sum(demand.days.total_ped_AT)+sum(demand.days.total_sr_AT)) / beds.forecasted.AT / hosp.op.days,
+         utilization.CR = (sum(demand.days.total_ad_CR)+sum(demand.days.total_ped_CR)+sum(demand.days.total_sr_CR)) / beds.forecasted.CR / hosp.op.days,
+         utilization.GR = (sum(demand.days.total_ad_GR)+sum(demand.days.total_ped_GR)+sum(demand.days.total_sr_GR)) / beds.forecasted.GR / hosp.op.days,
+         utilization.MH = (sum(demand.days.total_ad_MH)+sum(demand.days.total_ped_MH)+sum(demand.days.total_sr_MH)) / beds.forecasted.MH / hosp.op.days) %>%
   ungroup() %>% 
   replace_na(list(utilization.AT = 0, utilization.CR = 0, utilization.GR = 0, utilization.MH = 0))
 
