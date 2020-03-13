@@ -210,7 +210,7 @@ nearest_treso_centroid_postal_code <- cbind(nearest_postal_code, centroids_latlo
 
 write_csv(nearest_treso_centroid_postal_code, "cache/treso/treso_centroids.csv")
 ```
-
+##
 
 # EDU Data Cleaning
 
@@ -230,7 +230,7 @@ schoolAssetsSFIS.BID <- read.csv("input/edu/dbo_AssetInventoryEDULatLong.csv", s
 studentPost <- read.csv('input/edu/sch_enr_pcode.txt', sep = "|", stringsAsFactors = FALSE)
 eqao <- read.csv('input/edu/eqao_2017_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 
-pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM") 
+pccf <- read.csv('input/edu/PCCF_ONT_2018.csv', stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
 ```
 
 ### Clean and Simplify Portables Data
@@ -454,8 +454,53 @@ school_treso_master <- school_treso_data %>%
 
 # Export to RDS
 saveRDS(school_treso_master, 'cache/edu/school_treso_master.rds')
-
 ```
+
+### Map DSB to TRESO Zones
+
+```{r}
+schoolBoardTypes <- read_csv('input/edu/school_board_types.csv')
+
+# Summarize the unique DSB Index for every CD in Ontario
+dsb_mapping <- school_treso_master <- readRDS('cache/edu/school_treso_master.rds') %>%
+  filter(year == 2017, !is.na(cduid), dsb.index != 99) %>%
+  select(year, dsb.index, panel, cduid) %>% 
+  group_by(dsb.index, panel, cduid) %>% 
+  summarise(num.schools = n()) %>% 
+  ungroup() %>% 
+  left_join(schoolBoardTypes, by=c("dsb.index"="dsb"))
+
+print(paste0("there are ", length(unique(dsb_mapping$dsb.index)), " DSB Index in this dataset"))
+
+# In most CDs, there are 4 boards. However, there are CD where there is an overlap of boards
+dsb_overlap <- dsb_mapping %>% 
+  group_by(panel, cduid) %>% 
+  summarise(num.boards = n()) %>% 
+  filter(num.boards > 4) %>% 
+  nrow()
+
+print(paste0("there are ", dsb_overlap, " CDs where there are multiple DSBs for a panel"))
+
+# If there are two DSB of the same board type in a CD, take the DSB with most schools
+dsb_mapping <- dsb_mapping %>% 
+  group_by(cduid, panel, board_type) %>% 
+  filter(num.schools == max(num.schools)) %>% 
+  ungroup()
+
+# Check that all CD has 4 or less unique boards
+dsb_overlap <- dsb_mapping %>% 
+  group_by(cduid, panel, board_type) %>% 
+  mutate(num.boards = n()) %>% 
+  filter(num.boards > 4) %>% 
+  nrow()
+
+print(paste0("There are ", dsb_overlap, " CDs where there are multiple DSBs for a panel"))
+
+dsb_mapping %>% 
+  select(cduid, panel, board_type_name, dsb.index) %>% 
+  saveRDS("cache/edu/dsb_mapping.RDS")
+```
+ 
 
 ## Data Structuring
  
