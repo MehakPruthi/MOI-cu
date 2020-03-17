@@ -92,7 +92,6 @@ min_beds_toggle <- 1 # 1 = Cumulatively, 0 = Individually
 trips_per_case <- 1 
 
 
-# Total demand days in 2016 = 6,919,802; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (6,919,802 / 0.96) / 12,117,270 * 365 = 217 days of capacity per hospital bed per year.
 hosp.op.days <- 365 # Assume each hospital bed can be used for this many days per year
 
 USER_SELECT <- "CRM" # TODO: Replace with value from user from visualization tool
@@ -1524,31 +1523,31 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, scenario.yea
  
 ########################################
 # Results if user chooses HBAM forecast
-if (scenario.year <= 2016) {
-  HBAM_control <- readRDS("output/moh/hospital_lookup_master.rds") %>% 
-    filter(year == scenario.year) %>% 
-    gather(key = "segment", value = "cases", cases_at_ad:cases_am_sr) %>% 
-    separate(segment, c(NA, "caretype", "age_cluster")) %>% 
-    mutate(caretype = toupper(caretype)) %>% 
-    group_by(id, caretype, age_cluster) %>% 
-    summarise(cases = sum(cases)) %>% 
-    ungroup()
-} else { # HBAM only goes out to 2026
-  HBAM_control <- HBAMprojected_master_tz %>%
-    mutate(los = replace_na(los, 0),
-           beddays = replace_na(beddays, 0),
-           beds.needed = beddays / hosp.op.days) %>% 
-    filter(year == scenario.year) %>% 
-    group_by(id, caretype, age_cluster) %>% 
-    summarise_at(vars(cases:beddays), sum, na.rm=TRUE)
-}
-
-# Set results to respond to user model choice
-if (USER_SELECT == "HBAM") {
-  hosp_results <- HBAM_control
-} else if (USER_SELECT == "CRM") {
-  hosp_results <- crm_hosp_agecluster
-}
+# if (scenario.year <= 2016) {
+#   HBAM_control <- readRDS("output/moh/hospital_lookup_master.rds") %>% 
+#     filter(year == scenario.year) %>% 
+#     gather(key = "segment", value = "cases", cases_at_ad:cases_am_sr) %>% 
+#     separate(segment, c(NA, "caretype", "age_cluster")) %>% 
+#     mutate(caretype = toupper(caretype)) %>% 
+#     group_by(id, caretype, age_cluster) %>% 
+#     summarise(cases = sum(cases)) %>% 
+#     ungroup()
+# } else { # HBAM only goes out to 2026
+#   HBAM_control <- HBAMprojected_master_tz %>%
+#     mutate(los = replace_na(los, 0),
+#            beddays = replace_na(beddays, 0),
+#            beds.needed = beddays / hosp.op.days) %>% 
+#     filter(year == scenario.year) %>% 
+#     group_by(id, caretype, age_cluster) %>% 
+#     summarise_at(vars(cases:beddays), sum, na.rm=TRUE)
+# }
+# 
+# # Set results to respond to user model choice
+# if (USER_SELECT == "HBAM") {
+#   hosp_results <- HBAM_control
+# } else if (USER_SELECT == "CRM") {
+#   hosp_results <- crm_hosp_agecluster
+# }
 
 
 ```

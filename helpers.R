@@ -938,7 +938,8 @@ calculate_school_weight_forecasting <- function(trip_list, school_df, eqao_2017,
   return(pos_school_weight_new)
 }
 
-distribute_students_to_schools <- function(school_df, new_school_df, por, pos_full, prop_matrix, treso_travel_time,
+distribute_students_to_schools <- function(school_df, new_school_df, por, pos_full, prop_matrix, 
+                                           treso_travel_time, treso_distance,
                                            is_weight_continuous) {
   #' Creates a new POS vector with new schools and distribute the students to the schools
   #' 
@@ -948,6 +949,7 @@ distribute_students_to_schools <- function(school_df, new_school_df, por, pos_fu
   #' @param pos_full
   #' @param prop_matrix
   #' @param treso_travel_time
+  #' @param treso_distance
   #' @param is_weight_continous
   #' @return A Dataframe of schools with simulated ADE 
   
@@ -962,7 +964,7 @@ distribute_students_to_schools <- function(school_df, new_school_df, por, pos_fu
   
   # Distribute the ADE at each zone to the individual schools of the zone
   school_summary_df_list <- forecast_school_ade(prop_matrix, trip_list, school_df, eqao_2017, new_school_df,
-                                                treso_travel_time)
+                                                treso_travel_time, treso_distance)
   
   school_summary <- school_summary_df_list[[1]]
   pos_travel_time <- school_summary_df_list[[2]]
@@ -1047,7 +1049,8 @@ create_forecast_school_list <- function(school_base, school_20xx, new_school_df,
   return(school_forecast_distributed_df)
 }
 
-forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, new_school, treso_travel_time = NULL) {
+forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, new_school, 
+                                treso_travel_time = NULL, treso_distance = NULL) {
   #' Produce a Dataframe with the summary of the school's forecasted ADE
   #'
   #' @param prop_matrix
@@ -1056,6 +1059,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
   #' @param eqao_2017
   #' @param new_school
   #' @param treso_travel_time
+  #' @param treso_distance
   #' @return A Dataframe of schools with forecasted ADE
   #' 
   # Calculate the school weight
@@ -1088,6 +1092,16 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
     pos_travel_time <- NULL
   }
   
+  if (!is.null(treso_distance)) {
+    # Get wegithed mean travel distance for each TRESO POS by cbind() the full trip list with travel distnace
+    pos_travel_distance <- bind_cols(df, select(treso_distance, value)) %>% 
+      group_by(treso.id.pos) %>% 
+      summarise(sim.avg.travel.distance = weighted.mean(value, enrolment.rounded)) %>% 
+      replace_na(list(sim.avg.travel.distance = 0))
+  } else {
+    pos_travel_distance <- NULL
+  }
+  
   # After combining with travel time, trip list can be shortened
   df <- filter(df, enrolment.rounded != 0)
   
@@ -1107,7 +1121,7 @@ forecast_school_ade <- function(prop_matrix, trip_list, school_df, eqao_2017, ne
     group_by(sfis) %>% 
     summarise(simulated.ade = sum(enrol.value))
   
-  df_list <- list(schools_summary, pos_travel_time)
+  df_list <- list(schools_summary, pos_travel_time, pos_travel_distance)
   
   return(df_list)
 }
@@ -1356,7 +1370,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
         
         # Produce the simulated ADE for each school
         school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school,
-                                                            treso_travel_time = NULL)[[1]]
+                                                            treso_travel_time = NULL, treso_distance = NULL)[[1]]
         
         # Calculate the ADE overfill for each school, so the overfill ADE can be removed in the summary
         school_summary_ade_overfill <- school_forecast %>% 
