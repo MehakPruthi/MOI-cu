@@ -1191,12 +1191,13 @@ HBAMprojected_master <- HBAMprojectedprep %>%
   group_by(year, id, caretype, agegroup) %>% 
   summarise(cases = sum(cases),
             los = sum(lengthofstay)) %>% 
-  mutate(beddays = (cases*los)) %>% 
+  mutate(beddays = los) %>% 
   left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id')) %>% 
-  filter(!is.na(pcode))
+  filter(!is.na(pcode)) %>% 
+  ungroup()
 
 #Output cache historical HBAM for use in hospitals.rmd
-saveRDS(HBAMprojected_master, file = 'cache/moh/hbamprojected_master.rds')
+saveRDS(HBAMprojected_master, file = 'cache/moh/HBAMprojected_master.rds')
 
 ```
 
