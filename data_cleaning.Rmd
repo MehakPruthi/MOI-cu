@@ -27,127 +27,69 @@ source("helpers.R")
   - Leaving unknown intra-zonal travel time to be estimated from the size of the TRESO shapefile. Four levels of TRESO sizes are determined from quantile calculation. Level 1 and 2 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 15 km/hr. Level 2 and 3 sized shapes are assumed to have a distance that is the square root of its area to be traversed at 60 km/hr.
 
 ```{r treso travel time prep, echo=FALSE, eval=FALSE}
-treso_travel_time_prep <- function(travel_time_skim_square) {
-  
-  # Read in TRESO shapefile
-  treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
-  
-  travel_time_skim <- travel_time_skim_square %>%
-    reshape2::melt(id = c("p/q/[val]")) %>%
-    rename(orig = "p/q/[val]", dest = variable) %>%
-    mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest]) %>%
-    filter(orig %in% treso_shp@data$Treso_ID) %>%
-    filter(dest %in% treso_shp@data$Treso_ID)
-  
-  # The reason for creating a master list is to save time computation time on left_join()
-  travel_time <- readRDS("output/edu/observed_por_pos_90.rds") %>%
-    drop_na(treso.id.por) %>%
-    group_by(treso.id.por, treso.id.pos) %>%
-    summarise(euclidean.dist = weighted.mean(euclidean.dist, enrolment)) %>%
-    ungroup() %>%
-    right_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
-    rename(travel.time = value)
-  
-  summary(travel_time$travel.time)
-  
-  treso_area <- treso_shp@data %>%
-    select(treso.id = Treso_ID, area = Area) %>%
-    mutate(area.km = area / 1000000) %>%
-    mutate(length = sqrt(area.km))
-  
-  treso_area_quantile <- quantile(treso_area$area.km)
-  
-  print(paste0("Zones with an area between ", round(treso_area_quantile[4][[1]], 2), " - ",
-               round(treso_area_quantile[5][[1]], 2), " km^2 are categorized as extra large."))
-  print(paste0("Zones with an area between ", round(treso_area_quantile[3][[1]], 2), " - ",
-               round(treso_area_quantile[4][[1]], 2), " km^2 are categorized as large."))
-  print(paste0("Zones with an area between ", round(treso_area_quantile[2][[1]], 2), " - ",
-               round(treso_area_quantile[3][[1]], 2), " km^2 are categorized as medium"))
-  print(paste0("Zones with an area between ", round(treso_area_quantile[1][[1]], 2), " - ",
-               round(treso_area_quantile[2][[1]], 2), " km^2 are categorized as small"))
-  
-  treso_intrazonal_travel_time <- treso_area %>%
-    mutate(size.category = "extra large") %>% 
-    mutate(size.category = ifelse(area.km <= treso_area_quantile[4][[1]], "large", size.category)) %>% 
-    mutate(size.category = ifelse(area.km <= treso_area_quantile[3][[1]], "medium", size.category)) %>%
-    mutate(size.category = ifelse(area.km <= treso_area_quantile[2][[1]], "small", size.category)) %>% 
-    mutate(intra.zonal.travel.time = ifelse(size.category %in% c("extra large", "large"), length / 60 * 60, length / 15 * 60))
-  
-  travel_time1 <- travel_time %>%
-    mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
-                                          euclidean.dist / 5 * 60,
-                                          euclidean.dist / 30 * 60)) %>%
-    mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), 
-                                euclidean.travel.time, 
-                                travel.time)) %>%
-    mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
-    mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), 
-                                euclidean.travel.time, 
-                                travel.time)) %>%
-    left_join(treso_intrazonal_travel_time, by=c("treso.id.pos"="treso.id")) %>%
-    mutate(travel.time = ifelse((travel.time == 0 & treso.id.por == treso.id.pos), 
-                                intra.zonal.travel.time,
-                                travel.time)) %>%
-    select(treso.id.por, treso.id.pos, value = travel.time) %>%
-    arrange(treso.id.por, treso.id.pos)
-  
-  return(travel_time1)
-}
-
 # TRESO time skim
-travel_time_skim_square_2011 <- read_csv("input/treso/mf224.csv.gz")
-travel_time_skim_square_2016 <- read_csv("input/treso/mf381.csv")
+travel_time_skim_square <- read_csv("input/treso/mf224.csv.gz")
 
-# Apply cleaning
-travel_time_2011 <- treso_travel_time_prep(travel_time_skim_square_2011)
-saveRDS(travel_time_2011, "cache/treso/treso_travel_time_2011.rds")
+travel_time_skim <- travel_time_skim_square %>%
+  reshape2::melt(id = c("p/q/[val]")) %>%
+  rename(orig = "p/q/[val]", dest = variable) %>%
+  mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest]) %>%
+  filter(orig %in% treso_shp@data$Treso_ID) %>%
+  filter(dest %in% treso_shp@data$Treso_ID)
 
-travel_time_2016 <- treso_travel_time_prep(travel_time_skim_square_2016)
-saveRDS(travel_time_2016, "cache/treso/treso_travel_time_2016.rds")
+# The reason for creating a master list is to save time computation time on left_join()
+travel_time <- readRDS("output/edu/observed_por_pos_90.rds") %>%
+  drop_na(treso.id.por) %>%
+  group_by(treso.id.por, treso.id.pos) %>%
+  summarise(euclidean.dist = weighted.mean(euclidean.dist, enrolment)) %>%
+  ungroup() %>%
+  right_join(travel_time_skim, by = c("treso.id.por" = "orig", "treso.id.pos" = "dest")) %>%
+  rename(travel.time = value)
+
+summary(travel_time$travel.time)
+
+treso_area <- treso_shp@data %>%
+  select(treso.id = Treso_ID, area = Area) %>%
+  mutate(area.km = area / 1000000) %>%
+  mutate(length = sqrt(area.km))
+treso_area_quantile <- quantile(treso_area$area.km)
+
+print(paste0("Zones with an area between ", round(treso_area_quantile[4][[1]], 2), " - ",
+             round(treso_area_quantile[5][[1]], 2), " km^2 are categorized as extra large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[3][[1]], 2), " - ",
+             round(treso_area_quantile[4][[1]], 2), " km^2 are categorized as large."))
+print(paste0("Zones with an area between ", round(treso_area_quantile[2][[1]], 2), " - ",
+             round(treso_area_quantile[3][[1]], 2), " km^2 are categorized as medium"))
+print(paste0("Zones with an area between ", round(treso_area_quantile[1][[1]], 2), " - ",
+             round(treso_area_quantile[2][[1]], 2), " km^2 are categorized as small"))
+
+treso_intrazonal_travel_time <- treso_area %>%
+  mutate(size.category = "extra large") %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[4][[1]], "large", size.category)) %>% 
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[3][[1]], "medium", size.category)) %>%
+  mutate(size.category = ifelse(area.km <= treso_area_quantile[2][[1]], "small", size.category)) %>% 
+  mutate(intra.zonal.travel.time = ifelse(size.category %in% c("extra large", "large"), length / 60 * 60, length / 15 * 60))
+
+travel_time1 <- travel_time %>%
+  mutate(euclidean.travel.time = ifelse(euclidean.dist <= 2.5,
+                                        euclidean.dist / 5 * 60,
+                                        euclidean.dist / 30 * 60)) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & !is.na(euclidean.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  mutate(compare.travel.time = travel.time - euclidean.travel.time) %>%
+  mutate(travel.time = ifelse((compare.travel.time > 30 & !is.na(compare.travel.time)), 
+                              euclidean.travel.time, 
+                              travel.time)) %>%
+  left_join(treso_intrazonal_travel_time, by=c("treso.id.pos"="treso.id")) %>%
+  mutate(travel.time = ifelse((travel.time == 0 & treso.id.por == treso.id.pos), 
+                              intra.zonal.travel.time,
+                              travel.time)) %>%
+  select(treso.id.por, treso.id.pos, value = travel.time) %>%
+  arrange(treso.id.por, treso.id.pos)
+
+saveRDS(travel_time1, "cache/treso/treso_travel_time.rds")
 ```
-
-## TRESO Travel Distance Skim Prep
-
-- The intra-zonal travel distance from TRESO is 0, so it is assumed that intra-zonal travel distance is half of the square root of its area.
-
-```{r treso travel distance prep, echo=FALSE, eval=FALSE}
-
-treso_travel_distance_prep <- function(travel_distance_skim_square) {
-  # Read in TRESO shapefile
-  treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
-  
-  distance_skim <- travel_distance_skim_square %>%
-    reshape2::melt(id = c("p/q/[val]")) %>%
-    rename(orig = "p/q/[val]", dest = variable) %>%
-    mutate(orig = as.numeric(orig), dest = as.numeric(levels(dest))[dest]) %>%
-    filter(orig %in% treso_shp@data$Treso_ID) %>%
-    filter(dest %in% treso_shp@data$Treso_ID)
-  
-  # Create intra-zonal distance skims
-  treso_intra_zonal_distance <- treso_shp@data %>%
-    select(treso.id = Treso_ID, area = Area) %>%
-    mutate(area.km = area / 1000000) %>%
-    mutate(distance = sqrt(area.km) / 2) %>% 
-    select(treso.id, distance)
-  
-  # Update intra-zonal distance skim and arrange the indecies
-  distance_skim1 <- distance_skim %>% 
-    left_join(treso_intra_zonal_distance, by=c("orig"="treso.id")) %>% 
-    mutate(value = ifelse((value == 0.0 & orig == dest), distance, value)) %>% 
-    select(treso.id.por = orig, treso.id.pos = dest, value) %>%
-    arrange(treso.id.por, treso.id.pos)
-  
-  return(distance_skim1)
-}
-
-# TRESO distance skim
-travel_distance_skim_square_2016 <- read_csv("input/treso/mf382.csv")
-
-# Apply distance cleaning
-treso_distance_2016 <- treso_travel_distance_prep(travel_distance_skim_square_2016)
-saveRDS(treso_distance_2016, "cache/treso/treso_distance_2016.rds")
-```
-
 
 ## TRESO Data cleaning 
 ```{r treso data cleaning, echo=FALSE}
@@ -522,8 +464,8 @@ schoolBoardTypes <- read_csv('input/edu/school_board_types.csv')
 # Summarize the unique DSB Index for every CD in Ontario
 dsb_mapping <- school_treso_master <- readRDS('cache/edu/school_treso_master.rds') %>%
   filter(year == 2017, !is.na(cduid), dsb.index != 99) %>%
-  select(year, dsb.index, board.name, panel, cduid) %>% 
-  group_by(dsb.index, board.name, panel, cduid) %>% 
+  select(year, dsb.index, panel, cduid) %>% 
+  group_by(dsb.index, panel, cduid) %>% 
   summarise(num.schools = n()) %>% 
   ungroup() %>% 
   left_join(schoolBoardTypes, by=c("dsb.index"="dsb"))
@@ -555,7 +497,7 @@ dsb_overlap <- dsb_mapping %>%
 print(paste0("There are ", dsb_overlap, " CDs where there are multiple DSBs for a panel"))
 
 dsb_mapping %>% 
-  select(cduid, panel, board_type_name, dsb.index, board.name) %>% 
+  select(cduid, panel, board_type_name, dsb.index) %>% 
   saveRDS("cache/edu/dsb_mapping.RDS")
 ```
  
