@@ -59,7 +59,7 @@ treso_zone_system <- read_csv('input/treso/treso_zone_system.csv')
 
 treso_centroids <- read_csv('input/treso/treso_centroids.csv')
 
-travel_time_skim <- readRDS("output/treso/treso_travel_time.rds")
+travel_time_skim <- readRDS("input/treso/treso_travel_time_2016.rds")
 
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
   # drop_na(pcode) #Drop NA pcodes from Hospital Locations dataset, to be changed when dataset is updated
