@@ -114,8 +114,8 @@ LTC_OP_DAYS = 365 # Set operating days at LTC facilities; set based on observed 
 new_ltc_cap_csd <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0)) # TODO: Replace with user-defined input from visualization tool
 
 # Read in cost function parameters from model user: cost per bed plus a base startup cost applied to all hospitals regardless of size
-user_input_cost_per_bed <- 1000000 # TODO: Replace this hard-coded value with user-input value from visualization
-user_input_base_hosp_cost <- 50000000 # TODO: Replace this hard-coded value with user-input value from visualization
+USER_INPUT_COST_PER_BED <- 1000000 # TODO: Replace this hard-coded value with user-input value from visualization
+USER_INPUT_BASE_HOSP_COST <- 50000000 # TODO: Replace this hard-coded value with user-input value from visualization
 
 ```
 
@@ -540,10 +540,14 @@ saveRDS(HBAMprojected_alos_adj, file = 'cache/moh/HBAMprojected_alos_adj.rds')
 
 ```{r}
 treso_population_moh <- readRDS("input/moh/treso_population_moh.rds")
+treso_zone_system <- read_csv("input/treso/treso_zone_system.csv")
+treso_centroids <- read_csv('cache/treso/treso_centroids.csv')
+treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 hospital_lookup_ALC <- readRDS("cache/moh/hospital_lookup_ALC.rds")
 ALC_hosp_vol_disag <- readRDS("cache/moh/ALC_hospitals_disaggregated.rds")
 ltc_homes <- readRDS("cache/moh/ltc_homes.rds")
 treso_population_moh_agecluster <- readRDS("cache/moh/treso_population_moh_agecluster.rds")
+travel_time_skim <- readRDS("cache/treso/treso_travel_time_2016.rds")
 HBAMhistorical_master_tz <- readRDS("cache/moh/HBAMhistorical_master_tz.rds")
 
 ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
@@ -554,8 +558,15 @@ HBAMprojected_alos_adj <- readRDS("cache/moh/HBAMprojected_alos_adj.rds")
 hospital_lookup_master <- readRDS("cache/moh/hospital_lookup_master.rds")
 
 num_beds <- readRDS("cache/moh/num_beds_processed.rds")
+speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
+currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 LTC_OP_DAYS <- 365
+USER_INPUT_COST_PER_BED <- 1000000
+USER_INPUT_BASE_HOSP_COST <- 50000000
+USER_INPUT_INFLATION <- 0.02
+USER_INPUT_CURRENT_YEAR = 2019 # Current year used to calculate construction timespan
+
 ```
 
 ## Base Scenario (2016)
@@ -616,7 +627,6 @@ if (DECISION_MAKING) {
 ```{r}
 
 # TODO: Replace this with list of new hospitals provided by user through visualization tool
-# This tibble represents hospitals added manually by the visualization tool user
 new_hospital_user <- tibble(
   id = c(88888, 88888, 88888, 88888, 88888, 99999, 99999, 99999, 99999, 99999),
   hospital.lat = c(43.90032, 43.90032, 43.90032, 43.90032, 43.90032, 43.95, 43.95, 43.95, 43.95, 43.95),
@@ -671,7 +681,7 @@ if (nrow(new_hospital) != 0) {
 
 result <- format_demand_output(treso_zone_system, treso_population_moh_agecluster, travel_time_skim,
                                hospitallocations_tz, new_hospital=new_hospital, crm_hosp_agecluster_all,
-                               UTILIZATION_TARGETS)
+                               UTILIZATION_TARGETS, SCENARIO_YEAR)
 
 crm_demand <- result[[1]]
 crm_demand_travel <- result[[2]]
@@ -683,7 +693,6 @@ saveRDS(crm_demand, "cache/moh/crm_demand.rds")
 
 ### Hospital asset outputs
 ```{r}
-
 hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_demand_travel)
 
 # Key output
@@ -692,26 +701,17 @@ saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
 
 ## New Hospital Cost Function
 ```{r hospital cost function}
-# Read in list of new hospitals
-# TODO: Replace this hard-coded tibble with user-input value from visualization
-new_hosp_list <- distinct(new_hospital, id, total.hosp.beds)
+if (nrow(new_hospital) != 0) {
+  # Calculate costs
+  new_hosp_list <- distinct(new_hospital, id, total.hosp.beds)
+  new_hosp_list_complete <- new_hosp_list %>% 
+    mutate(cost_2018 = round(total.hosp.beds * USER_INPUT_COST_PER_BED + USER_INPUT_BASE_HOSP_COST, 0))
+  
+  # Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
+  annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, SCENARIO_YEAR, currency_year,
+                                              USER_INPUT_CURRENT_YEAR, new_hosp_list_complete)
+}
 
-# Calculate costs
-new_hosp_list_complete <- new_hosp_list %>% 
-  mutate(cost_2018 = round(total.hosp.beds * user_input_cost_per_bed + user_input_base_hosp_cost, 0))
-
-```
-
-## Cost Annualization 
-- Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
-```{r}
-user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
-
-currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
-current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
-
-annualized_inflated_cost <- construction_cost(user_input_inflation, SCENARIO_YEAR, currency_year,
-                                              current_year, new_hosp_list_complete)
 ```
 
 ## CRM vs. HBAM Reporting
@@ -720,7 +720,7 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, SCENARIO_YEA
 ########################################
 # Results if user chooses HBAM forecast
 if (SCENARIO_YEAR <= 2016) {
-  HBAM_control <- readRDS("output/moh/hospital_lookup_master.rds") %>%
+  HBAM_control <- readRDS("cache/moh/hospital_lookup_master.rds") %>%
     filter(year == SCENARIO_YEAR) %>%
     gather(key = "segment", value = "cases", cases.at.ad:cases.am.sr) %>%
     separate(segment, c(NA, "caretype", "age_cluster")) %>%
@@ -756,6 +756,14 @@ if (SCENARIO_YEAR <= 2016) {
                 values_fill = c(cases = 0, demand.days.total = 0))
 
 }
+
+# Convert num_beds to be in wide form (i.e., one row per asset)
+  num_beds_wide <- num_beds %>%
+    rename(beds.existing = staffedbeds) %>% 
+    mutate(caretype.beds = paste0('beds.existing.', caretype)) %>%
+    select(-year, -caretype, -count) %>% 
+    pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
+    rename(total.hosp.beds.existing = total.hosp.beds)
 
 HBAM_control_beds <- HBAM_control %>% 
   left_join(num_beds_wide, by = c('id'))

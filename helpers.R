@@ -2271,7 +2271,18 @@ redistribute_demand_within_for_new_hospitals <- function(new_hospital, specialit
 
 format_demand_output <- function(treso_zone_system, treso_population_moh_agecluster, travel_time_skim,
                                  hospitallocations_tz, new_hospital=NULL, crm_hosp_agecluster_all,
-                                 utilization_targets) {
+                                 utilization_targets, scenario_year) {
+  
+  # Calculate TRESO populations at the agecluster level instead of agegroup
+  colname <- noquote(paste0('population.', scenario_year))
+  treso_population_moh_agecluster_scenario <- treso_population_moh_agecluster %>% 
+    select(-age.group) %>% 
+    group_by(treso_zone, agecluster, csduid) %>% 
+    summarise_all(sum) %>% 
+    select(csduid, treso_zone, agecluster, !!as.symbol(colname)) %>% 
+    rename(scen.proj.pop.treso = !!as.symbol(colname)) %>% 
+    ungroup()
+  
   # Simplify demand outputs
   crm_demand <- crm_hosp_agecluster_all %>% 
     select(-cases, -demand.days.total, -demand.days.nonALC, -demand.days.ALC) %>% 
