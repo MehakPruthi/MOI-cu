@@ -21,6 +21,56 @@ library(FNN)
 source('helpers.r')
 ```
 
+## User Inputs
+  - To be replaced with inputs read in from Shiny
+  
+```{r}
+# Read in user-set forecast year
+scenario.year <- 2025 # TODO: Replace with user-defined input from visualization tool
+
+# Read in user-set factor for how many people will stay in their CSD vs. leave the CSD on a per-bed basis if a new hospital is built in a CSD which previously had no hospitals
+STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospital is built
+
+# Read in user-set target utilization factor by subsector. each care type has it's own target
+utilization_targets <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
+
+# Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
+min_beds <- 30
+
+# New hospital minimum applies to each caretype individually or all caretypes cumulatively? I.e., if minimum new hospital threshold is 25 beds, and if a CSD needs 15 AT beds, 5 MH beds, and 10 GR beds (therefore sum of 30 beds), should the hospital be built because there is demand for 30 beds? Or hospital should not be built because no individual caretype exceeds minimum of 25 beds required?
+min_beds_toggle <- 1 # 1 = Cumulatively, 0 = Individually
+
+# Read in user-set number of one-way trips per hospital case
+trips_per_case <- 2
+
+# Total demand days in 2016 = 6,919,802; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (6,919,802 / 0.96) / 12,117,270 * 365 = 217 days of capacity per hospital bed per year.
+hosp.op.days <- 365 # Assume each hospital bed can be used for this many days per year
+
+USER_SELECT <- "HBAM" # TODO: Replace with value from user from visualization tool
+
+CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from user from visualization tool
+
+AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user from visualization tool
+
+decision_making <- TRUE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
+
+ltc.op.days = 365 # Set operating days at LTC facilities; set based on observed ALC in 2016 vs. theoretical 
+
+# Number of beds added by CSD
+new_ltc_cap_csd <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 7000)) # TODO: Replace with user-defined input from visualization tool
+
+# Read in cost function parameters from model user: cost per bed plus a base startup cost applied to all hospitals regardless of size
+user_input_cost_per_bed <- 1000000 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_base_hosp_cost <- 50000000 # TODO: Replace this hard-coded value with user-input value from visualization
+
+# Cost Annualiztion
+user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
+currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
+current_year = 2020 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
+
+```
+  
+
 ## Import Input Data
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
   
@@ -72,44 +122,6 @@ ALC_idcrosswalk_slim <- ALC_idcrosswalk %>%
 #Importing LTC data
 ltc_homes <- readRDS('cache/moh/ltc_homes.rds')
 ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
-
-# Read in user-set forecast year
-scenario.year <- 2016 # TODO: Replace with user-defined input from visualization tool
-
-# Read in user-set factor for how many people will stay in their CSD vs. leave the CSD on a per-bed basis if a new hospital is built in a CSD which previously had no hospitals
-STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospital is built
-
-# Read in user-set target utilization factor by subsector. each care type has it's own target
-utilization_targets <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
-
-# Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
-min_beds <- 30
-
-# New hospital minimum applies to each caretype individually or all caretypes cumulatively? I.e., if minimum new hospital threshold is 25 beds, and if a CSD needs 15 AT beds, 5 MH beds, and 10 GR beds (therefore sum of 30 beds), should the hospital be built because there is demand for 30 beds? Or hospital should not be built because no individual caretype exceeds minimum of 25 beds required?
-min_beds_toggle <- 1 # 1 = Cumulatively, 0 = Individually
-
-# Read in user-set number of one-way trips per hospital case
-trips_per_case <- 2
-
-# Total demand days in 2016 = 6,919,802; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (6,919,802 / 0.96) / 12,117,270 * 365 = 217 days of capacity per hospital bed per year.
-hosp.op.days <- 365 # Assume each hospital bed can be used for this many days per year
-
-USER_SELECT <- "HBAM" # TODO: Replace with value from user from visualization tool
-
-CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from user from visualization tool
-
-AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user from visualization tool
-
-decision_making <- TRUE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
-
-ltc.op.days = 365 # Set operating days at LTC facilities; set based on observed ALC in 2016 vs. theoretical 
-
-# Number of beds added by CSD
-new_ltc_cap_csd <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0)) # TODO: Replace with user-defined input from visualization tool
-
-# Read in cost function parameters from model user: cost per bed plus a base startup cost applied to all hospitals regardless of size
-user_input_cost_per_bed <- 1000000 # TODO: Replace this hard-coded value with user-input value from visualization
-user_input_base_hosp_cost <- 50000000 # TODO: Replace this hard-coded value with user-input value from visualization
 
 ```
 
@@ -1513,11 +1525,6 @@ new_hosp_list_complete <- new_hosp_list %>%
 ## Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
-user_input_inflation <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
-
-currency_year = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
-current_year = 2019 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
-
 annualized_inflated_cost <- construction_cost(user_input_inflation, scenario.year, currency_year,
                                               current_year, new_hosp_list_complete)
 ```
