@@ -1744,8 +1744,8 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
 }
 
 forecast_scenario_crm_calculation <- function(treso_population_moh_agecluster, treso_origin_cases, hospital_lookup_master, 
-                                              HBAMprojected_alos_adj, crm_treso, ALC_proj_cd, caretype_list, age_cluseter_list,
-                                              hosp_op_days, scenario_year) {
+                                              HBAMprojected_alos_adj, crm_treso, ALC_proj_cd_agecluster, ALC_proj_cd, caretype_list, 
+                                              age_cluseter_list, hosp_op_days, scenario_year) {
   # Calculate TRESO populations at the agecluster level instead of agegroup
   colname <- noquote(paste0('population.', scenario_year))
   treso_population_moh_agecluster_scenario <- treso_population_moh_agecluster %>% 
@@ -1931,7 +1931,7 @@ moh_decision_making <- function(num_beds, hospitallocations_tz, crm_alc, crm_ori
 
 
 moh_new_hospitals <- function(overburden_csd_hosp_new, treso_zone_system, treso_population_moh_agecluster, treso_centroids,
-                              new_hospital_user, scenario_year) {
+                              new_hospital_user = NULL, min_beds_toggle, scenario_year) {
   
   # Initialize new_hospital dataframe
   new_hospital <- tibble(id = integer(), hospital.lat = double(), hospital.long = double(), name = character(), caretype = character(), 
@@ -2004,8 +2004,11 @@ moh_new_hospitals <- function(overburden_csd_hosp_new, treso_zone_system, treso_
              total.hosp.beds = last(total.hosp.beds)) %>% 
       ungroup()
     
-    # Combine user-set new hospitals plus decision-making new hospitals (if running decision-making)
-    new_hospital <- bind_rows(new_hospital, new_hospital_user)
+    if (!is.null(new_hospital_user)) {
+      # Combine user-set new hospitals plus decision-making new hospitals (if running decision-making)
+      new_hospital <- bind_rows(new_hospital, new_hospital_user)
+    }
+    
   }
   return(new_hospital)
 }
