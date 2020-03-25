@@ -64,7 +64,6 @@ treso_centroids <- read_csv('cache/treso/treso_centroids.csv')
 treso_travel_time <- readRDS("cache/treso/treso_travel_time_2016.rds")
 
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
-  # drop_na(pcode) #Drop NA pcodes from Hospital Locations dataset, to be changed when dataset is updated
 
 # ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
 ALC_idcrosswalk_slim <- ALC_idcrosswalk %>% 
@@ -568,7 +567,8 @@ USER_INPUT_CURRENT_YEAR = 2019 # Current year used to calculate construction tim
 ## Base Scenario (2016)
 ### ALC Base Scenario
 ```{r}
-ALC_prov_rate <- base_scenario_alc_calculation(hospital_lookup_ALC, ALC_hosp_vol_disag, ltc_homes, treso_population_moh_agecluster, LTC_OP_DAYS)
+ALC_prov_rate <- base_scenario_alc_calculation(hospital_lookup_ALC, ALC_hosp_vol_disag, ltc_homes, 
+                                               treso_population_moh_agecluster, LTC_OP_DAYS)
 ```
 
 ### CRM Base Scenario
