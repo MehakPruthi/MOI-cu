@@ -581,6 +581,42 @@ treso_origin_cases <- base_scenario_crm_calculation(HBAMhistorical_master_tz, tr
 
 
 ## Forecasting
+
+### HBAM Scenario
+```{r}
+# Results if user chooses HBAM forecast
+if (SCENARIO_YEAR > 2016 & USER_SELECT == "HBAM") {
+  HBAM_control <- HBAMprojected_master_tz %>%
+    mutate(los = replace_na(los, 0),
+           beddays = replace_na(beddays, 0),
+           beds.needed = beddays / HOSP_OP_DAYS) %>%
+    filter(year == SCENARIO_YEAR) %>%
+    rename(demand.days.total = beddays) %>% 
+    group_by(id, caretype, agecluster) %>%
+    summarise_at(vars(cases:beds.needed), sum, na.rm=TRUE) %>%
+    group_by(id) %>% 
+    mutate(sum.cases = sum(cases),
+           sum.demand.days.total = sum(demand.days.total),
+           sum.beds.needed = sum(beds.needed)) %>%
+    ungroup() %>% 
+    # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
+    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.needed), 
+                values_fill = c(cases = 0, demand.days.total = 0, beds.needed = 0))
+  
+  # Convert num_beds to be in wide form (i.e., one row per asset)
+  num_beds_wide <- num_beds %>%
+    rename(beds.existing = staffedbeds) %>% 
+    mutate(caretype.beds = paste0('beds.existing.', caretype)) %>%
+    select(-year, -caretype, -count) %>% 
+    pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
+    rename(total.hosp.beds.existing = total.hosp.beds)
+  
+  hosp_results <- HBAM_control %>% 
+    left_join(num_beds_wide, by = c('id'))
+}
+```
+
+
 ### ALC Forecast Scenario
 
 ```{r}
@@ -710,69 +746,13 @@ if (nrow(new_hospital) != 0) {
 
 ## CRM vs. HBAM Reporting
 ```{r}
- 
 ########################################
-# Results if user chooses HBAM forecast
-if (SCENARIO_YEAR <= 2016) {
-  HBAM_control <- readRDS("cache/moh/hospital_lookup_master.rds") %>%
-    filter(year == SCENARIO_YEAR) %>%
-    gather(key = "segment", value = "cases", cases.at.ad:cases.am.sr) %>%
-    separate(segment, c(NA, "caretype", "age_cluster")) %>%
-    mutate(caretype = toupper(caretype)) %>%
-    group_by(id, caretype, age_cluster) %>%
-    summarise(cases = sum(cases)) %>%
-    ungroup() %>% 
-    # Calculate total cases by hospital, caretype
-    group_by(id) %>% 
-    mutate(sum.cases = sum(cases)) %>%
-    ungroup() %>% 
-    # Pivot table from long to wide for agecluster for demand (cases only since historical data, which does not include length of stay / bed-days)
-    pivot_wider(names_from = c(caretype, age_cluster), values_from = c(cases), 
-                values_fill = c(cases = 0)) %>% 
-    setNames(paste0('cases.', names(.))) %>% 
-    rename(sum.cases = cases.sum.cases, id = cases.id)
-  
-} else { # HBAM only goes out to 2026
-  HBAM_control <- HBAMprojected_master_tz %>%
-    mutate(los = replace_na(los, 0),
-           beddays = replace_na(beddays, 0),
-           beds.needed = beddays / HOSP_OP_DAYS) %>%
-    filter(year == SCENARIO_YEAR) %>%
-    rename(demand.days.total = beddays) %>% 
-    group_by(id, caretype, agecluster) %>%
-    summarise_at(vars(cases:demand.days.total), sum, na.rm=TRUE) %>%
-    group_by(id) %>% 
-    mutate(sum.cases = sum(cases),
-           sum.demand.days.total = sum(demand.days.total)) %>%
-    ungroup() %>% 
-    # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
-    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total), 
-                values_fill = c(cases = 0, demand.days.total = 0))
 
-}
-
-# Convert num_beds to be in wide form (i.e., one row per asset)
-  num_beds_wide <- num_beds %>%
-    rename(beds.existing = staffedbeds) %>% 
-    mutate(caretype.beds = paste0('beds.existing.', caretype)) %>%
-    select(-year, -caretype, -count) %>% 
-    pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
-    rename(total.hosp.beds.existing = total.hosp.beds)
-
-HBAM_control_beds <- HBAM_control %>% 
-  left_join(num_beds_wide, by = c('id'))
-
-# Set results to respond to user model choice
-if (USER_SELECT == "HBAM") {
-  hosp_results <- HBAM_control_beds
-} else if (USER_SELECT == "CRM") {
-  hosp_results <- hospital_wide_final
-}
 
 ```
 
 
-## Extra Code: Queries Tested but Not Kept
+  ## Extra Code: Queries Tested but Not Kept
 ```{r}
 
 ################## Previous code for calculating ALC rates at the TRESO level

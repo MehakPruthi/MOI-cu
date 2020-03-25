@@ -2381,36 +2381,45 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
     pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
     rename(total.hosp.beds.existing = total.hosp.beds)
   
+  # Temporary dataframe to store the beds needed columns
+  beds_needed <- crm_demand %>% 
+    # Calculate beds needed and demand, summarised at the hospital level
+    group_by(id, caretype) %>% 
+    summarise(beds.needed = first(beds.needed)) %>% 
+    ungroup() %>% 
+    select(id, caretype, beds.needed) %>%
+    # Pivot table from long to wide for caretype and agecluster for demand columns (cases, demand-days)
+    pivot_wider(names_from = c(caretype), values_from = c(beds.needed), names_prefix = "beds.needed_") %>% 
+    mutate_if(is.numeric, replace_na, replace=0)
+  
   # Calculate demand and capacity data by asset (i.e., by hospital)
   hospital_wide <- crm_demand %>% 
     # Calculate beds needed and demand, summarised at the hospital level
     group_by(id, caretype, agecluster) %>% 
-    summarise(beds.needed = first(beds.needed), cases = sum(cases), demand.days.total = sum(demand.days.total), 
+    summarise(cases = sum(cases), demand.days.total = sum(demand.days.total), 
               demand.days.nonALC = sum(demand.days.nonALC), demand.days.ALC = sum(demand.days.ALC)) %>% 
     ungroup() %>% 
-    select(id, caretype, agecluster, beds.needed, cases, demand.days.total, demand.days.nonALC, demand.days.ALC) %>%
-    # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
-    pivot_wider(names_from = c(agecluster), values_from = c(cases, demand.days.total, demand.days.nonALC, demand.days.ALC), 
-                values_fill = c(cases = 0, demand.days.total = 0, demand.days.nonALC = 0, demand.days.ALC = 0)) %>% 
-    # Pivot table from long to wide for caretype for beds needed and demand columns (cases, demand-days)
-    pivot_wider(names_from = c(caretype), 
-                values_from = c(beds.needed, cases_ad, cases_ped, cases_sr, demand.days.total_ad, demand.days.total_ped, 
-                                demand.days.total_sr, demand.days.nonALC_ad, demand.days.nonALC_ped, demand.days.nonALC_sr, 
-                                demand.days.ALC_ad, demand.days.ALC_ped, demand.days.ALC_sr), 
-                values_fill = c(beds.needed = 0, cases_ad = 0, cases_ped = 0, cases_sr = 0, demand.days.total_ad = 0, 
-                                demand.days.total_ped = 0, demand.days.total_sr = 0, demand.days.nonALC_ad = 0, demand.days.nonALC_ped = 0, 
-                                demand.days.nonALC_sr = 0, demand.days.ALC_ad = 0, demand.days.ALC_ped = 0, demand.days.ALC_sr = 0)) %>% 
+    select(id, caretype, agecluster, cases, demand.days.total, demand.days.nonALC, demand.days.ALC) %>%
+    # Pivot table from long to wide for caretype and agecluster for demand columns (cases, demand-days)
+    pivot_wider(names_from = c(caretype, agecluster), 
+                values_from = c(cases, demand.days.total, demand.days.nonALC, demand.days.ALC)) %>% 
+    mutate_if(is.numeric, replace_na, replace=0) %>% 
     # Calculate sum of cases, demand-days as a double-check, and make sure there are exactly 0 beds for AM cases (Emergency)
-    mutate(sum.cases = cases_ad_AM + cases_ped_AM + cases_sr_AM + cases_ad_AT + cases_ped_AT + cases_sr_AT + cases_ad_CR + cases_ped_CR + cases_sr_CR + 
-             cases_ad_GR + cases_ped_GR + cases_sr_GR + cases_ad_MH + cases_ped_MH + cases_sr_MH) %>%
-    mutate(sum.demand.days = demand.days.total_ad_AM + demand.days.total_ped_AM + demand.days.total_sr_AM + demand.days.total_ad_AT + 
-             demand.days.total_ped_AT + demand.days.total_sr_AT + demand.days.total_ad_CR + demand.days.total_ped_CR + 
-             demand.days.total_sr_CR + demand.days.total_ad_GR + demand.days.total_ped_GR + demand.days.total_sr_GR + 
-             demand.days.total_ad_MH + demand.days.total_ped_MH + demand.days.total_sr_MH) %>% 
-    mutate(sum.ALC.days = demand.days.ALC_ad_AM + demand.days.ALC_ped_AM + demand.days.ALC_sr_AM + demand.days.ALC_ad_AT + 
-             demand.days.ALC_ped_AT + demand.days.ALC_sr_AT + demand.days.ALC_ad_CR + demand.days.ALC_ped_CR + 
-             demand.days.ALC_sr_CR + demand.days.ALC_ad_GR + demand.days.ALC_ped_GR + demand.days.ALC_sr_GR + 
-             demand.days.ALC_ad_MH + demand.days.ALC_ped_MH + demand.days.ALC_sr_MH) %>% 
+    mutate(sum.cases = rowSums(select(., starts_with("cases_")))) %>%
+    mutate(sum.demand.days.total_AM = rowSums(select(., starts_with("demand.days.total_AM"))),
+           sum.demand.days.total_AT = rowSums(select(., starts_with("demand.days.total_AT"))),
+           sum.demand.days.total_CR = rowSums(select(., starts_with("demand.days.total_CR"))),
+           sum.demand.days.total_GR = rowSums(select(., starts_with("demand.days.total_GR"))),
+           sum.demand.days.total_MH = rowSums(select(., starts_with("demand.days.total_MH"))),
+           sum.demand.days = sum.demand.days.total_AM + sum.demand.days.total_AT + sum.demand.days.total_CR + 
+             sum.demand.days.total_GR + sum.demand.days.total_MH) %>% 
+    mutate(sum.ALC.days_AM = rowSums(select(., starts_with("demand.days.ALC_AM"))),
+           sum.ALC.days_AT = rowSums(select(., starts_with("demand.days.ALC_AT"))),
+           sum.ALC.days_CR = rowSums(select(., starts_with("demand.days.ALC_CR"))),
+           sum.ALC.days_GR = rowSums(select(., starts_with("demand.days.ALC_GR"))),
+           sum.ALC.days_MH = rowSums(select(., starts_with("demand.days.ALC_MH"))),
+           sum.ALC.days = sum.ALC.days_AM + sum.ALC.days_AT + sum.ALC.days_CR + sum.ALC.days_GR + sum.ALC.days_MH) %>% 
+    left_join(beds_needed, by="id") %>% 
     mutate(beds.needed_AM = 0) %>% 
     mutate(total.hosp.beds.needed = beds.needed_AM + beds.needed_AT + beds.needed_CR + beds.needed_GR + beds.needed_MH) 
   
@@ -2418,27 +2427,29 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
   hospital_wide_cap <- hospital_wide %>% 
     # Join in existing capacity (i.e., beds.existing) data
     left_join(num_beds_wide, by = c('id')) %>% 
-    replace_na(list(total.hosp.beds.existing = 0, beds.existing.AM = 0, beds.existing.AT = 0, beds.existing.CR = 0, beds.existing.GR = 0, 
-                    beds.existing.MH = 0)) %>% 
+    replace_na(list(total.hosp.beds.existing = 0, beds.existing.AM = 0, beds.existing.AT = 0, beds.existing.CR = 0, 
+                    beds.existing.GR = 0, beds.existing.MH = 0)) %>% 
     # Replace beds.needed columns (by caretype) with the pmax of (beds.needed, beds.existing)
     mutate(beds.forecasted.AT = pmax(beds.needed_AT, beds.existing.AT),
            beds.forecasted.CR = pmax(beds.needed_CR, beds.existing.CR),
            beds.forecasted.GR = pmax(beds.needed_GR, beds.existing.GR),
-           beds.forecasted.MH = pmax(beds.needed_MH, beds.existing.MH))
+           beds.forecasted.MH = pmax(beds.needed_MH, beds.existing.MH),
+           beds.forecasted = beds.forecasted.AT + beds.forecasted.CR + beds.forecasted.GR + beds.forecasted.MH)
   
   # Calculate utilization by hospital, caretype for forecasted beds, and utilizations using existing beds
   hospital_wide_util <- hospital_wide_cap %>% 
-    # Utilization calculations use the sum of demand-days rather than beds.needed because beds.needed incorporates user-input utilization targets 
-    group_by(id) %>% 
+    # Utilization calculations use the sum of demand-days rather than beds.needed because beds.needed 
+    # incorporates user-input utilization targets 
     mutate(utilization.AM = 0,
-           utilization.AT = (sum(demand.days.total_ad_AT)+sum(demand.days.total_ped_AT)+sum(demand.days.total_sr_AT)) / beds.forecasted.AT / HOSP_OP_DAYS,
-           utilization.CR = (sum(demand.days.total_ad_CR)+sum(demand.days.total_ped_CR)+sum(demand.days.total_sr_CR)) / beds.forecasted.CR / HOSP_OP_DAYS,
-           utilization.GR = (sum(demand.days.total_ad_GR)+sum(demand.days.total_ped_GR)+sum(demand.days.total_sr_GR)) / beds.forecasted.GR / HOSP_OP_DAYS,
-           utilization.MH = (sum(demand.days.total_ad_MH)+sum(demand.days.total_ped_MH)+sum(demand.days.total_sr_MH)) / beds.forecasted.MH / HOSP_OP_DAYS,
-           utilization.AT.existing = (sum(demand.days.total_ad_AT)+sum(demand.days.total_ped_AT)+sum(demand.days.total_sr_AT)) / beds.existing.AT / HOSP_OP_DAYS,
-           utilization.CR.existing = (sum(demand.days.total_ad_CR)+sum(demand.days.total_ped_CR)+sum(demand.days.total_sr_CR)) / beds.existing.CR / HOSP_OP_DAYS,
-           utilization.GR.existing = (sum(demand.days.total_ad_GR)+sum(demand.days.total_ped_GR)+sum(demand.days.total_sr_GR)) / beds.existing.GR / HOSP_OP_DAYS,
-           utilization.MH.existing = (sum(demand.days.total_ad_MH)+sum(demand.days.total_ped_MH)+sum(demand.days.total_sr_MH)) / beds.existing.MH / HOSP_OP_DAYS) %>%
+           utilization.AT = sum.demand.days.total_AM / beds.forecasted.AT / HOSP_OP_DAYS,
+           utilization.CR = sum.demand.days.total_CR / beds.forecasted.CR / HOSP_OP_DAYS,
+           utilization.GR = sum.demand.days.total_GR / beds.forecasted.GR / HOSP_OP_DAYS,
+           utilization.MH = sum.demand.days.total_MH / beds.forecasted.MH / HOSP_OP_DAYS,
+           utilization = sum.demand.days / beds.forecasted / HOSP_OP_DAYS,
+           utilization.AT.existing = sum.demand.days.total_AM / beds.existing.AT / HOSP_OP_DAYS,
+           utilization.CR.existing = sum.demand.days.total_CR / beds.existing.CR / HOSP_OP_DAYS,
+           utilization.GR.existing = sum.demand.days.total_GR / beds.existing.GR / HOSP_OP_DAYS,
+           utilization.MH.existing = sum.demand.days.total_MH / beds.existing.MH / HOSP_OP_DAYS) %>%
     # Replace 'NaN' utilizations (i.e., where there is no demand nor capacity in a given hospital/caretype) and 'inf' utilizations (where there is demand but no existing capacity - this occurs at new hospitals)
     mutate_at(vars(utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.nan(.), 0)) %>% 
     mutate_at(vars(utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.infinite(.), 999)) %>%
