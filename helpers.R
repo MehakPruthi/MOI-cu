@@ -1431,7 +1431,6 @@ create_hospital_xy <- function(hospital_master) {
   
   # Project the hospital lat/long to TRESO's LCC specification
   proj4string(hospital_spdf) <- CRS('+proj=longlat +datum=WGS84')
-  treso_projarg = treso_shp@proj4string@projargs
   
   hospital_xy <- spTransform(hospital_spdf, CRS(treso_projarg))
   
@@ -1560,7 +1559,7 @@ base_scenario_alc_calculation <- function(hospital_lookup_ALC, ALC_hosp_vol_disa
   
   return(ALC_prov_rate)
 }
-  
+
 base_scenario_crm_calculation <- function(HBAMhistorical_master_tz, treso_population_moh_agecluster) {
   # Calculate total cases by hospital, and the percentage of cases belonging to each CSD for each hospital siteid
   HBAMhistorical_origcsd_cases <- HBAMhistorical_master_tz %>%
@@ -2015,7 +2014,7 @@ moh_new_hospitals <- function(overburden_csd_hosp_new, treso_zone_system, treso_
 
 redistribute_demand_leaving_for_new_hospitals <- function(new_hospital, speciality_hospitals, num_beds, crm_orig,
                                                           treso_shp, treso_zone_system, treso_population_moh_agecluster, 
-                                                          age_cluster_list, scenario_year) {
+                                                          age_cluster_list, stay_in_csd_factor, scenario_year) {
   new_hospital <- crossing(new_hospital, age_cluster_list) %>% 
     rename(agecluster = age_cluster_list)
   
@@ -2136,10 +2135,10 @@ redistribute_demand_leaving_for_new_hospitals <- function(new_hospital, speciali
            orig.demand.days.nonALC = replace_na(orig.demand.days.nonALC, 0),
            orig.demand.days.ALC = replace_na(orig.demand.days.ALC, 0)) %>% 
     # For caretypes with no existing beds in the CSD, assume likelihood of staying in CSD is a function of likelihood of going to external CSDs
-    mutate(cases.per.bed.in = ifelse(cases.per.bed.in == 0, STAY_IN_CSD_FACTOR * cases.per.bed.out, cases.per.bed.in),
-           demand.days.total.per.bed.in = ifelse(demand.days.total.per.bed.in == 0, STAY_IN_CSD_FACTOR * demand.days.total.per.bed.out, demand.days.total.per.bed.in),
-           demand.days.nonALC.per.bed.in = ifelse(demand.days.nonALC.per.bed.in == 0, STAY_IN_CSD_FACTOR * demand.days.nonALC.per.bed.out, demand.days.nonALC.per.bed.in),
-           demand.days.ALC.per.bed.in = ifelse(demand.days.ALC.per.bed.in == 0, STAY_IN_CSD_FACTOR * demand.days.ALC.per.bed.out, demand.days.ALC.per.bed.in)) %>%
+    mutate(cases.per.bed.in = ifelse(cases.per.bed.in == 0, stay_in_csd_factor * cases.per.bed.out, cases.per.bed.in),
+           demand.days.total.per.bed.in = ifelse(demand.days.total.per.bed.in == 0, stay_in_csd_factor * demand.days.total.per.bed.out, demand.days.total.per.bed.in),
+           demand.days.nonALC.per.bed.in = ifelse(demand.days.nonALC.per.bed.in == 0, stay_in_csd_factor * demand.days.nonALC.per.bed.out, demand.days.nonALC.per.bed.in),
+           demand.days.ALC.per.bed.in = ifelse(demand.days.ALC.per.bed.in == 0, stay_in_csd_factor * demand.days.ALC.per.bed.out, demand.days.ALC.per.bed.in)) %>%
     select(-cases.per.bed.out, -demand.days.total.per.bed.out, -demand.days.nonALC.per.bed.out, -demand.days.ALC.per.bed.out) %>% 
     # Assign a representative number of beds to AM (Emergency) caretype to weight distribution of AM cases in later steps
     group_by(id) %>% 
@@ -2272,7 +2271,7 @@ redistribute_demand_within_for_new_hospitals <- function(new_hospital, specialit
     ungroup()
 }
 
-format_demand_output <- function(treso_zone_system, treso_population_moh_agecluster, travel_time_skim,
+format_demand_output <- function(treso_shp, treso_zone_system, treso_population_moh_agecluster, travel_time_skim,
                                  hospitallocations_tz, new_hospital=NULL, crm_hosp_agecluster_all,
                                  utilization_targets, trips_per_case, scenario_year) {
   

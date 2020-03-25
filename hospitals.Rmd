@@ -21,72 +21,22 @@ library(FNN)
 source('helpers.r')
 ```
 
-## User Inputs
-  - To be replaced with inputs read in from Shiny
-  
-```{r}
-# Read in user-set forecast year
-SCENARIO_YEAR <- 2026 # TODO: Replace with user-defined input from visualization tool
-
-# Read in user-set factor for how many people will stay in their CSD vs. leave the CSD on a per-bed basis if a new hospital is built in a CSD which previously had no hospitals
-STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospital is built
-
-# Read in user-set target utilization factor by subsector. each care type has its own target
-# UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
-UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(1, 1, 1, 1, 1))
-
-# Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
-MIN_BEDS <- 100
-
-# New hospital minimum applies to each caretype individually or all caretypes cumulatively? I.e., if minimum new hospital threshold is 25 beds, and if a CSD needs 15 AT beds, 5 MH beds, and 10 GR beds (therefore sum of 30 beds), should the hospital be built because there is demand for 30 beds? Or hospital should not be built because no individual caretype exceeds minimum of 25 beds required?
-MIN_BEDS_TOGGLE <- 1 # 1 = Cumulatively, 0 = Individually
-
-# Read in user-set number of one-way trips per hospital case
-TRIPS_PER_CASE <- 2
-
-# Total demand days in 2016 = 6,919,802; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (6,919,802 / 0.96) / 12,117,270 * 365 = 217 days of capacity per hospital bed per year.
-HOSP_OP_DAYS <- 365 # Assume each hospital bed can be used for this many days per year
-
-USER_SELECT <- "CRM" # TODO: Replace with value from user from visualization tool
-
-CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from user from visualization tool
-
-AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user from visualization tool
-
-DECISION_MAKING <- TRUE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
-
-LTC_OP_DAYS = 365 # Set operating days at LTC facilities; set based on observed ALC in 2016 vs. theoretical 
-
-# Number of beds added by CSD
-USER_NEW_LTC_CAP_CSD <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(15000, 15000)) # TODO: Replace with user-defined input from visualization tool
-
-# Read in cost function parameters from model user: cost per bed (in CAD millions) plus a base startup cost applied to all hospitals regardless of size
-USER_INPUT_COST_PER_BED <- 1 # TODO: Replace this hard-coded value with user-input value from visualization
-USER_INPUT_BASE_HOSP_COST <- 5 # TODO: Replace this hard-coded value with user-input value from visualization
-
-# Cost Annualiztion
-USER_INPUT_INFLATION <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
-CURRENCY_YEAR = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
-CURRENT_YEAR = 2020 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
-
-```
-  
 
 ## Import Input Data
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
   
 ```{r, include= FALSE, results='hide'}
-#Defining hospital parameters for care-types and age bands
+# Defining hospital parameters for care-types and age bands
 caretypes = c("at", "cr", "gr", "mh", "am")
 agecluster = c('ad', 'ped', 'sr')
 agegroup_ref <- tibble(agecluster = c('ad', 'ad', 'ad', 'ped', 'sr', 'sr'),
-                          agegroup = as.character(c(2, 3, 4, 1, 5, 6))) %>% 
+                       agegroup = as.character(c(2, 3, 4, 1, 5, 6))) %>% 
   arrange(agegroup)
 
-#CIHI Bed Data
+# CIHI Bed Data
 CIHIhospitalbeds <- read_csv('input/moh/cap.CIHI_Hospital_Beds.csv')
 
-#Daily Bed Census bed counts
+# Daily Bed Census bed counts
 num_beds_siteid <- readRDS('cache/moh/num_beds.rds')
 
 # Historical HBAM Master (w/ Asset data)
@@ -95,14 +45,15 @@ HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
 # Projected HBAM Master (w/ Asset data)
 HBAMprojected_master <- readRDS('cache/moh/HBAMprojected_master.rds')
 
-#Hospital Asset Data
+# Hospital Asset Data
 hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
 
-#Speciality Hospital Identifier
+# Speciality Hospital Identifier
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
-#TRESO Population data and Spatial Data
+# TRESO Population data and Spatial Data
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_projarg = treso_shp@proj4string@projargs
 
 treso_population_moh <- readRDS('input/moh/treso_population_moh.rds')
 
@@ -115,18 +66,18 @@ treso_travel_time <- readRDS("cache/treso/treso_travel_time_2016.rds")
 ALC_idcrosswalk <- readRDS('cache/moh/ALC_crosswalk.rds')
   # drop_na(pcode) #Drop NA pcodes from Hospital Locations dataset, to be changed when dataset is updated
 
-#ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
+# ALC Siteids have multiple hospital IDs associated w/ them referring to different case-types and names in some instances; distinct codes are extracted for SiteID-LHIN connection
 ALC_idcrosswalk_slim <- ALC_idcrosswalk %>% 
   group_by(ALCsite_id) %>% 
   distinct(lhin, ALCsite_id)
 
-#ALC raw data includes agegroup == 9 which is the totalling flag
-#ALC data for 2017 only includes LHINs 1-3 and 10-14; ALC data for 2012 also partial
+# ALC raw data includes agegroup == 9 which is the totalling flag
+# ALC data for 2017 only includes LHINs 1-3 and 10-14; ALC data for 2012 also partial
 # MADD = most appropriate discharge destination
 ALC_madd_raw <- readRDS('cache/moh/ALC_madd_raw.rds') %>% 
   filter(madd == 'LTC', year != 2011, year!= 2012, year != 2017)
 
-#Importing LTC data
+# Importing LTC data
 ltc_homes <- readRDS('cache/moh/ltc_homes.rds')
 ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
 ```
@@ -572,6 +523,39 @@ hospital_lookup_master <- readRDS("cache/moh/hospital_lookup_master.rds")
 num_beds <- readRDS("cache/moh/num_beds_processed.rds")
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
+
+# Read in user-set forecast year
+SCENARIO_YEAR <- 2025
+
+# Read in user-set target utilization factor by subsector. each care type has it's own target
+UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
+
+# Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
+USER_MIN_BEDS <- 30
+
+# New hospital minimum applies to each caretype individually or all caretypes cumulatively? I.e., if minimum new hospital threshold is 25 beds, and if a CSD needs 15 AT beds, 5 MH beds, and 10 GR beds (therefore sum of 30 beds), should the hospital be built because there is demand for 30 beds? Or hospital should not be built because no individual caretype exceeds minimum of 25 beds required?
+MIN_BEDS_TOGGLE <- 1 # 1 = Cumulatively, 0 = Individually
+
+# Read in user-set number of one-way trips per hospital case
+USER_TRIPS_PER_CASE <- 2
+
+# Total demand days in 2016 = 6,919,802; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (6,919,802 / 0.96) / 12,117,270 * 365 = 217 days of capacity per hospital bed per year.
+HOSP_OP_DAYS <- 365 # Assume each hospital bed can be used for this many days per year
+
+USER_SELECT <- "HBAM" # TODO: Replace with value from user from visualization tool
+
+CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from user from visualization tool
+
+AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user from visualization tool
+
+DECISION_MAKING <- TRUE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
+
+# Number of beds added by CSD
+USER_NEW_LTC_CAP_CSD <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 7000))
+
+# Read in user-set factor for how many people will stay in their CSD vs. leave the CSD on a per-bed basis if a new hospital is built in a CSD which previously had no hospitals
+STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospital is built
+
 CURRENCY_YEAR <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 LTC_OP_DAYS <- 365
 USER_INPUT_COST_PER_BED <- 1
@@ -602,8 +586,8 @@ treso_origin_cases <- base_scenario_crm_calculation(HBAMhistorical_master_tz, tr
 
 ```{r}
 result <- forecast_scenario_alc_calculation(treso_population_moh, ltc_turnover_raw, USER_NEW_LTC_CAP_CSD, hospitallocations_tz, 
-                                                            ALC_hosp_vol_disag, ALC_prov_rate, hospital_lookup_ALC, ltc_homes, LTC_OP_DAYS,
-                                                            SCENARIO_YEAR)
+                                            ALC_hosp_vol_disag, ALC_prov_rate, hospital_lookup_ALC, ltc_homes, LTC_OP_DAYS,
+                                            SCENARIO_YEAR)
 ALC_proj_cd_agecluster <- result[[1]]
 ALC_proj_cd <- result[[2]]
 ```
@@ -631,7 +615,6 @@ if (DECISION_MAKING) {
   overburden_csd_hosp_new <- result[[2]]
   saveRDS(demand_capacity_difference, "cache/moh/demand_capacity_difference.rds")
   saveRDS(overburden_csd_hosp_new, "cache/moh/overburden_csd_hosp_new.rds")
-  
 }  
 ```
 
@@ -658,7 +641,7 @@ new_hospital_user <- tibble(
 # Add hospitals based on decision-making calculations
 if (DECISION_MAKING) {  
   new_hospital <- moh_new_hospitals(overburden_csd_hosp_new, treso_zone_system, treso_population_moh_agecluster, treso_centroids,
-                                    new_hospital_user, MIN_BEDS_TOGGLE, MIN_BEDS, SCENARIO_YEAR)
+                                    new_hospital_user, MIN_BEDS_TOGGLE, USER_MIN_BEDS, SCENARIO_YEAR)
 } else {
   new_hospital <- new_hospital_user
 }
@@ -676,7 +659,7 @@ There are two components of demand that require redistribution:
 if (nrow(new_hospital) != 0) {
   crm_orig_revised <- redistribute_demand_leaving_for_new_hospitals(new_hospital, speciality_hospitals, num_beds, crm_orig,
                                                                      treso_shp, treso_zone_system, treso_population_moh_agecluster, 
-                                                                     AGE_CLUSTER_LIST, SCENARIO_YEAR)
+                                                                     AGE_CLUSTER_LIST, STAY_IN_CSD_FACTOR, SCENARIO_YEAR)
   saveRDS(crm_orig_revised, "cache/moh/crm_orig_revised.rds")
   
   crm_hosp_agecluster_all <- redistribute_demand_within_for_new_hospitals(new_hospital, speciality_hospitals, num_beds, 
@@ -689,11 +672,9 @@ if (nrow(new_hospital) != 0) {
 ## Output Results
 ### Demand Outputs
 ```{r}
-
-result <- format_demand_output(treso_zone_system, treso_population_moh_agecluster, treso_travel_time,
+result <- format_demand_output(treso_shp, treso_zone_system, treso_population_moh_agecluster, treso_travel_time,
                                hospitallocations_tz, new_hospital=new_hospital, crm_hosp_agecluster_all,
-                               UTILIZATION_TARGETS, TRIPS_PER_CASE, SCENARIO_YEAR)
-
+                               UTILIZATION_TARGETS, USER_TRIPS_PER_CASE, SCENARIO_YEAR)
 crm_demand <- result[[1]]
 crm_demand_travel <- result[[2]]
 
@@ -710,11 +691,6 @@ hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_de
 saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
 ```
 
-## New Hospital Cost Function
-```{r hospital cost function}
-
-```
-
 ## Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
@@ -727,7 +703,7 @@ if (nrow(new_hospital) != 0) {
   
   # Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
   annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, SCENARIO_YEAR, CURRENCY_YEAR,
-                                              USER_INPUT_CURRENT_YEAR, new_hosp_list_complete)
+                                                USER_INPUT_CURRENT_YEAR, new_hosp_list_complete)
 }
 
 ```
