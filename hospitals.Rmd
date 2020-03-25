@@ -21,6 +21,7 @@ library(FNN)
 source('helpers.r')
 ```
 
+
 ## Import Input Data
   - HBAM caretypes have been grouped to match asset inventory datasets (care types "AM")
   
@@ -710,7 +711,6 @@ if (nrow(new_hospital) != 0) {
 result <- format_demand_output(treso_shp, treso_zone_system, treso_population_moh_agecluster, treso_travel_time,
                                hospitallocations_tz, new_hospital=new_hospital, crm_hosp_agecluster_all,
                                UTILIZATION_TARGETS, USER_TRIPS_PER_CASE, SCENARIO_YEAR)
-
 crm_demand <- result[[1]]
 crm_demand_travel <- result[[2]]
 

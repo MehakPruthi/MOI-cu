@@ -2458,7 +2458,8 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
   
   # Add in travel times, distances to final hospital_wide table
   hospital_wide_final <- hospital_wide_util %>% 
-    left_join(hosp_travel_wide, by = c('id'))
+    left_join(hosp_travel_wide, by = c('id')) %>% 
+    mutate(alos = sum.demand.days / sum.cases)
   
   return(hospital_wide_final)
   
