@@ -1931,7 +1931,7 @@ moh_decision_making <- function(num_beds, hospitallocations_tz, crm_alc, crm_ori
 
 
 moh_new_hospitals <- function(overburden_csd_hosp_new, treso_zone_system, treso_population_moh_agecluster, treso_centroids,
-                              new_hospital_user = NULL, min_beds_toggle, scenario_year) {
+                              new_hospital_user = NULL, min_beds_toggle, min_beds, scenario_year) {
   
   # Initialize new_hospital dataframe
   new_hospital <- tibble(id = integer(), hospital.lat = double(), hospital.long = double(), name = character(), caretype = character(), 
@@ -2274,7 +2274,7 @@ redistribute_demand_within_for_new_hospitals <- function(new_hospital, specialit
 
 format_demand_output <- function(treso_zone_system, treso_population_moh_agecluster, travel_time_skim,
                                  hospitallocations_tz, new_hospital=NULL, crm_hosp_agecluster_all,
-                                 utilization_targets, scenario_year) {
+                                 utilization_targets, trips_per_case, scenario_year) {
   
   # Calculate TRESO populations at the agecluster level instead of agegroup
   colname <- noquote(paste0('population.', scenario_year))
@@ -2448,7 +2448,8 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
   
   # Add in travel times, distances to final hospital_wide table
   hospital_wide_final <- hospital_wide_util %>% 
-    left_join(hosp_travel_wide, by = c('id'))
+    left_join(hosp_travel_wide, by = c('id')) %>% 
+    mutate(alos = sum.demand.days / sum.cases)
   
   return(hospital_wide_final)
   
