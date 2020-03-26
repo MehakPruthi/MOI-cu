@@ -64,11 +64,20 @@ APPEARANCE_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','
                            case.factor = c(0.3, 0.3, 0.3, 0.3, 0.3, 0.3),
                            app.factor = c(2, 2, 2, 2, 2, 2),
                            trip.factor = c(2, 2, 2, 2, 2, 2))
-FIXED_COST = 10000000
-VARIABLE_COST = 2000000
+
+# TODO: Replace the hard-coded tibbles below with user-input value from visualization
+# User-placed New Courthouse
+new_courthouse <- tibble(
+  bid = "B99999",
+  courthouse.lat = 43.90032, courthouse.long = 	-78.85863,
+  name = "New Hospital",
+  building.type = "Base Court",
+  casetypes.serviced = c("civil"),
+  courtrooms = 4,
+  rentable.square.feet = 1000)
 
 # Read in cost function parameters from model user: cost per courtroom plus a startup cost applied to all courthouses regardless of size
-user_input_cost_per_courtroom <- 30000000 # TODO: Replace this hard-coded value with user-input value from visualization
+user_input_cost_per_sqft <- 1000 # TODO: Replace this hard-coded value with user-input value from visualization
 user_input_flat_courthouse_cost <- 20000000 # TODO: Replace this hard-coded value with user-input value from visualization
 
 # Cost Annualiztion
@@ -385,16 +394,6 @@ treso_demand_origin <- readRDS("cache/mag/future_cases_bl_treso.rds") %>%
   left_join(MODERNIZATION_FACTOR, by = "casetypes") %>%
   mutate(court.hours = court.hours * mod.factor)
 
-# User-placed New Courthouse
-new_courthouse <- tibble(
-  bid = "B99999",
-  courthouse.lat = 43.90032, courthouse.long = 	-78.85863,
-  name = "New Hospital",
-  building.type = "Base Court",
-  casetypes.serviced = c("civil"),
-  courtrooms = 4,
-  rentable.square.feet = 1000)
-
 # Overlay with TRESO Shapefile to get the TRESO/CD Information
 new_courthouse_xy <- create_court_xy(new_courthouse)
 new_courthouse_overlay <- create_overlay(new_courthouse_xy, treso_shp, type = "court") %>% 
@@ -484,6 +483,10 @@ courthouse_asset_updated <- courthours_od %>%
             court.hours.to.random = sum(court.hours.to.random),
             court.hours.to.identical = sum(court.hours.to.identical)
             ) %>% 
+  ungroup() %>% 
+  # Join in rentable square feet to determine area shortage
+  left_join(select(courthouse_asset, bid, rentable.square.feet), by = c('bid')) %>% 
+  rename(existing.rentable.sqft = rentable.square.feet) %>% 
   mutate(court.hours.distributed = court.hours.to.closest + court.hours.to.random + court.hours.to.identical) %>% 
   # Join in daily utilizable hours per courtroom and calculate utilization by courthouse
   left_join(utilization_rate, by = "casetypes") %>% 
@@ -499,8 +502,7 @@ courthouse_asset_updated <- courthours_od %>%
                                  op.utilization)) %>% 
   # Summarise courtrooms needed, courtrooms existing, utilization, etc.
   mutate(courtrooms.needed = round(court.hours.distributed / (op.utilization * OP_DAYS), digits = 2)) %>% 
-  mutate(actual.utilization = court.hours.distributed / courtrooms / OP_DAYS,
-         utilization = actual.utilization / op.utilization) %>% 
+  mutate(utilization = court.hours.distributed / courtrooms / op.utilization / OP_DAYS) %>% 
   group_by(bid, name, building.type, cduid, cdname) %>% 
   summarise(courtrooms = first(courtrooms),
             courtrooms.needed = sum(courtrooms.needed),
@@ -508,9 +510,9 @@ courthouse_asset_updated <- courthours_od %>%
             utilization = sum(utilization)
             ) %>% 
   ungroup() %>% 
-  mutate(cost = FIXED_COST + VARIABLE_COST * courtrooms.needed,
-         standard.area = courtroom_size(courtrooms.needed)) %>% 
-  select(bid, courtrooms, courtrooms.needed, court.hours.distributed, utilization, standard.area, cost)
+  mutate(standard.sqft.per.courtroom = courtroom_size(courtrooms.needed),
+         area.shortfall = standard.sqft.per.courtroom - existing.rentable.sqft) %>% 
+  select(bid, courtrooms, courtrooms.needed, court.hours.distributed, utilization, standard.sqft.per.courtroom)
 ```
 
 # Create 2018 Observed Data
@@ -556,6 +558,56 @@ courthouse_2018_observed <- courthouse_asset %>%
 saveRDS(courthouse_2018_observed, "output/mag/courthouse_2018_observed.rds")
 ```
 
+# Decision Making
+```{r decision making prep}
+
+# Calculate the anticipated increase in court hour demand to yield the U_AVG output. For example, 
+#U=D/C => C = D/U => C = courtroom hour demand / U_AVG. This intermediate step does not alter demand 
+#values, only uses them to attain the U_AVG.
+future_cases_bl_cd_util <- readRDS("cache/mag/future_cases_bl_treso.rds") %>% 
+  left_join(select(treso_zone_system, csduid, treso_id), by = c("treso_zone" = "treso_id")) %>% 
+  group_by(cduid, year, casetypes) %>%
+  summarize(cd.court.hours = sum(court.hours)) %>% 
+  mutate(util.court.hours = cd.court.hours * (1/U_AVG))
+
+# Read the casetype utilization rate table
+utilization_rate <- readRDS("cache/mag/utilization_rate.rds")
+
+# Read the existing 2018 asset list for number of courtrooms existing
+courthouse_asset_cd_level <- courthouse_asset %>%
+  group_by(cduid, cdname) %>% 
+  summarise(number.of.courtrooms.2018 = sum(courtrooms)) %>% 
+  ungroup()
+
+# Calculate future court hours needed based on the business line specific utilization increase characteristics
+future_needs_util <- future_cases_bl_cd_util %>%
+  filter(year == MODEL_YEAR) %>% 
+  left_join(utilization_rate, by = "casetypes") %>% 
+  mutate(op.utilization = 0) %>% 
+  mutate(op.utilization = ifelse(util.court.hours <= inflect.hours,
+                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * util.court.hours,
+                              op.utilization)) %>% 
+  mutate(op.utilization = ifelse(util.court.hours > inflect.hours & util.court.hours <= max.hours,
+                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (util.court.hours - inflect.hours)                                                       / (max.hours - inflect.hours)), op.utilization)) %>% 
+  mutate(op.utilization = ifelse(util.court.hours > max.hours, max.hours.dy, op.utilization)) %>% 
+  mutate(util.courtrooms.needed = round(util.court.hours / (op.utilization * OP_DAYS), digits = 2)) %>% 
+  select(-base.hours.dy, - inflect.hours.dy, -max.hours.dy, -inflect.hours, -max.hours, -op.utilization, -cd.court.hours) 
+
+saveRDS(future_needs_util, "cache/mag/future_needs_util.rds")
+
+# Calculate the difference between number of courtrooms needed and number of courtrooms existing.
+courtroom_net <- future_needs_util %>% 
+  group_by(cduid) %>% 
+  summarise(util.courtrooms.needed = sum(util.courtrooms.needed)) %>% 
+  left_join(select(courthouse_asset_cd_level, cduid, number.of.courtrooms.2018), by = "cduid") %>% 
+  mutate(number.of.courtrooms.2018 - util.courtrooms.needed)
+
+
+```
+
+
+
+
 ## New Courthouse Cost Function
 ```{r court cost function}
 # Read in list of new courtrooms by courthoue
@@ -570,7 +622,7 @@ new_courthouse_list <- tibble(user_input_OCJcrim_courtrooms = c(3, 0),
 
 # Calculate costs
 new_courthouse_list_complete <- new_courthouse_list %>% 
-  mutate(cost_2018 = round(user_input_courtrooms_total * user_input_cost_per_courtroom + user_input_flat_courthouse_cost, 0))
+  mutate(cost_2018 = round(user_input_courtrooms_total * user_input_cost_per_sqft + user_input_flat_courthouse_cost, 0))
 
 ```
 
@@ -664,53 +716,6 @@ annualized_inflated_cost <- construction_cost(user_input_inflation, MODEL_YEAR, 
 # cd
 # 
 # #plot(mod)
-
-```
-
-# Decision Making
-```{r decision making prep}
-
-# Calculate the anticipated increase in court hour demand to yield the U_AVG output. For example, 
-#U=D/C => C = D/U => C = courtroom hour demand / U_AVG. This intermediate step does not alter demand 
-#values, only uses them to attain the U_AVG.
-future_cases_bl_cd_util <- readRDS("cache/mag/future_cases_bl_treso.rds") %>% 
-  left_join(select(treso_zone_system, csduid, treso_id), by = c("treso_zone" = "treso_id")) %>% 
-  group_by(cduid, year, casetypes) %>%
-  summarize(cd.court.hours = sum(court.hours)) %>% 
-  mutate(util.court.hours = cd.court.hours * (1/U_AVG))
-
-# Read the casetype utilization rate table
-utilization_rate <- readRDS("cache/mag/utilization_rate.rds")
-
-# Read the existing 2018 asset list for number of courtrooms existing
-courthouse_asset_cd_level <- courthouse_asset %>%
-  group_by(cduid, cdname) %>% 
-  summarise(number.of.courtrooms.2018 = sum(courtrooms)) %>% 
-  ungroup()
-
-# Calculate future court hours needed based on the business line specific utilization increase characteristics
-future_needs_util <- future_cases_bl_cd_util %>%
-  filter(year == MODEL_YEAR) %>% 
-  left_join(utilization_rate, by = "casetypes") %>% 
-  mutate(op.utilization = 0) %>% 
-  mutate(op.utilization = ifelse(util.court.hours <= inflect.hours,
-                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * util.court.hours,
-                              op.utilization)) %>% 
-  mutate(op.utilization = ifelse(util.court.hours > inflect.hours & util.court.hours <= max.hours,
-                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (util.court.hours - inflect.hours)                                                       / (max.hours - inflect.hours)), op.utilization)) %>% 
-  mutate(op.utilization = ifelse(util.court.hours > max.hours, max.hours.dy, op.utilization)) %>% 
-  mutate(util.courtrooms.needed = round(util.court.hours / (op.utilization * OP_DAYS), digits = 2)) %>% 
-  select(-base.hours.dy, - inflect.hours.dy, -max.hours.dy, -inflect.hours, -max.hours, -op.utilization, -cd.court.hours) 
-
-saveRDS(future_needs_util, "cache/mag/future_needs_util.rds")
-
-# Calculate the difference between number of courtrooms needed and number of courtrooms existing.
-courtroom_net <- future_needs_util %>% 
-  group_by(cduid) %>% 
-  summarise(util.courtrooms.needed = sum(util.courtrooms.needed)) %>% 
-  left_join(select(courthouse_asset_cd_level, cduid, number.of.courtrooms.2018), by = "cduid") %>% 
-  mutate(number.of.courtrooms.2018 - util.courtrooms.needed)
-
 
 ```
 
