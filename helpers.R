@@ -2379,7 +2379,7 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
     mutate(caretype.beds = paste0('beds.existing.', caretype)) %>%
     select(-year, -caretype, -count) %>% 
     pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
-    rename(total.hosp.beds.existing = total.hosp.beds)
+    rename(beds.existing = total.hosp.beds)
   
   # Temporary dataframe to store the beds needed columns
   beds_needed <- crm_demand %>% 
@@ -2427,7 +2427,7 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
   hospital_wide_cap <- hospital_wide %>% 
     # Join in existing capacity (i.e., beds.existing) data
     left_join(num_beds_wide, by = c('id')) %>% 
-    replace_na(list(total.hosp.beds.existing = 0, beds.existing.AM = 0, beds.existing.AT = 0, beds.existing.CR = 0, 
+    replace_na(list(total.hosp.beds.existing = 0, beds.existing = 0, beds.existing.AM = 0, beds.existing.AT = 0, beds.existing.CR = 0, 
                     beds.existing.GR = 0, beds.existing.MH = 0)) %>% 
     # Replace beds.needed columns (by caretype) with the pmax of (beds.needed, beds.existing)
     mutate(beds.forecasted.AT = pmax(beds.needed_AT, beds.existing.AT),
@@ -2449,7 +2449,8 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
            utilization.AT.existing = sum.demand.days.total_AM / beds.existing.AT / HOSP_OP_DAYS,
            utilization.CR.existing = sum.demand.days.total_CR / beds.existing.CR / HOSP_OP_DAYS,
            utilization.GR.existing = sum.demand.days.total_GR / beds.existing.GR / HOSP_OP_DAYS,
-           utilization.MH.existing = sum.demand.days.total_MH / beds.existing.MH / HOSP_OP_DAYS) %>%
+           utilization.MH.existing = sum.demand.days.total_MH / beds.existing.MH / HOSP_OP_DAYS,
+           utilization.existing = sum.demand.days / beds.existing / HOSP_OP_DAYS) %>%
     # Replace 'NaN' utilizations (i.e., where there is no demand nor capacity in a given hospital/caretype) and 'inf' utilizations (where there is demand but no existing capacity - this occurs at new hospitals)
     mutate_at(vars(utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.nan(.), 0)) %>% 
     mutate_at(vars(utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.infinite(.), 999)) %>%
@@ -2458,8 +2459,7 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
   
   # Add in travel times, distances to final hospital_wide table
   hospital_wide_final <- hospital_wide_util %>% 
-    left_join(hosp_travel_wide, by = c('id')) %>% 
-    mutate(alos = sum.demand.days / sum.cases)
+    left_join(hosp_travel_wide, by = c('id'))
   
   return(hospital_wide_final)
   
