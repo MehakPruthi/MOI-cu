@@ -74,13 +74,13 @@ por_full <- readRDS("output/treso/por_full.rds")
 pos_full <- readRDS("output/treso/pos_full.rds")
 
 # Read in user-set travel-time threshold as a function of mean system-wide travel time
-TRAVEL_TIME_THRESHOLD_FACTOR <- 1.5
+TRAVEL_TIME_THRESHOLD_FACTOR <- 1
 
 # Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
-ZONE_PROXIMITY_THRESHOLD <- 15
+ZONE_PROXIMITY_THRESHOLD <- 7
 
 # Define excess travel time below which it is not worthwhile to consider building a school
-MIN_TT_THRESHOLD <- 550
+MIN_TT_THRESHOLD <- 400
 
 # Define threshold below which existing schools should be consolidated, assuming existing schools are elible for consolidation
 CONSOLIDATION_THRESHOLD <- 0.25
@@ -255,7 +255,7 @@ pos <- school_forecast_final %>%
 print(paste0("The total ADE assigned is: ", sum(por), ". The total OTG available is: ", sum(pos), "."))
 
 # 2D balancing, scale the total to the POR side to determine final distribution to TRESO zones
-prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="rows", max_iterations = 1000)
+prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="rows", max_iterations = 10)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
@@ -476,6 +476,7 @@ school_forecast <- distribution_model(school_base, filter(school_20xx, is.consol
 last_run_step <- 'Run capacity constrained...'
 ```
 
+
 ### 'Unconsolidate' schools which preclude long travel times
 - If travel times > acceptable travel times for any zone, see if an existing school has been consolidated from the zone, in which case, reinstate
 
@@ -515,14 +516,11 @@ school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.con
 #                                                                new_school_iteration, USER_OTG_THRESHOLD)
 
 # Rerun step 4 until threshold (takes about 55 iterations for 100 threshold)
-school_forecast_final <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017,
+school_forecast <- distribution_model(school_base, filter(school_20xx, is.consolidated == 0), school_summary_2017,
                                             school_summary_20xx, prop_matrix, prop_matrix_balanced, new_school_iteration, pos,
                                             pos_full, overfill_threshold=20000, max_iter=10, USER_OTG_THRESHOLD, capacity_constrained=TRUE)[[1]]
 
-school_forecast_final_old <- school_forecast_final
-school_forecast_final <- school_forecast_final_old
-
-school_forecast_final <- school_forecast_final %>% 
+school_forecast <- school_forecast %>% 
   left_join(select(school_20xx, sfis, is.consolidated), by = c('sfis')) %>% 
   # Add an 'is.consolidated' flag for new schools, set to 0, to avoid N/A values below
   mutate(is.consolidated = replace_na(is.consolidated, 0)) %>% 
@@ -535,7 +533,7 @@ school_forecast_final <- school_forecast_final %>%
   select(-is.consolidated, -is.open, -treso.open)
 
 # Rerun Step 5
-pos <- school_forecast_final %>% 
+pos <- school_forecast %>% 
     select(treso.id.pos, simulated.ade) %>%
     group_by(treso.id.pos) %>%
     summarise(simulated.ade = sum(simulated.ade)) %>%
@@ -548,7 +546,7 @@ pos <- school_forecast_final %>%
 print(paste0("The total ADE assigned is: ", sum(por), ". The total OTG available is: ", sum(pos), "."))
 
 # 2D balancing, scale the total to the POR side to determine final distribution to TRESO zones
-prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="rows", max_iterations = 1000)
+prop_matrix_balanced <- matrix_balancing_2d(prop_matrix, por, pos, totals_to_use="rows", max_iterations = 10)
 trip_list <- reshape2::melt(prop_matrix_balanced) %>%
     arrange(Var1, Var2)
 colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
@@ -560,6 +558,8 @@ school_summary_20xx_final <- forecast_school_ade(prop_matrix, trip_list, filter(
 last_run_step <- 'Uncosolidate schools'
 
 ```
+
+
 
 ### Calculate number of portables needed by school
 ```{r}

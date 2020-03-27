@@ -723,6 +723,12 @@ saveRDS(crm_demand, "cache/moh/crm_demand.rds")
 ```{r}
 hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_demand_travel)
 
+# Calculate Cost
+cost_new_hospital <- distinct(filter(hospital_wide_final, id > 999), id, beds.forecasted) %>% 
+  mutate(cost_2018 = round(beds.forecasted * USER_INPUT_COST_PER_BED * 1000000 + USER_INPUT_BASE_HOSP_COST * 1000000, 0))
+hospital_wide_final <- hospital_wide_final %>% 
+  left_join(select(cost_new_hospital, id, cost_2018), by="id")
+
 # Key output
 saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
 ```
@@ -731,26 +737,12 @@ saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
 
-if (nrow(new_hospital) != 0) {
-  # Calculate costs
-  new_hosp_list <- distinct(new_hospital, id, total.hosp.beds)
-  new_hosp_list_complete <- new_hosp_list %>% 
-    mutate(cost_2018 = round(total.hosp.beds * USER_INPUT_COST_PER_BED * 1000000 + USER_INPUT_BASE_HOSP_COST * 1000000, 0))
-  
-  # Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
-  annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, SCENARIO_YEAR, CURRENCY_YEAR,
-                                                USER_INPUT_CURRENT_YEAR, new_hosp_list_complete)
-}
-
-```
-
-## CRM vs. HBAM Reporting
-```{r}
-########################################
+# Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
+annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, SCENARIO_YEAR, CURRENCY_YEAR,
+                                              USER_INPUT_CURRENT_YEAR, cost_new_hospital)
 
 
 ```
-
 
   ## Extra Code: Queries Tested but Not Kept
 ```{r}
