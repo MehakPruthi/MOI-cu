@@ -522,9 +522,8 @@ hospital_lookup_master <- readRDS("cache/moh/hospital_lookup_master.rds")
 num_beds <- readRDS("cache/moh/num_beds_processed.rds")
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
-
 # Read in user-set forecast year
-SCENARIO_YEAR <- 2025
+SCENARIO_YEAR <- 2026
 
 # Read in user-set target utilization factor by subsector. each care type has it's own target
 UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
@@ -538,10 +537,10 @@ MIN_BEDS_TOGGLE <- 1 # 1 = Cumulatively, 0 = Individually
 # Read in user-set number of one-way trips per hospital case
 USER_TRIPS_PER_CASE <- 2
 
-# Total demand days in 2016 = 6,919,802; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (6,919,802 / 0.96) / 12,117,270 * 365 = 217 days of capacity per hospital bed per year.
+# Total demand days in 2016 = 11,206,704; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (11,206,704 / 0.96) / 12,117,270 * 365 = 351 days of capacity per hospital bed per year.
 HOSP_OP_DAYS <- 365 # Assume each hospital bed can be used for this many days per year
 
-USER_SELECT <- "HBAM" # TODO: Replace with value from user from visualization tool
+USER_SELECT <- "CRM" # TODO: Replace with value from user from visualization tool
 
 CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from user from visualization tool
 
@@ -550,7 +549,7 @@ AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user fro
 DECISION_MAKING <- TRUE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
 
 # Number of beds added by CSD
-USER_NEW_LTC_CAP_CSD <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 7000))
+USER_NEW_LTC_CAP_CSD <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 10000))
 
 # Read in user-set factor for how many people will stay in their CSD vs. leave the CSD on a per-bed basis if a new hospital is built in a CSD which previously had no hospitals
 STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospital is built
