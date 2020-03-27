@@ -2512,7 +2512,7 @@ courtroom_size <- function(courtrooms) {
   courtroom_diff = courtroom_count_max - courtroom_count_min
   area_change_per_courtroom = area_diff / courtroom_diff
   
-  courtroom_count_scaled = max(min(courtrooms, 50), 1) # Setting area standard to have a minimum courtroom count of 1 and a max of 50 in linear sizing scale
+  courtroom_count_scaled = pmax(pmin(courtrooms, 50), 1) # Setting area standard to have a minimum courtroom count of 1 and a max of 50 in linear sizing scale
   required_area_per_courtroom = area_max_sqm - courtroom_count_scaled * area_change_per_courtroom
   
   required_area_per_courtroom_sqft = required_area_per_courtroom * 3.28^2
