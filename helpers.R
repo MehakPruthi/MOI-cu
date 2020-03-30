@@ -1028,7 +1028,7 @@ create_forecast_school_list <- function(school_base, school_20xx, new_school_df,
     # Add in new schools
     bind_rows(new_school_df) %>%
     left_join(select(school_diff, sfis, simulated.ade.20xx, simulated.ade.base, change.ade), by = "sfis") %>%
-    replace_na(list(ade = 0, change.ade = 0, is.consolidated = 1)) %>%
+    replace_na(list(ade = 0, change.ade = 0, is.consolidated = 0)) %>%
     # 'Actual' forecast ADE = existing ADE (2017 actual historical data) plus change in ADE estimated in Step 3
     mutate(simulated.ade = ade + change.ade) %>% 
     # If simulated.ade.raw < 0 for any school, this value is rounded up to 0 to prevent having a negative number of students at each school.
@@ -1271,18 +1271,15 @@ calculate_delta_between_simulated_scenarios <- function(school_base, school_20xx
     mutate(change.ade = simulated.ade.20xx - simulated.ade.base)
   
   # Create the forecasted school list with OTG, OTG Threshold, ADE and Simulated ADE
-  school_forecast <- create_forecast_school_list(school_base, school_20xx, new_school, 
-                                                 trip_list_schools_summary_difference, 
+  school_forecast <- create_forecast_school_list(school_base, school_20xx, new_school, trip_list_schools_summary_difference, 
                                                  user_otg_threshold)
   
   return(school_forecast)
 }
 
 distribution_model <- function(school_base, school_20xx, school_summary_2017, school_summary_20xx, prop_matrix,
-                               prop_matrix_balanced, new_school, pos, pos_full, overfill_threshold = 100, max_iter = 20,
+                               prop_matrix_balanced, new_school, pos_full, overfill_threshold = 100, max_iter = 20,
                                user_otg_threshold, capacity_constrained = FALSE) {
-  
-  # TODO: Confirm if POS needs to be passed into this function
   
   # Calculate the delta between simulated base and forecast scenarios and apply to the base scenario
   school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
@@ -1293,7 +1290,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
     i <- 1
     print(paste0("Running distribution capacity constrained"))
     
-    pos <- create_pos_vector(school_20xx, new_school, pos_full)
+    pos <- create_pos_vector(filter(school_20xx, is.consolidated == 0), new_school, pos_full)
 
     # Loop through until the overfill ade is assigned
     while(overfill_ade >= overfill_threshold) {
@@ -1371,8 +1368,8 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
         colnames(trip_list) <- c("treso.id.por", "treso.id.pos", "trips")
         
         # Produce the simulated ADE for each school
-        school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, school_20xx, eqao_2017, new_school,
-                                                            treso_travel_time = NULL, treso_distance = NULL)[[1]]
+        school_summary_20xx_iterated <- forecast_school_ade(prop_matrix, trip_list, filter(school_20xx, is.consolidated == 0), 
+                                                            eqao_2017, new_school, treso_travel_time = NULL, treso_distance = NULL)[[1]]
         
         # Calculate the ADE overfill for each school, so the overfill ADE can be removed in the summary
         school_summary_ade_overfill <- school_forecast %>% 
