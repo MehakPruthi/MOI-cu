@@ -740,7 +740,6 @@ school_gaf <- function(row, gaf_lookup) {
   #' @return GAF of school for all schools in list
   
   user_input_pcode <- row['postal.code']
-  print(row['postal.code'])
   # Initialize i
   i = 0
   
