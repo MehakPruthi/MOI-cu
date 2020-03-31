@@ -740,6 +740,9 @@ school_gaf <- function(row, gaf_lookup) {
   #' @return GAF of school for all schools in list
   
   user_input_pcode <- row['postal.code']
+  print(row['postal.code'])
+  # Initialize i
+  i = 0
   
   # Determine number of digits for GAF lookup in postal_code lookup table
   for (pcode_length in 3:6) {
@@ -751,7 +754,13 @@ school_gaf <- function(row, gaf_lookup) {
     
     if (length(gafnum) > 0) {
       i <- pcode_length
-    }
+    } 
+  }
+  
+  # If postal code has no GAF associated, assign GAF = 1.0
+  if (i == 0) {
+    gaf <- 1
+    return(gaf)
   }
   
   # Finding appropriate GAF based on correct number of postal code digits
