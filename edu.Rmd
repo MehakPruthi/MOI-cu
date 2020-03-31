@@ -73,6 +73,8 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
 por_full <- readRDS("output/treso/por_full.rds")
 pos_full <- readRDS("output/treso/pos_full.rds")
 
+FORECAST_METHOD <- "EDU" # or set to TRESO
+
 # Read in user-set travel-time threshold as a function of mean system-wide travel time
 TRAVEL_TIME_THRESHOLD_FACTOR <- 1
 
@@ -203,6 +205,18 @@ prop_matrix <- readRDS(paste0("cache/edu/cfunc_", segment_id, ".rds"))
 # Apply the board sampling probabilities to the student population from TRESO
 treso_forecast_population_board <- apply_sampling_to_population(forecast_population = treso_forecast_population,
                                                                 board_type_sample = board_type_sample_spread)
+if (FORECAST_METHOD == "EDU") {
+  # Scale the student population to EDU forecast if desired
+  edu_forecast_sum <- sum(school_20xx$ade)
+  treso_forecast_sum <- sum(filter(treso_forecast_population_board, panel == panel_id, board_type_name == board_id)$enrolment)
+  scale_ratio = edu_forecast_sum / treso_forecast_sum
+  
+  print(paste0("Scaling TRESO forecast from - ", round(treso_forecast_sum, 0), " to EDU forecast of - ", round(edu_forecast, 0)))
+  
+  treso_forecast_population_board <- treso_forecast_population_board %>% 
+    mutate(enrolment = ifelse((panel == panel_id & board_type_name == board_id), round(enrolment * scale_ratio, 0), enrolment))
+}
+
 por <- create_por_forecast_vector(treso_forecast_population_board, por_full, panel_id=panel_id, board_id=board_id)
 
 result <- distribute_students_to_schools(school_20xx, new_school=NULL, por, pos_full, prop_matrix, 
