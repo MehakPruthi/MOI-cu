@@ -105,7 +105,7 @@ treso_shp <- readOGR(dsn ="input/treso", layer = "TRESO_Zones_SocioData_Gatineau
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
 
 # Import TRESO Travel TIme Skims to distribute demand to courts
-travel_time_skim <- readRDS("output/treso/treso_travel_time.rds")
+travel_time_skim <- readRDS("cache/treso/treso_travel_time_2016")
 
 # Import prepared TRESO projection population with age groups segmented to enable MAG business line (casetype) breakdown
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
