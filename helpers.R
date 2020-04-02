@@ -1939,8 +1939,8 @@ moh_new_hospitals <- function(overburden_csd_hosp_new, treso_zone_system, treso_
                               new_hospital_user = NULL, min_beds_toggle, min_beds, scenario_year) {
   
   # Initialize new_hospital dataframe
-  new_hospital <- tibble(id = integer(), hospital.lat = double(), hospital.long = double(), name = character(), caretype = character(), 
-                         beds = integer(), specialityfactor = integer(), total.hosp.beds = integer())
+  new_hospital <- tibble(id = integer(), hospital.lat = double(), hospital.long = double(), name = character(), 
+                         caretype = character(), beds = integer(), specialityfactor = integer(), total.hosp.beds = integer())
   
   # Calculate TRESO populations at the agecluster level instead of agegroup
   colname <- noquote(paste0('population.', scenario_year))
@@ -2005,8 +2005,8 @@ moh_new_hospitals <- function(overburden_csd_hosp_new, treso_zone_system, treso_
       bind_rows(., new_hospital_dm_treso) %>% 
       arrange(id, caretype) %>% 
       group_by(id) %>% 
-      mutate(hospital.lat = last(hospital.lat), hospital.long = last(hospital.long), name = last(name), specialityfactor = 0, 
-             total.hosp.beds = last(total.hosp.beds)) %>% 
+      mutate(hospital.lat = last(hospital.lat), hospital.long = last(hospital.long), name = last(name), 
+             specialityfactor = 0, total.hosp.beds = last(total.hosp.beds)) %>% 
       ungroup()
     
     if (!is.null(new_hospital_user)) {
@@ -2401,11 +2401,11 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
   # Calculate demand and capacity data by asset (i.e., by hospital)
   hospital_wide <- crm_demand %>% 
     # Calculate beds needed and demand, summarised at the hospital level
-    group_by(id, caretype, agecluster) %>% 
+    group_by(id, hosp.csd, caretype, agecluster) %>% 
     summarise(cases = sum(cases), demand.days.total = sum(demand.days.total), 
               demand.days.nonALC = sum(demand.days.nonALC), demand.days.ALC = sum(demand.days.ALC)) %>% 
     ungroup() %>% 
-    select(id, caretype, agecluster, cases, demand.days.total, demand.days.nonALC, demand.days.ALC) %>%
+    select(id, csduid = hosp.csd, caretype, agecluster, cases, demand.days.total, demand.days.nonALC, demand.days.ALC) %>%
     # Pivot table from long to wide for caretype and agecluster for demand columns (cases, demand-days)
     pivot_wider(names_from = c(caretype, agecluster), 
                 values_from = c(cases, demand.days.total, demand.days.nonALC, demand.days.ALC)) %>% 

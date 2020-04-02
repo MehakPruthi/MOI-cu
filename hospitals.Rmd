@@ -725,8 +725,18 @@ hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_de
 # Calculate Cost
 cost_new_hospital <- distinct(filter(hospital_wide_final, id > 999), id, beds.forecasted) %>% 
   mutate(cost_2018 = round(beds.forecasted * USER_INPUT_COST_PER_BED * 1000000 + USER_INPUT_BASE_HOSP_COST * 1000000, 0))
+
+# Summarize lat/long/name/cduid/cdname asset list
+hospital_lat_long <- select(hospitallocations_tz, id, hospital.lat = lat, hospital.long = long, name) %>% 
+  rbind(unique(select(new_hospital, id, hospital.lat, hospital.long, name)))
+
 hospital_wide_final <- hospital_wide_final %>% 
-  left_join(select(cost_new_hospital, id, cost_2018), by="id")
+  # Join cost
+  left_join(select(cost_new_hospital, id, cost_2018), by="id") %>%
+  # Join Lat/Long Information
+  left_join(hospital_lat_long, by="id") %>% 
+  # Join with csdname
+  left_join(treso_zone_system %>% group_by(csduid) %>% summarise(csdname = first(csdname)), by="csduid")
 
 # Key output
 saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
@@ -739,7 +749,6 @@ saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
 # Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, SCENARIO_YEAR, CURRENCY_YEAR,
                                               USER_INPUT_CURRENT_YEAR, cost_new_hospital)
-
 
 ```
 
