@@ -2457,12 +2457,9 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
            utilization.GR.existing = sum.demand.days.total_GR / beds.existing.GR / HOSP_OP_DAYS,
            utilization.MH.existing = sum.demand.days.total_MH / beds.existing.MH / HOSP_OP_DAYS,
            utilization.existing = sum.demand.days / beds.existing / HOSP_OP_DAYS) %>%
-    # Replace 'NaN' utilizations (i.e., where there is no demand nor capacity in a given hospital/caretype) and 'inf' utilizations (where there is demand but no existing capacity - this occurs at new hospitals)
-    mutate_at(vars(utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.nan(.), 0)) %>% 
-    mutate_at(vars(utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.infinite(.), 999)) %>%
-    ungroup() %>% 
-    replace_na(list(utilization.AT = 0, utilization.CR = 0, utilization.GR = 0, utilization.MH = 0))
-  
+    # Replace 'Inf' utilizations into NA
+    mutate_at(vars(utilization.existing, utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.infinite(.), NA))
+
   # Add in travel times, distances to final hospital_wide table
   hospital_wide_final <- hospital_wide_util %>% 
     left_join(hosp_travel_wide, by = c('id'))
