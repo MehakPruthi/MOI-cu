@@ -510,12 +510,14 @@ ALC_hosp_vol_disag <- readRDS("cache/moh/ALC_hospitals_disaggregated.rds")
 ltc_homes <- readRDS("cache/moh/ltc_homes.rds")
 treso_population_moh_agecluster <- readRDS("cache/moh/treso_population_moh_agecluster.rds")
 treso_travel_time <- readRDS("cache/treso/treso_travel_time_2016.rds")
+treso_travel_distance <- readRDS("cache/treso/treso_distance_2016.rds")
 HBAMhistorical_master_tz <- readRDS("cache/moh/HBAMhistorical_master_tz.rds")
 
 ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
 hospitallocations_tz <- readRDS("cache/moh/hospitallocations_tz.rds")
 ALC_hosp_vol_disag <- readRDS("cache/moh/ALC_hospitals_disaggregated.rds")
 
+HBAMprojected_master_tz <- readRDS("cache/moh/HBAMprojected_master_tz.rds")
 HBAMprojected_alos_adj <- readRDS("cache/moh/HBAMprojected_alos_adj.rds")
 hospital_lookup_master <- readRDS("cache/moh/hospital_lookup_master.rds")
 
@@ -586,33 +588,8 @@ treso_origin_cases <- base_scenario_crm_calculation(HBAMhistorical_master_tz, tr
 ```{r}
 # Results if user chooses HBAM forecast
 if (SCENARIO_YEAR > 2016 & USER_SELECT == "HBAM") {
-  HBAM_control <- HBAMprojected_master_tz %>%
-    mutate(los = replace_na(los, 0),
-           beddays = replace_na(beddays, 0),
-           beds.needed = beddays / HOSP_OP_DAYS) %>%
-    filter(year == SCENARIO_YEAR) %>%
-    rename(demand.days.total = beddays) %>% 
-    group_by(id, caretype, agecluster) %>%
-    summarise_at(vars(cases:beds.needed), sum, na.rm=TRUE) %>%
-    group_by(id) %>% 
-    mutate(sum.cases = sum(cases),
-           sum.demand.days.total = sum(demand.days.total),
-           sum.beds.needed = sum(beds.needed)) %>%
-    ungroup() %>% 
-    # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
-    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.needed), 
-                values_fill = c(cases = 0, demand.days.total = 0, beds.needed = 0))
-  
-  # Convert num_beds to be in wide form (i.e., one row per asset)
-  num_beds_wide <- num_beds %>%
-    rename(beds.existing = staffedbeds) %>% 
-    mutate(caretype.beds = paste0('beds.existing.', caretype)) %>%
-    select(-year, -caretype, -count) %>% 
-    pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
-    rename(total.hosp.beds.existing = total.hosp.beds)
-  
-  hosp_results <- HBAM_control %>% 
-    left_join(num_beds_wide, by = c('id'))
+  hospital_wide_final <- forecast_scenario_hbam_calculation(HBAMprojected_master_tz, num_beds, SCENARIO_YEAR)
+  saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final_hbam.rds")
 }
 ```
 
@@ -707,8 +684,8 @@ if (nrow(new_hospital) != 0) {
 ## Output Results
 ### Demand Outputs
 ```{r}
-result <- format_demand_output(treso_shp, treso_zone_system, treso_population_moh_agecluster, treso_travel_time,
-                               hospitallocations_tz, new_hospital=new_hospital, crm_hosp_agecluster_all,
+result <- format_demand_output(treso_shp, treso_zone_system, treso_population_moh_agecluster, treso_travel_time, 
+                               treso_travel_distance, hospitallocations_tz, new_hospital=new_hospital, crm_hosp_agecluster_all,
                                UTILIZATION_TARGETS, USER_TRIPS_PER_CASE, SCENARIO_YEAR)
 crm_demand <- result[[1]]
 crm_demand_travel <- result[[2]]

@@ -1299,7 +1299,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
     print(paste0("Running distribution capacity constrained"))
     
     pos <- create_pos_vector(filter(school_20xx, is.consolidated == 0), new_school, pos_full)
-
+    
     # Loop through until the overfill ade is assigned
     while(overfill_ade >= overfill_threshold) {
       print(paste0("Iteration: ", i, ". Overfill ADE: ", round(overfill_ade, 0)))
@@ -1747,6 +1747,65 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
   
   return(list(ALC_proj_cd_agecluster, ALC_proj_cd))
 }
+
+forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds, year_id) {
+  HBAM_control <- HBAMprojected_master_tz %>%
+    mutate(los = replace_na(los, 0),
+           beddays = replace_na(beddays, 0),
+           beds.forecasted = beddays / HOSP_OP_DAYS) %>%
+    filter(year == year_id) %>%
+    rename(demand.days.total = beddays) %>% 
+    group_by(id, caretype, agecluster) %>%
+    summarise_at(vars(cases:beds.forecasted), sum, na.rm=TRUE) %>%
+    group_by(id) %>% 
+    mutate(sum.cases = sum(cases),
+           sum.demand.days.total = sum(demand.days.total),
+           sum.beds.forecasted = sum(beds.forecasted)) %>%
+    ungroup() %>% 
+    # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
+    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.forecasted), 
+                values_fill = c(cases = 0, demand.days.total = 0, beds.forecasted = 0)) %>% 
+    mutate(sum.demand.days.total_AM = demand.days.total_AM_ad + demand.days.total_AM_ped + demand.days.total_AM_sr,
+           sum.demand.days.total_AT = demand.days.total_AT_ad + demand.days.total_AT_ped + demand.days.total_AT_sr,
+           sum.demand.days.total_CR = demand.days.total_CR_ad + demand.days.total_CR_ped + demand.days.total_CR_sr,
+           sum.demand.days.total_GR = demand.days.total_GR_ad + demand.days.total_GR_ped + demand.days.total_GR_sr,
+           sum.demand.days.total_MH = demand.days.total_MH_ad + demand.days.total_MH_ped + demand.days.total_MH_sr,
+           sum.demand.days = sum.demand.days.total_AM + sum.demand.days.total_AT + sum.demand.days.total_CR + 
+             sum.demand.days.total_GR + sum.demand.days.total_MH)
+  
+  # Convert num_beds to be in wide form (i.e., one row per asset)
+  num_beds_wide <- num_beds %>%
+    rename(beds.existing = staffedbeds) %>% 
+    mutate(caretype.beds = paste0('beds.existing.', caretype)) %>%
+    select(-year, -caretype, -count) %>% 
+    pivot_wider(names_from = c(caretype.beds), values_from = c(beds.existing), values_fill = c(beds.existing = 0)) %>% 
+    rename(beds.existing = total.hosp.beds)
+  
+  hospital_wide_final_hbam <- HBAM_control %>% 
+    left_join(num_beds_wide, by = c('id')) %>% 
+    mutate(beds.forecasted.AT = beds.forecasted_AT_ad + beds.forecasted_AT_ped + beds.forecasted_AT_sr,
+           beds.forecasted.CR = beds.forecasted_CR_ad + beds.forecasted_CR_ped + beds.forecasted_CR_sr,
+           beds.forecasted.GR = beds.forecasted_GR_ad + beds.forecasted_GR_ped + beds.forecasted_GR_sr,
+           beds.forecasted.MH = beds.forecasted_MH_ad + beds.forecasted_MH_ped + beds.forecasted_MH_sr,
+           beds.forecasted = beds.forecasted.AT + beds.forecasted.CR + beds.forecasted.GR + beds.forecasted.MH,
+           utilization.AM = 0,
+           utilization.AT = sum.demand.days.total_AT / beds.forecasted.AT / HOSP_OP_DAYS,
+           utilization.CR = sum.demand.days.total_CR / beds.forecasted.CR / HOSP_OP_DAYS,
+           utilization.GR = sum.demand.days.total_GR / beds.forecasted.GR / HOSP_OP_DAYS,
+           utilization.MH = sum.demand.days.total_MH / beds.forecasted.MH / HOSP_OP_DAYS,
+           utilization = sum.demand.days / beds.forecasted / HOSP_OP_DAYS,
+           utilization.AT.existing = sum.demand.days.total_AM / beds.existing.AT / HOSP_OP_DAYS,
+           utilization.CR.existing = sum.demand.days.total_CR / beds.existing.CR / HOSP_OP_DAYS,
+           utilization.GR.existing = sum.demand.days.total_GR / beds.existing.GR / HOSP_OP_DAYS,
+           utilization.MH.existing = sum.demand.days.total_MH / beds.existing.MH / HOSP_OP_DAYS,
+           utilization.existing = sum.demand.days / beds.existing / HOSP_OP_DAYS) %>% 
+    # Replace 'Inf' utilizations into NA
+    mutate_at(vars(utilization.existing, utilization.AT.existing, utilization.CR.existing, utilization.GR.existing,
+                   utilization.MH.existing), ~replace(., is.infinite(.), NA))
+  
+  return(hospital_wide_final_hbam)
+}
+
 
 forecast_scenario_crm_calculation <- function(treso_population_moh_agecluster, treso_origin_cases, hospital_lookup_master, 
                                               HBAMprojected_alos_adj, crm_treso, ALC_proj_cd_agecluster, ALC_proj_cd, caretype_list, 
@@ -2278,7 +2337,7 @@ redistribute_demand_within_for_new_hospitals <- function(new_hospital, specialit
 }
 
 format_demand_output <- function(treso_shp, treso_zone_system, treso_population_moh_agecluster, travel_time_skim,
-                                 hospitallocations_tz, new_hospital=NULL, crm_hosp_agecluster_all,
+                                 travel_distance_skim, hospitallocations_tz, new_hospital=NULL, crm_hosp_agecluster_all,
                                  utilization_targets, trips_per_case, scenario_year) {
   
   # Calculate TRESO populations at the agecluster level instead of agegroup
@@ -2352,17 +2411,32 @@ format_demand_output <- function(treso_shp, treso_zone_system, treso_population_
     # Join in travel times for treso zone to treso zone travel
     left_join(travel_time_skim, by = c('orig.treso' = 'treso.id.por', 'hosp.treso' = 'treso.id.pos')) %>%
     rename(trip.time = value) %>%
+    # Join in travel distan for treso zone to treso zone travel
+    left_join(travel_distance_skim, by=c('orig.treso' = 'treso.id.por', 'hosp.treso' = 'treso.id.pos')) %>% 
+    rename(trip.distance = value) %>% 
     # Calculate travel time by origin treso zone to hospital treso zone
-    mutate(cases.travel.time = cases * trip.time * trips_per_case) %>%
+    mutate(cases.travel.time = cases * trip.time * trips_per_case,
+           cases.travel.distance = cases * trip.distance * trips_per_case)%>%
     # Find total and average travel time by CSD origin
     group_by(orig.csd, caretype) %>%
     mutate(orig.csd.caretype.travel.time.total = sum(cases.travel.time),
-           orig.csd.caretype.travel.time.avg = orig.csd.caretype.travel.time.total / sum(cases) / trips_per_case) %>%
+           orig.csd.caretype.travel.time.avg = orig.csd.caretype.travel.time.total / sum(cases) / trips_per_case,
+           orig.csd.caretype.travel.distance.total = sum(cases.travel.distance),
+           orig.csd.caretype.travel.distance.avg = orig.csd.caretype.travel.distance.total / sum(cases) / trips_per_case) %>%
     ungroup() %>% 
-    # Calculate total and average travel times at the hospital level
+    # Calculate total and average travel times at the hospital/caretype level
     group_by(id, caretype) %>% 
     mutate(hosp.caretype.travel.time.total = sum(cases.travel.time),
-           hosp.caretype.travel.time.avg = hosp.caretype.travel.time.total / sum(cases) / trips_per_case) %>% 
+           hosp.caretype.travel.time.avg = hosp.caretype.travel.time.total / sum(cases) / trips_per_case,
+           hosp.caretype.travel.distance.total = sum(cases.travel.distance),
+           hosp.caretype.travel.distance.avg = hosp.caretype.travel.distance.total / sum(cases) / trips_per_case) %>% 
+    ungroup() %>% 
+    # Calculate total and average travel times at the hospital level
+    group_by(id) %>% 
+    mutate(hosp.travel.time.total = sum(cases.travel.time),
+           hosp.travel.time.avg = hosp.travel.time.total / sum(cases) / trips_per_case,
+           hosp.travel.distance.total = sum(cases.travel.distance),
+           hosp.travel.distance.avg = hosp.travel.distance.total / sum(cases) / trips_per_case) %>% 
     ungroup()
   
   return(list(crm_demand, crm_demand_travel))
@@ -2371,13 +2445,15 @@ format_demand_output <- function(treso_shp, treso_zone_system, treso_population_
 format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel) {
   # Summarise total and average travel times by hospital by caretype, convert to wide format
   hosp_travel_wide <- crm_demand_travel %>% 
-    distinct(id, caretype, hosp.caretype.travel.time.total, hosp.caretype.travel.time.avg) %>% 
+    distinct(id, caretype,
+             hosp.caretype.travel.time.total, hosp.caretype.travel.time.avg,
+             hosp.caretype.travel.distance.total, hosp.caretype.travel.distance.avg) %>% 
     # Convert to wide format
-    pivot_wider(names_from = c(caretype), values_from = c(hosp.caretype.travel.time.total, hosp.caretype.travel.time.avg), 
-                values_fill = c(hosp.caretype.travel.time.total = 0, hosp.caretype.travel.time.avg = 0)) %>% 
-    # Fix N/A values for travel times at new hospitals
-    replace_na(list(hosp.caretype.travel.time.avg_AM = 0, hosp.caretype.travel.time.avg_AT = 0, hosp.caretype.travel.time.avg_CR = 0, 
-                    hosp.caretype.travel.time.avg_GR = 0, hosp.caretype.travel.time.avg_MH = 0))
+    pivot_wider(names_from = c(caretype), 
+                values_from = c(hosp.caretype.travel.time.total, hosp.caretype.travel.time.avg, 
+                                hosp.caretype.travel.distance.total, hosp.caretype.travel.distance.avg)) %>% 
+    left_join(distinct(crm_demand_travel, id, hosp.travel.time.total, hosp.travel.time.avg,
+                       hosp.travel.distance.total, hosp.travel.distance.avg), by="id")
   
   # Convert num_beds to be in wide form (i.e., one row per asset)
   num_beds_wide <- num_beds %>%
@@ -2459,7 +2535,7 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
            utilization.existing = sum.demand.days / beds.existing / HOSP_OP_DAYS) %>%
     # Replace 'Inf' utilizations into NA
     mutate_at(vars(utilization.existing, utilization.AT.existing, utilization.CR.existing, utilization.GR.existing, utilization.MH.existing), ~replace(., is.infinite(.), NA))
-
+  
   # Add in travel times, distances to final hospital_wide table
   hospital_wide_final <- hospital_wide_util %>% 
     left_join(hosp_travel_wide, by = c('id'))
