@@ -2445,6 +2445,8 @@ format_demand_output <- function(treso_shp, treso_zone_system, treso_population_
 format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel) {
   # Summarise total and average travel times by hospital by caretype, convert to wide format
   hosp_travel_wide <- crm_demand_travel %>% 
+    # Remove the temoporary hospital if DM is off
+    filter(id != 99999) %>% 
     distinct(id, caretype,
              hosp.caretype.travel.time.total, hosp.caretype.travel.time.avg,
              hosp.caretype.travel.distance.total, hosp.caretype.travel.distance.avg) %>% 
@@ -2464,7 +2466,9 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
     rename(beds.existing = total.hosp.beds)
   
   # Temporary dataframe to store the beds needed columns
-  beds_needed <- crm_demand %>% 
+  beds_needed <- crm_demand %>%   
+    # Remove the temoporary hospital if DM is off
+    filter(id != 99999) %>% 
     # Calculate beds needed and demand, summarised at the hospital level
     group_by(id, caretype) %>% 
     summarise(beds.needed = first(beds.needed)) %>% 
@@ -2475,7 +2479,9 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
     mutate_if(is.numeric, replace_na, replace=0)
   
   # Calculate demand and capacity data by asset (i.e., by hospital)
-  hospital_wide <- crm_demand %>% 
+  hospital_wide <- crm_demand %>%   
+    # Remove the temoporary hospital if DM is off
+    filter(id != 99999) %>% 
     # Calculate beds needed and demand, summarised at the hospital level
     group_by(id, hosp.csd, caretype, agecluster) %>% 
     summarise(cases = sum(cases), demand.days.total = sum(demand.days.total), 

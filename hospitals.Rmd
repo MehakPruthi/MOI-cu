@@ -548,7 +548,7 @@ CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from 
 
 AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user from visualization tool
 
-DECISION_MAKING <- TRUE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
+DECISION_MAKING <- FALSE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on it's own
 
 # Number of beds added by CSD
 USER_NEW_LTC_CAP_CSD <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 10000))
@@ -632,18 +632,17 @@ if (DECISION_MAKING) {
 
 ### Add hospitals
 ```{r}
-# TODO: Replace this with list of new hospitals provided by user through visualization tool
+
 new_hospital_user <- tibble(
-  id = c(88888, 88888, 88888, 88888, 88888, 99999, 99999, 99999, 99999, 99999),
-  hospital.lat = c(43.90032, 43.90032, 43.90032, 43.90032, 43.90032, 43.95, 43.95, 43.95, 43.95, 43.95),
-  hospital.long = c(-78.85863, -78.85863, -78.85863, -78.85863, -78.85863, -78.79, -78.79, -78.79, -78.79, -78.79),
-  name = c('New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 1', 'New Hospital 2', 
-           'New Hospital 2', 'New Hospital 2', 'New Hospital 2', 'New Hospital 2'),
-  caretype = c("AT", "CR", "GR", "MH", "AM", "AT", "CR", "GR", "MH", "AM"),
+  id = c(rep(88888, 5), rep(99999, 5)),
+  hospital.lat = c(rep(43.90032, 5), rep(43.95, 5)),
+  hospital.long = c(rep(-78.85863, 5), rep(-78.79, 5)),
+  name = c(rep('New Hospital 1', 5), rep('New Hospital 2', 5)),
+  caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"), 2)),
   # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
   beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
   # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
-  specialityfactor = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1) # 1 if hospital is speciality hospital, 0 if not
+  specialityfactor = c(rep(0, 5), rep(1, 5)) # 1 if hospital is speciality hospital, 0 if not
   ) %>%
   group_by(id) %>%
   mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
@@ -668,16 +667,32 @@ There are two components of demand that require redistribution:
 
 ```{r}
 
-if (nrow(new_hospital) != 0) {
-  crm_orig_revised <- redistribute_demand_leaving_for_new_hospitals(new_hospital, speciality_hospitals, num_beds, crm_orig,
-                                                                     treso_shp, treso_zone_system, treso_population_moh_agecluster, 
-                                                                     AGE_CLUSTER_LIST, STAY_IN_CSD_FACTOR, SCENARIO_YEAR)
-  saveRDS(crm_orig_revised, "cache/moh/crm_orig_revised.rds")
-  
-  crm_hosp_agecluster_all <- redistribute_demand_within_for_new_hospitals(new_hospital, speciality_hospitals, num_beds, 
-                                                                         crm_alc, crm_orig_revised)
-  saveRDS(crm_hosp_agecluster_all, "cache/moh/crm_hosp_agecluster_all.rds")
+# Redistribute demand to new hospitals
+if (is.null(new_hospital)) {
+  new_hospital <- tibble(
+    id = c(rep(99999, 5)),
+    hospital.lat = c(rep(43.90032, 5)),
+    hospital.long = c(rep(-78.85863, 5)),
+    name = c(rep('Temp Hospital', 5)),
+    caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"), 1)),
+    # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
+    beds = c(0, 0, 0, 0, 0),
+    # 1 if hospital is speciality hospital, 0 if not
+    specialityfactor = c(rep(0, 5)) 
+    ) %>%
+      group_by(id) %>%
+      mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
+      ungroup()
 }
+
+crm_orig_revised <- redistribute_demand_leaving_for_new_hospitals(new_hospital, speciality_hospitals, num_beds, crm_orig,
+                                                                   treso_shp, treso_zone_system, treso_population_moh_agecluster, 
+                                                                   AGE_CLUSTER_LIST, STAY_IN_CSD_FACTOR, SCENARIO_YEAR)
+saveRDS(crm_orig_revised, "cache/moh/crm_orig_revised.rds")
+
+crm_hosp_agecluster_all <- redistribute_demand_within_for_new_hospitals(new_hospital, speciality_hospitals, num_beds, 
+                                                                       crm_alc, crm_orig_revised)
+saveRDS(crm_hosp_agecluster_all, "cache/moh/crm_hosp_agecluster_all.rds")
 
 ```
 
