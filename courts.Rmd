@@ -6,74 +6,66 @@ output: html_document
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(rgdal)
-library(dfoptim)
 source("helpers.R")
 ```
 
 # Assumptions
-## General Assumptions
+
 - Assumptions due to limited data:
- 
   - Satellite courts lack data because the courthouse hours MAG dataset is not detailed to the level of the court asset MAG dataset, therefore
     - Satellite courts are assumed to service the same set of business lines as the base court in the CD
     - Satellite courts are assumed to have 1 courtroom
   
   - Assume individuals appear at courthouses within their CD of home origin due to limited information on where court demand is coming from
- 
   - Assume that a portion of of individuals are "assigned" and another portion chooses closeset available courtroom due to limited information on the number of trips per individual and where court demand is coming from
     - This split is defaulted to 20/80 for civil, family, small claims and 10/90 for OCJcrim, SCJcrim
-  
   - Four years of back data may not be enough to tease out future trends where hrs/case is increasing and may cause an inflection in forecast years - future extended data set may allow for various demand assessment approaches and/or more accurate rate production from historical data
   
-## Processing Assumptions
-
+- Processing Assumptions
   - CD 3553 (Greater Sudbury) is within CD 3552 (Sudbury) with the courts located in Greater Sudbury. Therefore, the two CDs are combined and treated as one CD due to limited on information on where individuals attending court are coming from
 
-## User Inputs
+# User Inputs
 ```{r}
-
 # Establish rate of business line courthours by population based on historical data. Available historical data is from 2014-2018.
 WEIGHT_RATE = tibble("year" = c(2014, 2015, 2016, 2017, 2018),
                        "weight" = c(1, 1, 1, 1, 1)) # For historical data weighting - default is equal weighting
 
 # Model Scenario inputs
-MODEL_YEAR <- 2025 # TODO: Replace this hard-coded value with user-input value from visualization
+MODEL_YEAR <- 2025
 BASE_YEAR <- 2018 # Most recent historical data
-OP_DAYS <- 249 # TODO: Replace this hard-coded value with user-input value from visualization
-# NEW_COURTROOM_SIZE <- 11500
+OP_DAYS <- 249
+NEW_COURTROOM_SIZE <- 11500
 
-# User-set choice to run decision-making or not
 DECISION_MAKING <- FALSE
 
 if (DECISION_MAKING) {
-  # User input target utilization value for decision-making
   U_AVG <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
-                  target.utilization = c(0.8, 0.8, 0.85, 0.85, 0.9, 0.9)) # Replace with user input from Shiny
+                  target.utilization = c(0.8, 0.8, 0.85, 0.85, 0.9, 0.9))
 } else {
   U_AVG <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
-                target.utilization = c(1, 1, 1, 1, 1, 1)) # Replace with user input from Shiny
+                target.utilization = c(1, 1, 1, 1, 1, 1))
 }
 
-# User-input demand distribution parameters
-CLOSEST_PERCENTAGE <- 0.8 # Assign a fraction of demand to be distributed to their closest courthouse in the CD
-RANDOM_PERCENTAGE <- 0.2 # Assign a fraction of demadn to be distributed to a random courthouse (of appropriate casetype) in the CD, weighted by # of courtrooms
+# Assign a fraction of demand to be distributed to their closest courthouse in the CD
+CLOSEST_PERCENTAGE <- 0.8
+
+# Assign a fraction of demadn to be distributed to a random courthouse (of appropriate casetype) in the CD, weighted by # of courtrooms
+RANDOM_PERCENTAGE <- 0.2
 
 DISTRIBUTION_PERCENTAGE <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
                              closest.percentage = c(0.9, 0.9, 0.8, 0.8, 0.8, 0.8), 
                              random.percentage = 1 - closest.percentage)
 
-# TODO: Replace the hard-coded tibbles below with user-input value from visualization
-# User-input demand-adjustment factor to account for modernization - a factor less than 1 will reduce demand for that business line accordingly 
+# Demand-adjustment factor to account for modernization - a factor less than 1 will reduce demand for that business line accordingly 
 MODERNIZATION_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
                               mod.factor = c(1, 1, 1, 1, 1, 1))
 
-# User-input number of cases per court-hour, appearances per case, and one-way trips per appearance
+# Number of cases per court-hour, appearances per case, and one-way trips per appearance
 APPEARANCE_FACTOR = tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
                            case.factor = c(0.3, 0.3, 0.3, 0.3, 0.3, 0.3),
                            app.factor = c(2, 2, 2, 2, 2, 2),
                            trip.factor = c(2, 2, 2, 2, 2, 2))
 
-# TODO: Replace the hard-coded tibbles below with user-input value from visualization
 # User-placed New Courthouse
 new_courthouse <- tibble(
   bid = "B99999",
@@ -86,26 +78,26 @@ new_courthouse <- tibble(
   new.courthouse = 1)
 
 # Read in cost function parameters from model user: cost per courtroom plus a startup cost applied to all courthouses regardless of size
-USER_COST_PER_SQFT <- 200 # TODO: Replace this hard-coded value with user-input value from visualization
-USER_COST_COURTHOUSE_FLAT <- 20000000 # TODO: Replace this hard-coded value with user-input value from visualization
+USER_COST_PER_SQFT <- 200
+USER_COST_COURTHOUSE_FLAT <- 20000000 
 
 # Cost Annualiztion
-USER_INPUT_INFLATION <- 0.02 # TODO: Replace this hard-coded value with user-input value from visualization
+USER_INPUT_INFLATION <- 0.02
 CURRENCY_YEAR = 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 CURRENT_YEAR = 2020 # Current year used to calculate construction timespan; should be parameterized and put up front for user to choose
 
 ```
 
 
-## Import Data
+# Import Data
 
 ```{r import data}
 # Improt TRESO information to define system
 treso_shp <- readOGR(dsn ="input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
 
-# Import TRESO Travel TIme Skims to distribute demand to courts
-travel_time_skim <- readRDS("cache/treso/treso_travel_time_2016")
+# Import TRESO Travel Time Skims to distribute demand to courts
+travel_time_skim <- readRDS("cache/treso/treso_travel_time_2016.rds")
 
 # Import prepared TRESO projection population with age groups segmented to enable MAG business line (casetype) breakdown
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
@@ -131,30 +123,8 @@ saveRDS(utilization_rate, "cache/mag/utilization_rate.rds")
 ## Data Preparation
 
 ```{r data preparation}
-# Gather the TRESO Population table into long format to prepare data for business line, year, and TRESO Zone grouping
-treso_population_gather <- treso_population %>% 
-  select(-csduid) %>% 
-  rename_at(vars(contains("population")), list(~substr(., 12, 15))) %>% 
-  gather(key="year", value = "population", -treso_zone, -age.group)
 
-# Transform age ranges to business line populations by zone and projection year to sum zone population by matched business line age ranges
-treso_population_bl <- treso_population_gather %>% 
-  mutate(OCJcrim = ifelse(age.group %in% c("12-17", "18", "19", "20-49"), population, 0)) %>% 
-  mutate(SCJcrim = ifelse(age.group %in% c("18", "19", "20-49"), population, 0)) %>% 
-  mutate(OCJfam = ifelse(age.group %in% c("0-11", "12-17"), population, 0)) %>% 
-  mutate(SCJfam = ifelse(age.group %in% c("0-11", "12-17", "18", "19", "20-49", "50-59"), population, 0)) %>% 
-  mutate(civil = ifelse(age.group %in% c("20-49", "50-59", "60-69"), population, 0)) %>%
-  mutate(smac = ifelse(age.group %in% c("20-49", "50-59", "60-69"), population, 0)) %>%
-  group_by(treso_zone, year) %>% 
-  summarise_if(is.numeric, sum) %>% 
-  left_join(select(treso_zone_system, treso_id, cduid, cdname), by = c("treso_zone" = "treso_id"))
-
-# Output the population by business line as long format for historical court hour matching
-treso_population_bl_long <- treso_population_bl %>%
-  gather(casetypes, population, OCJcrim:smac) %>%
-  arrange(treso_zone, casetypes, year) %>% 
-  ungroup()
-
+treso_population_bl_long <- prepare_treso_population(treso_population, treso_zone_system)
 saveRDS(treso_population_bl_long, "cache/mag/treso_population_bl_long.rds")
 
 ```
@@ -162,45 +132,9 @@ saveRDS(treso_population_bl_long, "cache/mag/treso_population_bl_long.rds")
 
 ```{r combine hours with population}
 
-# Read the cached treso_population_bl_long table from the previous data preparation code chunk
-# treso_population_bl_long <- readRDS("cache/mag/treso_population_bl_long.rds")
-
-# Summarize to CD level for population due to court hours being at the base court CD level
-treso_population_bl_cd <- treso_population_bl_long %>% 
-  group_by(year, cduid, cdname, casetypes) %>%
-  summarise(population = sum(population)) %>% 
-  ungroup()
-
-# Combine CD populations with court hours
-court_hours_population <- court_hours %>% 
-  left_join(treso_population_bl_cd, by = c('year', 'casetypes', 'cduid', 'cdname')) %>% 
-  mutate_at("year", as.numeric) %>% 
-  rename(hours = value, treso_id = treso.id.pos, courthouse.year.total.hours = total) %>% 
-  select(-lat, -long, -csduid, -csdname, - courthouse.lat, - courthouse.long)
-
-# CD 3546 (Haliburton) is missing court hours - requested from MAG but not received as of Dec 2019
-# CD 3553 (Greater Sudbury) is within CD 3552 (Sudbury)
-# The courts are located in Greater Sudbury, so the two CDs are combined and treated as one CD
-sudbury_population_bl_cd <- treso_population_bl_cd %>% 
-  mutate_at("year", as.numeric) %>% 
-  filter(cduid == 3552) %>% 
-  mutate(cduid = 3553) %>% 
-  rename(population.sudbury = population) %>% 
-  select(year, cduid, casetypes, population.sudbury)
-
-# Combine Subury population/hours with remainder of populations/hours  
-court_hours_population <- court_hours_population %>% 
-  left_join(sudbury_population_bl_cd, by = c("cduid", "year", "casetypes")) %>% 
-  replace_na(list(population.sudbury = 0)) %>% 
-  mutate(population = population + population.sudbury)
-
-cat(paste0("Quick check that the population in", "\n",
-           "CD 3553 and 3552 is: ", 
-           sum(filter(treso_population_bl_cd, year == 2018, cduid %in% c(3552, 3553))$population), "\n",
-           "Combined is: ",
-           (filter(court_hours_population, year == 2018, cduid == 3553) %>% group_by(bid, cduid) %>% summarise(population = sum(population)))$population[1]))
-
+court_hours_population <- combine_hours_and_population(treso_population_bl_long, court_hours)
 saveRDS(court_hours_population, "cache/mag/court_hours_population.rds")
+
 ```
 
 # Rate Calculation
@@ -216,79 +150,17 @@ The age ranges for business lines are based on background information received a
 - Smac: 20 - 69
 
 ```{r population rates for base year 2018}
-# Determine rate of court hours per person (relevant population) for each courthouse; weighting determined as set by user in inputs
-court_rate <- court_hours_population %>% 
-  left_join(WEIGHT_RATE, by = "year") %>% 
-  filter(!is.na(weight)) %>%
-  mutate(pop.rate = hours / population) %>% 
-  # Average the years, as weighted by user
-  group_by(bid, name, cduid, cdname, casetypes) %>% 
-  summarise(pop.rate = weighted.mean(pop.rate, weight),
-            hours = sum(hours)) %>% 
-  ungroup()
 
-# Add courthouses together, grouped by CD, to get total CD rates, since relevant population for courthoues are equal (by casetype) within any CD 
-baseyear_rates <- court_rate %>% 
-  group_by(cduid, cdname, casetypes) %>% 
-  summarise(pop.rate = sum(pop.rate)) %>% 
-  replace_na(list(pop.rate = 0)) %>% 
-  ungroup()
-
+baseyear_rates <- calculate_baseyear_rates(court_hours_population, WEIGHT_RATE)
 saveRDS(baseyear_rates, "cache/mag/baseyear_rates.rds")
+
 ```
 
 ## Project Cases
 
 ```{r project cases by business lines}
 
-# Apply established rates in previous chunk from cached baseyear_rates.rds table
-future_cases_bl <- baseyear_rates %>%
-  left_join(treso_population_bl_cd, by = c("cduid", "cdname", "casetypes")) %>%
-  spread(key = "year", value = "population") %>%
-  # Remove historical data
-  select(-`2011`:-`2017`) %>%
-  # Multiply populations by hours rate
-  mutate_at(vars(starts_with("20")), list(~(. * pop.rate))) %>% 
-  gather(year, court.hours, `2018`:`2041`)
-
-saveRDS(future_cases_bl, "cache/mag/future_cases_bl.rds")
-
-# Sanity check - this will miss population from Sudbury, so it will be slightly lower than observed, but in the TRESO level which is what is actually used in modelling, Sudbury will share the rates of Greater Sudbury
-print("If the 'recent_year' flag is used to calculate the baseyear_rate, then the court hours in 2018 should match")
-
-print(filter(future_cases_bl, year == 2018) %>% group_by(cduid, cdname, casetypes) %>% summarise(court.hours = sum(court.hours)))
-
-print(filter(court_hours_population, year == 2018) %>% group_by(cduid, cdname, casetypes) %>% summarise(court.hours = sum(hours)))
-
-print(paste0("The calculated court hours is: ", (sum(filter(future_cases_bl, year == 2018)$court.hours)),
-             " While the historical 2018 court hours is: ", (sum(filter(court_hours_population, year == 2018)$hours))))
-
-# Calculate the cases at TRESO level
-# treso_population_bl_long <- readRDS("cache/mag/treso_population_bl_long.rds")
-baseyear_rates <- readRDS("cache/mag/baseyear_rates.rds")
-
-# CD 3552 (Sudbury) will share rates from CD 3553 (Greater Sudbury)
-# The case rates were calculated using the combined population
-sudbury_rates <- baseyear_rates %>% 
-  filter(cduid == 3553) %>% 
-  select(cduid, casetypes, pop.rate) %>% 
-  mutate(cduid = 3552) %>% 
-  rename(pop.rate.sudbury = pop.rate)
-
-# Project future cases at the TRESO level based on CD rates and TRESO populations
-future_cases_bl_treso <- treso_population_bl_long %>% 
-  left_join(baseyear_rates, by = c("cduid", "cdname", "casetypes")) %>% 
-  left_join(sudbury_rates, by = c("cduid", "casetypes")) %>% 
-  mutate(pop.rate = ifelse(!is.na(pop.rate.sudbury), pop.rate.sudbury, pop.rate)) %>% 
-  select(-pop.rate.sudbury) %>% 
-  mutate(court.hours = population * pop.rate) %>% 
-  # Replace N/A values where no hours are available - this should not be necessary once data for Haliburton is obtained
-  replace_na(list(court.hours = 0, pop.rate = 0)) 
-
-# Sanity Check - If the 'recent_year' flag is used to calculate the baseyear_rate, then the court hours in 2018 should match
-print(paste0("The calculated court hours is: ", (sum(filter(future_cases_bl_treso, year == 2018)$court.hours)),
-             " While the historical 2018 court hours is: ", (sum(filter(court_hours_population, year == 2018)$hours))))
-
+future_cases_bl_treso <- calculate_forecast_cases(baseyear_rates, treso_population_bl_long)
 saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
 
 ```
@@ -297,206 +169,41 @@ saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
 -  Calculate courtrooms required using business line specfic utilization characteristics from background data recieved
 
 ```{r courtroom required}
-# Calculate future court hours needed based on the business-line-specific utilization characteristics
-future_needs <- future_cases_bl %>%
-  filter(year == MODEL_YEAR) %>% 
-  left_join(utilization_rate, by = "casetypes") %>% 
-  mutate(op.utilization = 0) %>% 
-  # If courtroom hours are <= inflection hours, use (inflection hours - 0) to calculate where on the capacity slope each courthouse falls
-  mutate(op.utilization = base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours) %>% 
-  # If courtroom hours are > inflection hours, replace calculation above with (max.hours - inflection hours) to calculate where on capacity slope courthouses fall
-  mutate(op.utilization = ifelse(court.hours > inflect.hours & court.hours <= max.hours,
-                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours - inflect.hours) / (max.hours - inflect.hours)),
-                                 op.utilization)) %>% 
-  mutate(op.utilization = ifelse(court.hours > max.hours,
-                                 max.hours.dy,
-                                 op.utilization)) %>% 
-  mutate(courtrooms.needed = round(court.hours / (op.utilization * OP_DAYS), digits = 2))
 
-saveRDS(future_needs, "cache/mag/future_needs.rds")
-           
-# Summarise to CD level
-future_needs_cd <- future_needs %>% 
-  group_by(cduid, cdname) %>% 
-  summarise(courthours.needed = sum(court.hours),
-            courtrooms.needed = sum(courtrooms.needed)) 
-
-# Summarise courtrooms needed with the existing 2018 courtrooms dataset, including GFA required
-courthouse_asset_with_projected_cd <- courthouse_asset %>%
-  group_by(cduid, cdname) %>% 
-  summarise(number.of.courtrooms.2018 = sum(courtrooms),
-            rentable.square.feet.2018 = sum(rentable.square.feet)) %>% 
-  left_join(future_needs_cd, by = c("cduid", "cdname")) %>% 
-  mutate(rentable.square.feet.needed = courtrooms.needed * courtroom_size(courtrooms.needed)) %>% 
-  ungroup()
-
-saveRDS(courthouse_asset_with_projected_cd, "output/mag/courthouse_asset_with_projected_cd.rds")
-
-# Calculating CD utilization level - 3 approaches tested
-# Utilization at this stage refers to the ratio of needed courtrooms to current number of courtrooms
-# Approach most realistic and accurate is summing business line courtroom needs by CD
+forecasted_courtrooms_required <- calculate_courtrooms_required(future_cases_bl_treso, utilization_rate, 
+                                                                courthouse_asset, MODEL_YEAR)
+saveRDS(forecasted_courtrooms_required, "output/mag/forecasted_courtrooms_required.rds")
 
 ## Calculate an average utilization by CD and model year
-cd_utilization_appr1 <- courthouse_asset_with_projected_cd %>% 
-  mutate(utilization_appr1 = courtrooms.needed/number.of.courtrooms.2018)
-
+cd_utilization <- forecasted_courtrooms_required %>% 
+  mutate(utilization = courtrooms.needed / number.of.courtrooms.2018)
 ```
 
 # Demand Distribution
 
-- NOTE: this may not be necessary anymore after MAG Workshop
 - All cases are assigned to a single courthouse because the buisness lines do NOT compete with each other
 - Upon confirmation, the distribution of demand to competing courthouses can be removed.
 
 ```{r demand distribution}
 
-# Prepare the origin demand vector for selected year
-treso_demand_origin <- readRDS("cache/mag/future_cases_bl_treso.rds") %>%
-  rename(treso.id.por = treso_zone) %>% 
-  filter(year == MODEL_YEAR) %>%
-  select(-year, -population, -pop.rate) %>%
-  left_join(MODERNIZATION_FACTOR, by = "casetypes") %>%
-  mutate(court.hours = court.hours * mod.factor)
+results <- distribute_mag_demand(future_cases_bl_treso, courthouse_asset, new_courthouse, treso_shp, travel_time_skim,
+                                 MODERNIZATION_FACTOR, APPEARANCE_FACTOR, DISTRIBUTION_PERCENTAGE, U_AVG, MODEL_YEAR)
 
-# Overlay with TRESO Shapefile to get the TRESO/CD Information
-if (nrow(new_courthouse) != 0) {
-  new_courthouse_xy <- create_court_xy(select(new_courthouse, -new.courthouse))
-  new_courthouse_overlay <- create_overlay(new_courthouse_xy, treso_shp, type = "court") %>% 
-    left_join(treso_zone_system, by = c("treso.id.pos" = "treso_id")) %>% 
-    left_join(new_courthouse, by = "bid") %>% 
-    mutate_if(is.factor, as.character)
-}
+courthouse_asset <- results[[1]]
+courthours_od <- results[[2]]
 
-# Find out the treso zone and CD region
-courthouse_asset_user <- bind_rows(courthouse_asset, new_courthouse_overlay)
-
-# Create a list of courthouses available in each CD
-courthouse_available <- courthouse_asset_user %>%
-  unnest(casetypes = strsplit(casetypes.serviced, ",")) %>% 
-  group_by(cduid, cdname, casetypes) %>% 
-  summarise(treso.id.pos = paste(treso.id.pos, collapse = ","),
-            bid = paste(bid, collapse = ","),
-            name = paste(name, collapse = ","),
-            building.type = paste(building.type, collapse = ","),
-            courtrooms = paste(courtrooms, collapse = ",")
-            )
-
-# Join the list of courthouses available by CD to the origin demand
-# NOTE: Sudbury (CD 3552) needs to be matched with Greater Sudbury (CD 3553) courts
-# Distribute a percentage of TRESO demand to closest courthouse within the CD
-# Distribute another percentage of TRESO demand weight by available courhouses within the CD
-courthours_od <- treso_demand_origin %>%
-  filter(court.hours != 0) %>% 
-  mutate(cduid = ifelse(cduid == 3552, 3553, cduid),
-         cdname = ifelse(cdname == "Sudbury", "Greater Sudbury / Grand Sudbury", cdname)) %>% 
-  left_join(courthouse_available, by = c("cduid", "cdname", "casetypes")) %>% 
-  unnest(treso.id.pos = strsplit(treso.id.pos, ","),
-         bid = strsplit(bid, ","),
-         name = strsplit(name, ","),
-         building.type = strsplit(building.type, ","),
-         courtrooms = strsplit(courtrooms, ",")) %>% 
-  mutate(treso.id.por = as.numeric(treso.id.por),
-         treso.id.pos = as.numeric(treso.id.pos),
-         courtrooms = as.numeric(courtrooms)) %>% 
-  # Merge with TRESO travel times
-  left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
-  # Identify the closest travel time pair by calculating a travel utility (e^(1/tt))
-  mutate(travel.utility = exp(1/value)) %>%
-  arrange(treso.id.por, casetypes, desc(travel.utility)) %>% 
-  group_by(treso.id.por, casetypes) %>% 
-  # Give a utility ranking for each combination of POR and casetypes
-  mutate(travel.utility.ranking = row_number(),
-         courtroom.weight = courtrooms / sum(courtrooms)) %>% 
-  ungroup() %>%
-  # Flag the courthouses in the same TRESO zone servicing the same casetype that has the closest travel utility
-  group_by(treso.id.por, casetypes, travel.utility) %>% 
-  mutate(identical = ifelse(nchar(paste(unique(bid), collapse = ",")) > 6 && travel.utility.ranking == 1,
-                            ceiling(nchar(paste(unique(bid), collapse = "")) / 6), 0)) %>% 
-  ungroup() %>% 
-  # Join in closest travel and random assignment scaling factors
-  left_join(DISTRIBUTION_PERCENTAGE, by = c('casetypes')) %>% 
-  # If the courthouse is the closest but also have a identical flag - change the travel utility ranking to 2
-  group_by(treso.id.por, casetypes, identical) %>% 
-  mutate(travel.utility.ranking = ifelse(identical > 0, 2, travel.utility.ranking)) %>% 
-  mutate(court.hours.to.closest = ifelse(travel.utility.ranking == 1, court.hours * closest.percentage, 0),
-         court.hours.to.random = court.hours * random.percentage * courtroom.weight,
-         court.hours.to.identical = ifelse(identical > 0, court.hours * closest.percentage * courtroom.weight / sum(courtroom.weight), 0)) %>% 
-  ungroup()
-
+saveRDS(courthouse_asset, "output/mag/courthouse_asset.rds")
 saveRDS(courthours_od, "output/mag/courthours_od.rds")
 
-# Calculate the trip list by converting the hours to the courthouse with a user-defined appearance factor
-appearance_trip_list <- courthours_od %>% 
-  group_by(treso.id.por, treso.id.pos, bid, casetypes) %>% 
-  summarise(court.hours = sum(court.hours.to.closest, court.hours.to.random, court.hours.to.identical)) %>% 
-  # Add in factors for converting court-hours to cases, appearances, and trips
-  left_join(APPEARANCE_FACTOR, by = "casetypes") %>% 
-  mutate(cases = court.hours * case.factor, 
-         appearances = cases * app.factor,
-         trips = appearances * trip.factor) %>% 
-  group_by(treso.id.por, treso.id.pos, bid) %>% 
-  summarise(cases = sum(cases),
-            appearances = sum(appearances),
-            trips = sum(trips)) %>% 
-  ungroup()
-
-# Summarize the distributed demand to each courthouses and calculate the utilization for each courthouse
-courthouse_asset_updated <- courthours_od %>% 
-  group_by(bid, name, building.type, courtrooms, cduid, cdname, casetypes) %>% 
-  summarise(court.hours.to.closest = sum(court.hours.to.closest),
-            court.hours.to.random = sum(court.hours.to.random),
-            court.hours.to.identical = sum(court.hours.to.identical)
-            ) %>% 
-  ungroup() %>% 
-  # Join in rentable square feet to determine area shortage
-  left_join(select(courthouse_asset, bid, rentable.square.feet), by = c('bid')) %>% 
-  rename(existing.rentable.sqft = rentable.square.feet) %>% 
-  replace_na(list(existing.rentable.sqft = 0)) %>% 
-  # Join in target utilizations (or neutral targets) based on decision-making choice
-  left_join(U_AVG, by = c('casetypes')) %>% 
-  mutate(court.hours.distributed = (court.hours.to.closest + court.hours.to.random + court.hours.to.identical) / target.utilization) %>% 
-  # Join in daily utilizable hours per courtroom and calculate utilization by courthouse
-  left_join(utilization_rate, by = "casetypes") %>% 
-  mutate(op.utilization = 0) %>% 
-  mutate(op.utilization = ifelse(court.hours.distributed <= inflect.hours,
-                              base.hours.dy + (inflect.hours.dy - base.hours.dy) / (inflect.hours - 0 ) * court.hours.distributed,
-                              op.utilization)) %>% 
-  mutate(op.utilization = ifelse(court.hours.distributed > inflect.hours & court.hours.distributed <= max.hours,
-                                 inflect.hours.dy + ((max.hours.dy - inflect.hours.dy) * (court.hours.distributed - inflect.hours)                                                       / (max.hours - inflect.hours)),
-                                 op.utilization)) %>% 
-  mutate(op.utilization = ifelse(court.hours.distributed > max.hours,
-                                 max.hours.dy,
-                                 op.utilization)) %>% 
-  # Summarise courtrooms needed, courtrooms existing, utilization, etc.
-  mutate(courtrooms.needed = round(court.hours.distributed / (op.utilization * OP_DAYS), digits = 2)) %>% 
-  mutate(utilization = court.hours.distributed / courtrooms / op.utilization / OP_DAYS) %>% 
-  group_by(bid, name, existing.rentable.sqft, building.type, cduid, cdname) %>% 
-  summarise(courtrooms = first(courtrooms),
-            courtrooms.needed = sum(courtrooms.needed),
-            court.hours.distributed = sum(court.hours.distributed),
-            utilization = sum(utilization)) %>% 
-  ungroup() %>%
-  # Join in list of new courthouses input by user to flag new courthouses
-  left_join(select(new_courthouse, bid, new.courthouse), by = c('bid')) %>% 
-  replace_na(list(new.courthouse = 0)) %>% 
-  # Calculate the number of courtrooms to use for area calculations; use new.courthouse flag to calculate area for ALL new courtrooms, not just courtrooms.needed, at new courthouses
-  mutate(courtrooms.for.area.calc = courtrooms.needed + new.courthouse * (courtrooms - courtrooms.needed)) %>% 
-  # Calculate standard areas for courtrooms and area shortfalls
-  mutate(standard.sqft.per.courtroom = courtroom_size(courtrooms.for.area.calc),
-         area.shortfall = standard.sqft.per.courtroom * courtrooms.for.area.calc - existing.rentable.sqft,
-         courtrooms.shortfall = courtrooms.needed - courtrooms) %>% 
-  select(bid, courtrooms, courtrooms.needed, new.courthouse, courtrooms.shortfall, court.hours.distributed, utilization, existing.rentable.sqft, standard.sqft.per.courtroom, area.shortfall)
-
-# Calculate costs
-courthouse_asset_costs <- courthouse_asset_updated %>% 
-  mutate(cost_2018 = round(area.shortfall * USER_COST_PER_SQFT + new.courthouse * USER_COST_COURTHOUSE_FLAT, 0))
 ```
 
 # Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
+
 annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, MODEL_YEAR, CURRENCY_YEAR,
-                                              CURRENT_YEAR, courthouse_asset_costs)
+                                              CURRENT_YEAR, courthouse_asset)
+
 ```
 
 # Old Code: Linear Regression
