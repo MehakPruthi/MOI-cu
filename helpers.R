@@ -1200,9 +1200,6 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
     inner_join(shortlist_zones, by = c('treso.id.por')) %>%
     inner_join(shortlist_zones, by = c('treso.id.pos' = 'treso.id.por'))
   
-  print(paste0("The number of zones in shortlist is: ", nrow(shortlist_zones)))
-  print(paste0("The number of zone pairs in shortlist is: ", nrow(shortlist_pairs)))
-  
   # Initialize Dataframes and while-loop check
   num_shortlist_zones <- nrow(shortlist_zones)
   build_df <- tibble(zone = integer())
@@ -1217,8 +1214,6 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
     build_zone_id = first(shortlist_zones$treso.id.por)
     build_df <- build_df %>%
       add_row(., zone = build_zone_id)
-    
-    print(paste0('Build Zone: ', build_zone_id))
     
     # Create a list of zones to anti_join with shortlist_zones to remove close proximity zones
     origin_zones_removed <- shortlist_pairs %>%
@@ -1293,11 +1288,17 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
   school_forecast <- calculate_delta_between_simulated_scenarios(school_base, school_20xx, school_summary_2017, school_summary_20xx,
                                                                  new_school, user_otg_threshold)
   
-  if (capacity_constrained) {
-    overfill_ade <- 999999
-    i <- 1
+  # Calculate the total overfilled ADE
+  overfill_ade <- school_forecast %>% 
+    mutate(overfill.flag = ifelse(simulated.ade >= otg.threshold, 1, 0),
+           overfill.ade = simulated.ade - otg.threshold) %>% 
+    filter(overfill.flag == 1) %>% 
+    select(overfill.ade) %>% 
+    sum()
+  
+  if (capacity_constrained & overfill_ade >= overfill_threshold) {
     print(paste0("Running distribution capacity constrained"))
-    
+    i <- 1
     pos <- create_pos_vector(filter(school_20xx, is.consolidated == 0), new_school, pos_full)
     
     # Loop through until the overfill ade is assigned

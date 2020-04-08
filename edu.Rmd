@@ -73,25 +73,25 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
 por_full <- readRDS("output/treso/por_full.rds")
 pos_full <- readRDS("output/treso/pos_full.rds")
 
-FORECAST_METHOD <- "EDU" # or set to TRESO
+FORECAST_METHOD <- "TRESO" # or set to TRESO
 
 # Read in user-set travel-time threshold as a function of mean system-wide travel time
-TRAVEL_TIME_THRESHOLD_FACTOR <- 1
+TRAVEL_TIME_THRESHOLD_FACTOR <- 1.1
 
 # Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
-ZONE_PROXIMITY_THRESHOLD <- 7
+ZONE_PROXIMITY_THRESHOLD <- 8
 
 # Define excess travel time below which it is not worthwhile to consider building a school
-MIN_TT_THRESHOLD <- 400
+MIN_TT_THRESHOLD <- 350
 
 # Define threshold below which existing schools should be consolidated, assuming existing schools are elible for consolidation
 CONSOLIDATION_THRESHOLD <- 0.25
 
 # Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
-USER_OTG_THRESHOLD = 1.1
+USER_OTG_THRESHOLD = 1.5
 
 #Percentage of OTG beyond which demand is served by portables
-PORTABLE_THRESHOLD = 0.8
+PORTABLE_THRESHOLD = 1.1
 
 # Define portable size
 ELE_STUDENTS_UNIT_CLASS = 23
@@ -106,7 +106,7 @@ base_year <- 2017
 # Future scenario year
 year_id <- 2025
 board_id <- "French Public"
-panel_id <- "Elementary"
+panel_id <- "Secondary"
 
 ```
 
