@@ -46,12 +46,6 @@ if (DECISION_MAKING) {
                 target.utilization = c(1, 1, 1, 1, 1, 1))
 }
 
-# Assign a fraction of demand to be distributed to their closest courthouse in the CD
-CLOSEST_PERCENTAGE <- 0.8
-
-# Assign a fraction of demadn to be distributed to a random courthouse (of appropriate casetype) in the CD, weighted by # of courtrooms
-RANDOM_PERCENTAGE <- 0.2
-
 DISTRIBUTION_PERCENTAGE <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
                              closest.percentage = c(0.9, 0.9, 0.8, 0.8, 0.8, 0.8), 
                              random.percentage = 1 - closest.percentage)
@@ -106,7 +100,7 @@ treso_population <- readRDS("input/mag/treso_population_mag.rds")
 court_hours <- readRDS("cache/mag/courthouse_hours.rds")
 
 # Import courthouse asset lists that includes satellite & base courts from MAG
-courthouse_asset <- readRDS("cache/mag/courthouse_master.rds")
+courthouse_master <- readRDS("cache/mag/courthouse_master.rds")
 
 # Build utilization table for each business line
 utilization_rate <- tibble(casetypes = c('OCJcrim','SCJcrim','OCJfam','SCJfam','civil','smac'),
@@ -171,7 +165,7 @@ saveRDS(future_cases_bl_treso, "cache/mag/future_cases_bl_treso.rds")
 ```{r courtroom required}
 
 forecasted_courtrooms_required <- calculate_courtrooms_required(future_cases_bl_treso, utilization_rate, 
-                                                                courthouse_asset, MODEL_YEAR)
+                                                                courthouse_master, OP_DAYS, MODEL_YEAR)
 saveRDS(forecasted_courtrooms_required, "output/mag/forecasted_courtrooms_required.rds")
 
 ## Calculate an average utilization by CD and model year
@@ -186,8 +180,9 @@ cd_utilization <- forecasted_courtrooms_required %>%
 
 ```{r demand distribution}
 
-results <- distribute_mag_demand(future_cases_bl_treso, courthouse_asset, new_courthouse, treso_shp, travel_time_skim,
-                                 MODERNIZATION_FACTOR, APPEARANCE_FACTOR, DISTRIBUTION_PERCENTAGE, U_AVG, MODEL_YEAR)
+results <- distribute_mag_demand(future_cases_bl_treso, courthouse_master, new_courthouse, treso_shp, travel_time_skim,
+                                 MODERNIZATION_FACTOR, APPEARANCE_FACTOR, DISTRIBUTION_PERCENTAGE, U_AVG, USER_COST_PER_SQFT,
+                                 USER_COST_COURTHOUSE_FLAT, OP_DAYS, MODEL_YEAR)
 
 courthouse_asset <- results[[1]]
 courthours_od <- results[[2]]
@@ -197,12 +192,11 @@ saveRDS(courthours_od, "output/mag/courthours_od.rds")
 
 ```
 
+
 # Cost Annualization 
 - Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 ```{r}
-
-annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, MODEL_YEAR, CURRENCY_YEAR,
-                                              CURRENT_YEAR, courthouse_asset)
+annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, MODEL_YEAR, CURRENCY_YEAR, CURRENT_YEAR, courthouse_asset)
 
 ```
 
