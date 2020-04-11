@@ -2772,7 +2772,8 @@ calculate_courtrooms_required <- function(future_cases_bl_treso, utilization_rat
   
 }
 
-distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_courthouse, treso_shp, travel_time_skim,
+distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_courthouse, 
+                                  treso_shp, travel_time_skim, travel_distance_skim,
                                   modernization_factor, appearance_factor, distribution_percentage, u_avg, cost_per_sqft,
                                   cost_per_courthouse, op_days, year_id) {
   # Prepare the origin demand vector for selected year
@@ -2825,8 +2826,11 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
            courtrooms = as.numeric(courtrooms)) %>% 
     # Merge with TRESO travel times
     left_join(travel_time_skim, by = c("treso.id.por", "treso.id.pos")) %>%
+    rename(travel.time = value) %>% 
+    left_join(travel_distance_skim, by=c("treso.id.por", "treso.id.pos")) %>% 
+    rename(travel.distance = value) %>% 
     # Identify the closest travel time pair by calculating a travel utility (e^(1/tt))
-    mutate(travel.utility = exp(1/value)) %>%
+    mutate(travel.utility = exp(1/travel.time)) %>%
     arrange(treso.id.por, casetypes, desc(travel.utility)) %>% 
     group_by(treso.id.por, casetypes) %>% 
     # Give a utility ranking for each combination of POR and casetypes
@@ -2868,7 +2872,11 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
     group_by(bid, name, building.type, courtrooms, cduid, cdname, casetypes) %>% 
     summarise(court.hours.to.closest = sum(court.hours.to.closest),
               court.hours.to.random = sum(court.hours.to.random),
-              court.hours.to.identical = sum(court.hours.to.identical)) %>% 
+              court.hours.to.identical = sum(court.hours.to.identical),
+              travel.time.avg = weighted.mean(travel.time, court.hours),
+              travel.distance.avg = weighted.mean(travel.distance, court.hours),
+              travel.time = sum(travel.time * court.hours),
+              travel.distance = sum(travel.distance * court.hours)) %>% 
     ungroup() %>% 
     # Join in rentable square feet to determine area shortage
     left_join(select(courthouse_asset, bid, treso.id.pos, courthouse.lat, courthouse.long, rentable.square.feet), by = c('bid')) %>% 
@@ -2894,6 +2902,10 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
     mutate(utilization = court.hours.distributed / courtrooms / op.utilization / op_days) %>% 
     group_by(bid, treso.id.pos, courthouse.lat, courthouse.long, cduid, cdname, name, building.type) %>% 
     summarise(existing.rentable.sqft = first(existing.rentable.sqft),
+              travel.time = sum(travel.time),
+              travel.time.avg = weighted.mean(travel.time.avg, court.hours.distributed),
+              travel.distance = sum(travel.distance),
+              travel.distance.avg = weighted.mean(travel.distance.avg, court.hours.distributed),
               courtrooms = first(courtrooms),
               courtrooms.needed = sum(courtrooms.needed),
               court.hours.distributed = sum(court.hours.distributed),
@@ -2917,9 +2929,10 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
     mutate(standard.sqft.per.courtroom = courtroom_size(courtrooms.for.area.calc),
            area.shortfall = standard.sqft.per.courtroom * courtrooms.for.area.calc - existing.rentable.sqft,
            courtrooms.shortfall = courtrooms.needed - courtrooms) %>% 
-    select(bid, treso.id.pos, courthouse.lat, courthouse.long, 
+    select(bid, treso.id.pos, cdname, cduid, courthouse.lat, courthouse.long, 
            courtrooms, courtrooms.needed, new.courthouse, courtrooms.shortfall, court.hours.distributed, 
-           utilization, existing.rentable.sqft, standard.sqft.per.courtroom, area.shortfall)
+           utilization, existing.rentable.sqft, standard.sqft.per.courtroom, area.shortfall,
+           travel.time, travel.time.avg, travel.distance, travel.distance.avg)
   
   # Calculate 2018 costs
   courthouse_asset_updated <- courthouse_asset_updated %>% 

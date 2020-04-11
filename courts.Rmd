@@ -89,9 +89,12 @@ CURRENT_YEAR = 2020 # Current year used to calculate construction timespan; shou
 # Improt TRESO information to define system
 treso_shp <- readOGR(dsn ="input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 treso_zone_system <- read.csv("input/treso/treso_zone_system.csv")
+treso_shp_sp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
+treso_projarg = treso_shp_sp@proj4string@projargs
 
 # Import TRESO Travel Time Skims to distribute demand to courts
 travel_time_skim <- readRDS("cache/treso/treso_travel_time_2016.rds")
+travel_distance_skim <- readRDS("cache/treso/treso_distance_2016.rds")
 
 # Import prepared TRESO projection population with age groups segmented to enable MAG business line (casetype) breakdown
 treso_population <- readRDS("input/mag/treso_population_mag.rds")
@@ -180,7 +183,8 @@ cd_utilization <- forecasted_courtrooms_required %>%
 
 ```{r demand distribution}
 
-results <- distribute_mag_demand(future_cases_bl_treso, courthouse_master, new_courthouse, treso_shp, travel_time_skim,
+results <- distribute_mag_demand(future_cases_bl_treso, courthouse_master, new_courthouse, 
+                                 treso_shp, travel_time_skim, travel_distance_skim,
                                  MODERNIZATION_FACTOR, APPEARANCE_FACTOR, DISTRIBUTION_PERCENTAGE, U_AVG, USER_COST_PER_SQFT,
                                  USER_COST_COURTHOUSE_FLAT, OP_DAYS, MODEL_YEAR)
 
