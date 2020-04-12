@@ -2852,31 +2852,23 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
            court.hours.to.identical = ifelse(identical > 0, court.hours * closest.percentage * courtroom.weight / sum(courtroom.weight), 0)) %>% 
     ungroup()
   
-  # Calculate the trip list by converting the hours to the courthouse with a user-defined appearance factor
-  appearance_trip_list <- courthours_od %>% 
-    group_by(treso.id.por, treso.id.pos, bid, casetypes) %>% 
-    summarise(court.hours = sum(court.hours.to.closest, court.hours.to.random, court.hours.to.identical)) %>% 
-    # Add in factors for converting court-hours to cases, appearances, and trips
-    left_join(appearance_factor, by = "casetypes") %>% 
-    mutate(cases = court.hours * case.factor, 
-           appearances = cases * app.factor,
-           trips = appearances * trip.factor) %>% 
-    group_by(treso.id.por, treso.id.pos, bid) %>% 
-    summarise(cases = sum(cases),
-              appearances = sum(appearances),
-              trips = sum(trips)) %>% 
-    ungroup()
-  
   # Summarize the distributed demand to each courthouses and calculate the utilization for each courthouse
   courthouse_asset_updated <- courthours_od %>% 
+    mutate(court.hours.total = court.hours.to.closest + court.hours.to.random + court.hours.to.identical) %>% 
+    # Add in factors for converting court-hours to cases, appearances, and trips
+    left_join(appearance_factor, by = "casetypes") %>% 
+    mutate(trips.per.court.hour = case.factor * app.factor * trip.factor,
+           trips = trips.per.court.hour * court.hours.total) %>% 
+    # Calculate travel times, distances
     group_by(bid, name, building.type, courtrooms, cduid, cdname, casetypes) %>% 
     summarise(court.hours.to.closest = sum(court.hours.to.closest),
               court.hours.to.random = sum(court.hours.to.random),
               court.hours.to.identical = sum(court.hours.to.identical),
-              travel.time.avg = weighted.mean(travel.time, court.hours),
-              travel.distance.avg = weighted.mean(travel.distance, court.hours),
-              travel.time = sum(travel.time * court.hours),
-              travel.distance = sum(travel.distance * court.hours)) %>% 
+              travel.time.avg = weighted.mean(travel.time, trips),
+              travel.distance.avg = weighted.mean(travel.distance, trips),
+              travel.time = sum(travel.time * trips),
+              travel.distance = sum(travel.distance * trips),
+              trips = sum(trips)) %>% 
     ungroup() %>% 
     # Join in rentable square feet to determine area shortage
     left_join(select(courthouse_asset, bid, treso.id.pos, courthouse.lat, courthouse.long, rentable.square.feet), by = c('bid')) %>% 
@@ -2884,7 +2876,8 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
     replace_na(list(existing.rentable.sqft = 0)) %>% 
     # Join in target utilizations (or neutral targets) based on decision-making choice
     left_join(u_avg, by = c('casetypes')) %>% 
-    mutate(court.hours.distributed = (court.hours.to.closest + court.hours.to.random + court.hours.to.identical) / target.utilization) %>% 
+    mutate(court.hours.distributed.prescaled = court.hours.to.closest + court.hours.to.random + court.hours.to.identical,
+           court.hours.distributed = court.hours.distributed.prescaled / target.utilization) %>% 
     # Join in daily utilizable hours per courtroom and calculate utilization by courthouse
     left_join(utilization_rate, by = "casetypes") %>% 
     mutate(op.utilization = 0) %>% 
@@ -2899,18 +2892,19 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
                                    op.utilization)) %>% 
     # Summarise courtrooms needed, courtrooms existing, utilization, etc.
     mutate(courtrooms.needed = round(court.hours.distributed / (op.utilization * op_days), digits = 2)) %>% 
-    mutate(utilization = court.hours.distributed / courtrooms / op.utilization / op_days) %>% 
+    mutate(utilization = court.hours.distributed.prescaled / courtrooms.needed / op.utilization / op_days) %>% 
     group_by(bid, treso.id.pos, courthouse.lat, courthouse.long, cduid, cdname, name, building.type) %>% 
     summarise(existing.rentable.sqft = first(existing.rentable.sqft),
               travel.time = sum(travel.time),
-              travel.time.avg = weighted.mean(travel.time.avg, court.hours.distributed),
+              travel.time.avg = weighted.mean(travel.time.avg, trips),
               travel.distance = sum(travel.distance),
-              travel.distance.avg = weighted.mean(travel.distance.avg, court.hours.distributed),
+              travel.distance.avg = weighted.mean(travel.distance.avg, trips),
               courtrooms = first(courtrooms),
               courtrooms.needed = sum(courtrooms.needed),
-              court.hours.distributed = sum(court.hours.distributed),
-              utilization = sum(utilization)) %>% 
-    ungroup() 
+              utilization = weighted.mean(utilization, court.hours.distributed.prescaled),
+              court.hours.distributed.prescaled = sum(court.hours.distributed.prescaled),
+              trips = sum(trips)) %>% 
+    ungroup()
   
   if(!is.null(new_courthouse)) {
     courthouse_asset_updated <- courthouse_asset_updated %>%
@@ -2924,19 +2918,22 @@ distribute_mag_demand <- function(future_cases_bl_treso, courthouse_asset, new_c
   
   courthouse_asset_updated <- courthouse_asset_updated %>% 
     # Calculate the number of courtrooms to use for area calculations; use new.courthouse flag to calculate area for ALL new courtrooms, not just courtrooms.needed, at new courthouses
-    mutate(courtrooms.for.area.calc = courtrooms.needed + new.courthouse * (courtrooms - courtrooms.needed)) %>% 
+    mutate(courtrooms.for.std.area.calc = courtrooms.needed + new.courthouse * (courtrooms - courtrooms.needed),
+           net.new.courtrooms = pmax(courtrooms.needed - courtrooms, 0) + new.courthouse * courtrooms) %>% 
     # Calculate standard areas for courtrooms and area shortfalls
-    mutate(standard.sqft.per.courtroom = courtroom_size(courtrooms.for.area.calc),
-           area.shortfall = standard.sqft.per.courtroom * courtrooms.for.area.calc - existing.rentable.sqft,
+    mutate(standard.sqft.per.courtroom = courtroom_size(courtrooms.for.std.area.calc),
+           built.area = existing.rentable.sqft + standard.sqft.per.courtroom * (net.new.courtrooms),
+           area.shortfall = standard.sqft.per.courtroom * courtrooms.for.std.area.calc - built.area,
            courtrooms.shortfall = courtrooms.needed - courtrooms) %>% 
+    # Select final display fields
     select(bid, treso.id.pos, cdname, cduid, courthouse.lat, courthouse.long, 
-           courtrooms, courtrooms.needed, new.courthouse, courtrooms.shortfall, court.hours.distributed, 
-           utilization, existing.rentable.sqft, standard.sqft.per.courtroom, area.shortfall,
+           courtrooms, courtrooms.needed, new.courthouse, courtrooms.shortfall, court.hours.distributed.prescaled, 
+           utilization, existing.rentable.sqft, standard.sqft.per.courtroom, area.shortfall, built.area, trips,
            travel.time, travel.time.avg, travel.distance, travel.distance.avg)
   
   # Calculate 2018 costs
   courthouse_asset_updated <- courthouse_asset_updated %>% 
-    mutate(cost_2018 = round(area.shortfall * cost_per_sqft + new.courthouse * cost_per_courthouse, 0))
+    mutate(cost_2018 = round((built.area - existing.rentable.sqft) * cost_per_sqft + new.courthouse * cost_per_courthouse, 0))
   
   return(list(courthouse_asset_updated, courthours_od))
 }
