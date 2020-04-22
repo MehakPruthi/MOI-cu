@@ -79,7 +79,7 @@ ALC_idcrosswalk_slim <- ALC_idcrosswalk %>%
 # ALC data for 2017 only includes LHINs 1-3 and 10-14; ALC data for 2012 also partial
 # MADD = most appropriate discharge destination
 # Filtered for MADD = LTC 
-ALC_madd_raw <- readRDS('cache/moh/ALC_madd_raw.rds') %>% 
+LTC_madd_raw <- readRDS('cache/moh/ALC_madd_raw.rds') %>% 
   filter(madd == 'LTC', year != 2011, year!= 2012, year != 2017)
 
 # Non-LTC ALC raw data
@@ -295,18 +295,18 @@ saveRDS(hospital_lookup_ALC, "cache/moh/hospital_lookup_ALC.rds")
 
 ### LTC: Estimating Suppression - Aggregate Level
 ```{r}
-ALC_madd_prov_total <- ALC_madd_raw %>% 
+LTC_madd_prov_total <- LTC_madd_raw %>% 
   filter(number == 15, agegroup == 9) %>% 
   rename('prov.days.tot' = 'alcdays',
          'prov.los.avg' = 'avg.los')
 
 # This query is a double-check to make sure LHIN totals sum to provincial total
-ALC_lhin_vol <-  ALC_madd_raw %>% 
+LTC_lhin_vol <- LTC_madd_raw %>% 
   filter(agegroup == 9, number < 15) %>% 
   rename('lhin.num' = 'number',
          'lhin.days' = 'alcdays',
          'lhin.los.avg' = 'avg.los') %>% 
-  left_join(select(ALC_madd_prov_total, year, prov.days.tot, prov.los.avg), by = 'year') %>% 
+  left_join(select(LTC_madd_prov_total, year, prov.days.tot, prov.los.avg), by = 'year') %>% 
   group_by(year) %>% 
   mutate(lhin.days.tot = sum(as.numeric(lhin.days)),
          lhin.missing.days = as.numeric(prov.days.tot) - lhin.days.tot,
@@ -318,17 +318,17 @@ ALC_lhin_vol <-  ALC_madd_raw %>%
 
 # This step cleans up most-appropriate discharge data for later use; filtered at an AGGREGATED level
 # Accurate only for years 2012-2016 because 2011 and 2017 are missing LHIN data (see note above)
-ALC_madd_clean_ag <- ALC_madd_raw %>% 
+LTC_madd_clean_ag <- LTC_madd_raw %>% 
   filter(madd == 'LTC', number > 999, agegroup == 9) %>% 
   rename(hosp.alc.days = alcdays,
          hosp.avg.los = avg.los) %>% 
   left_join(select(ALC_idcrosswalk_slim, lhin, ALCsite_id), by = c('siteid' = 'ALCsite_id')) %>% 
-  left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot, agegroup), by = c('year', 'lhin' = 'lhin.num', 'agegroup')) %>% 
+  left_join(select(LTC_lhin_vol, year, lhin.num, adj.lhin.days.tot, agegroup), by = c('year', 'lhin' = 'lhin.num', 'agegroup')) %>% 
   filter(!is.na(lhin)) %>% 
   select(year, siteid, lhin, lhin.days.tot = adj.lhin.days.tot, madd, agegroup, patients, hosp.avg.los, hosp.alc.days)
 
 # This step fills in missing patient days for hospitals where the number of days are suppressed based on low patient counts, but does so for all age groups combined (i.e., agegroup == 9)
-ALC_hosp_vol_ag <- ALC_madd_clean_ag %>% 
+LTC_hosp_vol_ag <- LTC_madd_clean_ag %>% 
   group_by(year, lhin) %>% 
   mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0),
          hosp.days.tot = sum(as.numeric(hosp.alc.days)),
@@ -352,17 +352,17 @@ ALC_hosp_vol_ag <- ALC_madd_clean_ag %>%
 ### LTC: Calculating LHIN/Provincial Agegroup Averages
 ```{r}
 # This step cleans up most-appropriate discharge data for later use; filtered at a DISAGGREGATED level
-ALC_madd_clean_disag <- ALC_madd_raw %>% 
+LTC_madd_clean_disag <- LTC_madd_raw %>% 
   # Filter for LTC; 4-digit hospital siteids; all age groups except 'total'; all years with complete data
   filter(madd == 'LTC', number > 999, agegroup != 9) %>% 
   rename(hosp.alc.days = alcdays,
          hosp.avg.los = avg.los) %>%
   left_join(select(ALC_idcrosswalk_slim, lhin, ALCsite_id), by = c('siteid' = 'ALCsite_id')) %>% 
-  left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot), by = c('year', 'lhin' = 'lhin.num')) %>% 
+  left_join(select(LTC_lhin_vol, year, lhin.num, adj.lhin.days.tot), by = c('year', 'lhin' = 'lhin.num')) %>% 
   filter(!is.na(lhin))
 
 # Calculate number of ALC days per patient for different age groups, at the LHIN level, to fill in suppression gaps
-alc_avg_ages.ex2 <- ALC_madd_clean_disag %>%
+LTC_avg_ages.ex2 <- LTC_madd_clean_disag %>%
   mutate(hosp.alc.days = replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0)) %>% 
   group_by(lhin, agegroup, year) %>% 
   mutate(lhin.agegroup.patients = sum(patients), lhin.agegroup.days = sum(as.numeric(hosp.alc.days))) %>% 
@@ -372,7 +372,7 @@ alc_avg_ages.ex2 <- ALC_madd_clean_disag %>%
   # No total days available for some agegroups (due to suppression resulting from low volumes at the LHIN level) - therefore use average at the provincial level --> see next step
 
 # Determine average length of stay at the provincial level to fill in gaps where data suppressed at the LHIN level
-alc_avg_agegroup2 <- ALC_madd_raw %>% 
+LTC_avg_agegroup2 <- LTC_madd_raw %>% 
   filter(number == 15) %>% 
   rename('lhin.num' = 'number',
          'lhin.days' = 'alcdays',
@@ -384,21 +384,19 @@ alc_avg_agegroup2 <- ALC_madd_raw %>%
   distinct(year, agegroup, prov.agegroup2.patients, prov.agegroup2.days, prov.agegroup2.los)
 
 # Combine length of stay estimates for agegroups
-alc_avg_ages <- alc_avg_ages.ex2 %>% 
-  left_join(alc_avg_agegroup2, by = c('agegroup', 'year')) %>% 
+LTC_avg_ages <- LTC_avg_ages.ex2 %>% 
+  left_join(LTC_avg_agegroup2, by = c('agegroup', 'year')) %>% 
   mutate(agegroup.los = ifelse(lhin.agegroup.los == 0, prov.agegroup2.los, lhin.agegroup.los)) %>% 
   select(-prov.agegroup2.patients, -prov.agegroup2.days)
-
-rm(alc_avg_agegroup2, alc_avg_ages.ex2)
 
 ```
 
 ### LTC: Estimating Suppression - Disaggregate Level (Age Groups)
 ```{r}
 # ALC estimations w/ disaggregated age-groups
-ALC_hosp_vol_disag <- ALC_madd_clean_disag %>%
-  left_join(select(ALC_hosp_vol_ag, year, siteid, hosp.days.tot.agg = adj.hosp.days.tot), by = c('year', 'siteid')) %>%
-  left_join(select(alc_avg_ages, year, lhin, agegroup, agegroup.los), by = c('year', 'lhin', 'agegroup')) %>% 
+LTC_hosp_vol_disag <- LTC_madd_clean_disag %>%
+  left_join(select(LTC_hosp_vol_ag, year, siteid, hosp.days.tot.agg = adj.hosp.days.tot), by = c('year', 'siteid')) %>%
+  left_join(select(LTC_avg_ages, year, lhin, agegroup, agegroup.los), by = c('year', 'lhin', 'agegroup')) %>% 
   filter(!is.na(lhin)) %>%
   group_by(year, siteid) %>% 
   mutate(hosp.alc.days = as.numeric(replace(hosp.alc.days, hosp.alc.days == 'LV' | hosp.alc.days == 'NS', 0)),
@@ -422,22 +420,22 @@ ALC_hosp_vol_disag <- ALC_madd_clean_disag %>%
   # filter(year == 2016) %>%
   # mutate(siteCount = n())
 
-saveRDS(ALC_hosp_vol_disag, file = 'cache/moh/ALC_hospitals_disaggregated.rds')
+saveRDS(LTC_hosp_vol_disag, file = 'cache/moh/LTC_hospitals_disaggregated.rds')
   
 # ALC estimation methodology comparison at the provincial level
 # This query is a double-check to make sure calculations valid --> not used for production tables below
-ALC_summary <- ALC_hosp_vol_disag %>% 
+LTC_summary <- LTC_hosp_vol_disag %>% 
   group_by(year) %>% 
   summarise(hosp.days.tot.dis = sum(adj.hosp.days.tot)) %>% 
-  left_join(select(ALC_hosp_vol_ag, year, siteid, adj.hosp.days.tot), by = 'year') %>%
+  left_join(select(LTC_hosp_vol_ag, year, siteid, adj.hosp.days.tot), by = 'year') %>%
   group_by(year) %>% 
   mutate(hosp.days.tot.agg = sum(adj.hosp.days.tot)) %>%
   distinct(year, hosp.days.tot.dis, hosp.days.tot.agg) %>% 
-  left_join(select(ALC_lhin_vol, year, lhin.num, adj.lhin.days.tot), by = 'year') %>% 
+  left_join(select(LTC_lhin_vol, year, lhin.num, adj.lhin.days.tot), by = 'year') %>% 
   group_by(year) %>% 
   mutate(lhin.days.tot = sum(adj.lhin.days.tot)) %>% 
   distinct(year, hosp.days.tot.dis, hosp.days.tot.agg, lhin.days.tot) %>%
-  left_join(select(ALC_madd_prov_total, year, prov.days.tot), by = 'year')
+  left_join(select(LTC_madd_prov_total, year, prov.days.tot), by = 'year')
 ```
 
 ### Other ALC: Estimating Suppression - Aggregate Level
@@ -612,7 +610,8 @@ HBAMprojected_alos <- HBAMprojected_master_tz %>%
   mutate(hosp.caretype.agecluster.days.percent = hosp.caretype.agecluster.days / sum(hosp.caretype.agecluster.days)) %>% 
   ungroup()
 
-ALC_hosp_vol <- ALC_hosp_vol_disag %>% 
+# Estimate length of stay for hospital patients in ALC with MADD = LTC
+LTC_hosp_vol <- LTC_hosp_vol_disag %>% 
   left_join(hospital_lookup_ALC, by = c('siteid' = 'ALCsite_id')) %>%
   filter(!is.na(csduid)) %>% # Double-check in case any ALC sites don't match to Hospital PAI or master list
   group_by(year, id, agecluster) %>% 
@@ -620,7 +619,20 @@ ALC_hosp_vol <- ALC_hosp_vol_disag %>%
             hosp.alc.days = sum(adj.hosp.days.tot),
             avg.los = hosp.alc.days / hosp.alc.patients) %>%
   group_by(year, csduid) %>% 
-  mutate(hosp.alc.mrkt = hosp.alc.days / sum(hosp.alc.days)) %>% #MARKET-SHARE OF HOSPITAL ALC DAYS TO CSD TOTAL DAYS
+  mutate(hosp.alc.mrkt = hosp.alc.days / sum(hosp.alc.days)) %>% #MARKET-SHARE OF HOSPITAL alc DAYS TO CSD TOTAL DAYS
+  ungroup() %>% 
+  distinct(year, id, name = name.x, csduid, csdname, agecluster, hosp.alc.patients, hosp.alc.days, avg.los, hosp.alc.mrkt)
+
+# Estimate length of stay for hospital patients in ALC excluding LTC
+ALC_hosp_vol_ex_LTC <- ALC_hosp_vol_disag_ex_LTC %>% 
+  left_join(hospital_lookup_ALC, by = c('siteid' = 'ALCsite_id')) %>%
+  filter(!is.na(csduid)) %>% # Double-check in case any ALC sites don't match to Hospital PAI or master list
+  group_by(year, id, agecluster) %>% 
+  mutate(hosp.alc.patients = sum(patients),
+            hosp.alc.days = sum(adj.hosp.days.tot),
+            avg.los = hosp.alc.days / hosp.alc.patients) %>%
+  group_by(year, csduid) %>% 
+  mutate(hosp.alc.mrkt = hosp.alc.days / sum(hosp.alc.days)) %>% #MARKET-SHARE OF HOSPITAL alc DAYS TO CSD TOTAL DAYS
   ungroup() %>% 
   distinct(year, id, name = name.x, csduid, csdname, agecluster, hosp.alc.patients, hosp.alc.days, avg.los, hosp.alc.mrkt)
 
@@ -630,12 +642,15 @@ HBAMprojected_alc <- HBAMprojected_alos %>%
   # left_join(ALC_hosp_caretype, by = c('year', 'id', 'agecluster', 'caretype')) %>% 
   # mutate(hosp.caretype.days = replace_na(hosp.caretype.days, 0),
   #        hosp.caretype.agecluster.days.percent = replace_na(hosp.caretype.agecluster.days.percent, 0))
-  left_join(select(ALC_hosp_vol, year, id, agecluster, hosp.alc.days), by = c('year', 'id', 'agecluster')) %>%
+  left_join(select(LTC_hosp_vol, year, id, agecluster, hosp.ltc.days = hosp.alc.days), by = c('year', 'id', 'agecluster')) %>%
+  left_join(select(ALC_hosp_vol_ex_LTC, year, id, agecluster, hosp.alc.days.ex.ltc = hosp.alc.days), by = c('year', 'id', 'agecluster')) %>%
   filter(agecluster != 'ped') %>%  # Since no pediatric patients are counted as ALC
-  mutate(hosp.alc.days = replace_na(hosp.alc.days, 0)) %>%
+  mutate(hosp.ltc.days = replace_na(hosp.ltc.days, 0)) %>%
+  mutate(hosp.alc.days.ex.ltc = replace_na(hosp.alc.days.ex.ltc, 0)) %>%
   # Assign hospital agecluster ALC days to different caretypes based on percentages previously established
-  mutate(hosp.alc.days.agecluster.caretype = hosp.alc.days * hosp.caretype.agecluster.days.percent,
-         net.hosp.days = hosp.caretype.agecluster.days - hosp.alc.days.agecluster.caretype) %>% 
+  mutate(hosp.ltc.days.agecluster.caretype = hosp.ltc.days * hosp.caretype.agecluster.days.percent,
+         hosp.alc.days.ex.ltc.agecluster.caretype = hosp.alc.days.ex.ltc * hosp.caretype.agecluster.days.percent,
+         net.hosp.days = hosp.caretype.agecluster.days - hosp.ltc.days.agecluster.caretype - hosp.alc.days.ex.ltc.agecluster.caretype) %>% 
   # 13 of 805 entries in the table above have negative bed-days after removing estimated ALC by hospital; for any hospital/caretype which loses more than 50% of its bed-days by removing ALC, assume bed-days are reduced only to 50% of original total (i.e., assume ALC accounts for a max of 50% of total bed-days). Attempts were made to redistribute remaining ALC days to other caretypes within the hospital, but generally if one caretype had excessive ALC noted at a hospital, all caretypes at a hospital had excessive ALC. It may be possible to shift ALC days from one agecluster to another, but this would violate estimated ALC days by agecluster from the ALC MADD data. For now, any ALC which reduces hospital demand below 50% is 'ignored'. This means approximately 46,000 bed-days from the ALC MADD dataset are being 'ignored' / lost.
   mutate(adj.net.hosp.days = pmax(net.hosp.days, 0.5 * hosp.caretype.agecluster.days),
          other.caretype.alc.days = adj.net.hosp.days - net.hosp.days)
@@ -670,7 +685,8 @@ treso_zone_system <- read_csv("input/treso/treso_zone_system.csv")
 treso_centroids <- read_csv('cache/treso/treso_centroids.csv')
 treso_shp <- readOGR(dsn = "input/treso", layer = "TRESO_Zones_SocioData_Gatineau_LCC")
 hospital_lookup_ALC <- readRDS("cache/moh/hospital_lookup_ALC.rds")
-ALC_hosp_vol_disag <- readRDS("cache/moh/ALC_hospitals_disaggregated.rds")
+LTC_hosp_vol_disag <- readRDS("cache/moh/LTC_hospitals_disaggregated.rds")
+ALC_hosp_vol_disag_ex_LTC <- readRDS("cache/moh/ALC_hospitals_disaggregated_ex_LTC.rds")
 ltc_homes <- readRDS("cache/moh/ltc_homes.rds")
 treso_population_moh_agecluster <- readRDS("cache/moh/treso_population_moh_agecluster.rds")
 treso_travel_time <- readRDS("cache/treso/treso_travel_time_2016.rds")
@@ -679,7 +695,6 @@ HBAMhistorical_master_tz <- readRDS("cache/moh/HBAMhistorical_master_tz.rds")
 
 ltc_turnover_raw <- read_csv('input/moh/longtermcare_beds_turnover.csv')
 hospitallocations_tz <- readRDS("cache/moh/hospitallocations_tz.rds")
-ALC_hosp_vol_disag <- readRDS("cache/moh/ALC_hospitals_disaggregated.rds")
 
 HBAMprojected_master_tz <- readRDS("cache/moh/HBAMprojected_master_tz.rds")
 HBAMprojected_alos_adj <- readRDS("cache/moh/HBAMprojected_alos_adj.rds")
@@ -716,8 +731,8 @@ DECISION_MAKING <- FALSE # TODO: Replace with value from user from visualization
 
 # Factor reducing (or increasing) non-LTC ALC to account for increased (or decreased) homecare, SAL, rehab space, etc.
 # LTC currently represents 55% of all ALC; therefore, non-LTC ALC will be capped at 45% of total ALC, notwithstanding the factor range described below.
-# Factor ranges from -1 to 3, where 0 = no change to ALC demand; -1 = -100% non-LTC ALC demand; and 3 = +300% non-LTC ALC demand
-NON_LTC_ALC_FACTOR <- -0.2
+# Factor ranges from 0 to 3, where 0 = no non-LTC ALC demand, and 3 = 300% non-LTC ALC demand
+NON_LTC_ALC_FACTOR <- 0.8
 
 # Factor identifying what percentage of new (user-added) LTC beds go to ALC patients (with the remainder assumed to go to people in the community)
 # If factor = 1, all LTC beds reduce ALC demand; if factor = 0, no LTC beds reduce ALC demand.
@@ -735,18 +750,30 @@ STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospi
 
 CURRENCY_YEAR <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 LTC_OP_DAYS <- 365
-USER_INPUT_COST_PER_BED <- 1
-USER_INPUT_BASE_HOSP_COST <- 5
 USER_INPUT_INFLATION <- 0.02
 USER_INPUT_CURRENT_YEAR = 2019 # Current year used to calculate construction timespan
+COST_PER_NEW_BED <- tibble(cost.per.bed.AT = 750000, cost.per.bed.CR = 850000, cost.per.bed.GR = 1100000, cost.per.bed.MH = 1500000)
+
+# Cost parameters for new hospitals
+USER_INPUT_BASE_HOSP_COST <- 5
+
+# Cost parameters for expanding existing hospitals
+BASE_HOSP_EXP_COST <- 4
 
 ```
 
 ## Base Scenario (2016)
 ### ALC Base Scenario
 ```{r}
-ALC_prov_rate <- base_scenario_alc_calculation(hospital_lookup_ALC, ALC_hosp_vol_disag, ltc_homes, 
-                                               treso_population_moh_agecluster, LTC_OP_DAYS)
+# Flag to count existing and added LTC capacity - turned on for LTC calcs
+LTC_FLAG <- 1
+LTC_prov_rate <- base_scenario_alc_calculation(hospital_lookup_ALC, LTC_hosp_vol_disag, ltc_homes, 
+                                               treso_population_moh_agecluster, LTC_OP_DAYS, LTC_FLAG)
+
+# Flag to count existing and added LTC capacity - turned off for ALC ex. LTC calcs
+LTC_FLAG <- 0
+ALC_prov_rate_ex_LTC <- base_scenario_alc_calculation(hospital_lookup_ALC, ALC_hosp_vol_disag_ex_LTC, ltc_homes, 
+                                               treso_population_moh_agecluster, LTC_OP_DAYS, LTC_FLAG)
 ```
 
 ### CRM Base Scenario
@@ -774,11 +801,28 @@ if (SCENARIO_YEAR > 2016 & USER_SELECT == "HBAM") {
 ### ALC Forecast Scenario
 
 ```{r}
+# Flag to count existing and added LTC capacity - turned on for LTC calcs
+LTC_FLAG <- 1
 result <- forecast_scenario_alc_calculation(treso_population_moh, ltc_turnover_raw, USER_NEW_LTC_CAP_CSD, hospitallocations_tz, 
-                                            ALC_hosp_vol_disag, ALC_prov_rate, hospital_lookup_ALC, ltc_homes, LTC_OP_DAYS,
-                                            SCENARIO_YEAR)
-ALC_proj_cd_agecluster <- result[[1]]
-ALC_proj_cd <- result[[2]]
+                                            LTC_hosp_vol_disag, LTC_prov_rate, hospital_lookup_ALC, ltc_homes, LTC_OP_DAYS,
+                                            SCENARIO_YEAR, LTC_FLAG)
+LTC_proj_cd_agecluster <- result[[1]]
+LTC_proj_cd <- result[[2]]
+
+# Flag to count existing and added LTC capacity - turned off for ALC ex. LTC calcs
+LTC_FLAG <- 0
+result <- forecast_scenario_alc_calculation(treso_population_moh, ltc_turnover_raw, USER_NEW_LTC_CAP_CSD, hospitallocations_tz, 
+                                            ALC_hosp_vol_disag_ex_LTC, ALC_prov_rate_ex_LTC, hospital_lookup_ALC, ltc_homes, LTC_OP_DAYS,
+                                            SCENARIO_YEAR, LTC_FLAG)
+ALC_proj_cd_agecluster_ex_LTC <- result[[1]]
+ALC_proj_cd_ex_LTC_unscaled <- result[[2]]
+
+# Scale up/down non-LTC ALC as per user-input scalar
+ALC_proj_cd_ex_LTC <- ALC_proj_cd_ex_LTC_unscaled %>% 
+  mutate(adj.cd.residual.alc.days = adj.cd.residual.alc.days * NON_LTC_ALC_FACTOR)
+
+# ALC_proj_cd_agecluster <- result[[1]]
+# ALC_proj_cd <- result[[2]]
 ```
 
 ### Case-Rate Model Forecast Scenario
@@ -786,12 +830,12 @@ ALC_proj_cd <- result[[2]]
   
 ```{r}
 result <- forecast_scenario_crm_calculation(treso_population_moh_agecluster, treso_origin_cases, hospital_lookup_master, 
-                                            HBAMprojected_alos_adj, crm_treso, ALC_proj_cd_agecluster, ALC_proj_cd, 
+                                            HBAMprojected_alos_adj, crm_treso, LTC_proj_cd_agecluster, LTC_proj_cd, 
+                                            ALC_proj_cd_agecluster_ex_LTC, ALC_proj_cd_ex_LTC,
                                             CARETYPE_LIST, AGE_CLUSTER_LIST, HOSP_OP_DAYS, SCENARIO_YEAR)
 crm_alc <- result[[1]]
 crm_orig <- result[[2]]
 ```
-
 
 ## Decision-Making
 ### Compare demand for beds/bed-days by CSD to existing bed counts to determine gap
@@ -891,9 +935,26 @@ saveRDS(crm_demand, "cache/moh/crm_demand.rds")
 ```{r}
 hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_demand_travel)
 
-# Calculate Cost
-cost_new_hospital <- distinct(filter(hospital_wide_final, id > 999), id, beds.forecasted) %>% 
-  mutate(cost_2018 = round(beds.forecasted * USER_INPUT_COST_PER_BED * 1000000 + USER_INPUT_BASE_HOSP_COST * 1000000, 0))
+# Calculate Cost for new hospitals
+cost_new_hospital <- distinct(filter(hospital_wide_final, id > 999), id, beds.forecasted.AT, beds.forecasted.CR, beds.forecasted.GR, beds.forecasted.MH) %>% 
+  # Add in costs per bed by caretype
+  cbind(., COST_PER_NEW_BED) %>% 
+  mutate(cost_2018 = round(USER_INPUT_BASE_HOSP_COST * 1000000 + beds.forecasted.AT * cost.per.bed.AT + beds.forecasted.CR * cost.per.bed.CR + beds.forecasted.GR * cost.per.bed.GR + beds.forecasted.MH * cost.per.bed.MH, 0)) %>% 
+  select(id, cost_2018)
+
+# Calculate Cost for expanding existing hospitals
+cost_existing_hospital <- distinct(filter(hospital_wide_final, id < 999), id, beds.forecasted.AT, beds.forecasted.CR, beds.forecasted.GR,
+                                   beds.forecasted.MH, beds.existing.AT, beds.existing.CR, beds.existing.GR, beds.existing.MH) %>%
+  mutate(beds.to.build.AT = beds.forecasted.AT - beds.existing.AT, beds.to.build.CR = beds.forecasted.CR - beds.existing.CR,
+         beds.to.build.GR = beds.forecasted.GR - beds.existing.GR, beds.to.build.MH = beds.forecasted.MH - beds.existing.MH,
+         beds.to.build.total = beds.to.build.AT + beds.to.build.CR + beds.to.build.GR + beds.to.build.MH) %>% 
+  # Add in costs per bed by caretype
+  cbind(., COST_PER_NEW_BED) %>% 
+  mutate(cost_2018 = round(BASE_HOSP_EXP_COST * 1000000 * pmin(beds.to.build.total, 1) + beds.to.build.AT * cost.per.bed.AT + beds.to.build.CR * cost.per.bed.CR + beds.to.build.GR * cost.per.bed.GR + beds.to.build.MH * cost.per.bed.MH, 0)) %>% 
+  select(id, cost_2018)
+
+# Combining costs for new hospitals with costs for expanding existing
+cost_hospitals <- bind_rows(cost_new_hospital, cost_existing_hospital)
 
 # Summarize lat/long/name/cduid/cdname asset list
 hospital_lat_long <- select(hospitallocations_tz, id, hospital.lat = lat, hospital.long = long, name) %>% 
@@ -917,7 +978,7 @@ saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
 
 # Inflate cost for facility construction based on construction year; calculate total cost over time period of interest
 annualized_inflated_cost <- construction_cost(USER_INPUT_INFLATION, SCENARIO_YEAR, CURRENCY_YEAR,
-                                              USER_INPUT_CURRENT_YEAR, cost_new_hospital)
+                                              USER_INPUT_CURRENT_YEAR, cost_hospitals)
 
 ```
 
