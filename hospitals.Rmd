@@ -890,35 +890,20 @@ if (DECISION_MAKING) {
 ```{r}
 #specify new hospital details below
 new_hospital_user <- tibble(
-  id = c(rep(99999, 5)),
-  hospital.lat = c(rep(43.90032, 5)),
-  hospital.long = c(rep(-78.85863, 5)),
-  name = c(rep('New Hospital 1', 5)),
-  caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"),1)),
+  id = c(rep(88888, 5), rep(99999, 5)),
+  hospital.lat = c(rep(43.90032, 5), rep(43.95, 5)),
+  hospital.long = c(rep(-78.85863, 5), rep(-78.79, 5)),
+ name = c(rep('New Hospital 1', 5), rep('New Hospital 2', 5)),
+  caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"), 2)),
   # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
-  beds = c(0, 0, 0, 0, 0),
+   beds = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ #  beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
   # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
-  specialityfactor = c(rep(0, 5)) # 1 if hospital is speciality hospital, 0 if not
+  specialityfactor = c(rep(0, 5), rep(1, 5)) # 1 if hospital is speciality hospital, 0 if not
   ) %>%
   group_by(id) %>%
   mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
   ungroup()
-
-#BELOW TO TEST 2 NEW HOSPITALS - can remove once tested
-#new_hospital_user <- tibble(
-#  id = c(rep(88888, 5), rep(99999, 5)),
-#  hospital.lat = c(rep(43.90032, 5), rep(43.95, 5)),
-#  hospital.long = c(rep(-78.85863, 5), rep(-78.79, 5)),
-# name = c(rep('New Hospital 1', 5), rep('New Hospital 2', 5)),
-#  caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"), 2)),
-#  # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
-#  beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
-#  # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
-#  specialityfactor = c(rep(0, 5), rep(1, 5)) # 1 if hospital is speciality hospital, 0 if not
-#  ) %>%
-#  group_by(id) %>%
-#  mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
-#  ungroup()
 
 # Incorporate new hospitals added by redistributing demand from other hospitals and csds
 # Add hospitals based on decision-making calculations
