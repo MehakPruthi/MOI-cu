@@ -46,7 +46,10 @@ HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
 HBAMprojected_master <- readRDS('cache/moh/HBAMprojected_master.rds')
 
 # Hospital Asset Data
-hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
+hospitallocations <- readRDS('cache/moh/hospitallocations.rds') %>% 
+  #correct wrong Hospital location in location file for Wallaceburg (id = 173)
+                      mutate(lat = replace(lat, id == 173, 42.598468)) %>%
+                      mutate(long = replace(long, id == 173, -82.366871))
 
 # Speciality Hospital Identifier
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
