@@ -46,7 +46,10 @@ HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
 HBAMprojected_master <- readRDS('cache/moh/HBAMprojected_master.rds')
 
 # Hospital Asset Data
-hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
+hospitallocations <- readRDS('cache/moh/hospitallocations.rds') %>% 
+  #correct wrong Hospital location in location file for Wallaceburg (id = 173)
+                      mutate(lat = replace(lat, id == 173, 42.598468)) %>%
+                      mutate(long = replace(long, id == 173, -82.366871))
 
 # Speciality Hospital Identifier
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
@@ -191,8 +194,36 @@ rm(HBAMhistorical_master, HBAMprojected_master)
 ## Consolidated Hospital Lookup
   - Reorganize HBAM historical to show unique hospital locations w/ metadata needed for visualization tool
   - Create in wide format w/ sub-naming for care-type and age-cluster 
+  - Reorganize HBAM Historical to show hospital coverage by CSD
 
 ```{r}
+# Reorganize HBAM Historical for CSD Level Hospital Coverage Analysis
+CSD_Hospital_Coverage <- HBAMhistorical_master_tz %>%
+  filter(id != -9999) %>% #  uses all years, consider year filters 
+  group_by(year, id, orig_csd,caretype) %>% 
+  summarise(cases = sum(cases))%>% # add all age groups together 
+  ungroup %>%
+  group_by(orig_csd, id, caretype) %>%
+  summarise(cases = round(mean(cases),0))%>% # average years
+  ungroup %>%
+  group_by(id, caretype) %>%
+  mutate(perc.of.cases.to.this.hosp = round(cases/sum(cases)*100, 6)) %>% #percent of cases to this hospital from THIS CSD over ALL CSDs, for this case type
+  arrange(caretype, id, -perc.of.cases.to.this.hosp) %>%
+  mutate(cumm.perc.of.cases.to.this.hosp = cumsum(perc.of.cases.to.this.hosp)) %>%
+  filter (perc.of.cases.to.this.hosp >= 2)%>% #remove all CSDs where less than X% of cases coming 
+  #summarise(cases = sum(cases),case.freq=round(sum(case.freq),1)) %>%# to quickly check SUMS
+  ungroup() %>%
+  group_by(orig_csd, caretype) %>%
+  mutate(perc.of.cases.from.this.csd = round(cases/sum(cases)*100, 1)) %>%
+  mutate(perc.of.cases.to.this.hosp = round(perc.of.cases.to.this.hosp, 1)) %>%
+  arrange(orig_csd, caretype, -perc.of.cases.from.this.csd, id) %>%
+  select(-cumm.perc.of.cases.to.this.hosp) %>%
+  #summarise(cases = sum(cases),case.freq=round(sum(case.freq),1)) %>% 
+  ungroup() %>%
+  left_join(distinct(select(treso_zone_system, csdname, csduid,cdname,mof_region)) , by = c("orig_csd" = "csduid")) %>%
+  left_join(distinct(select(hospitallocations, name,id)), by = "id") %>%
+  rename(hospital_name=name)
+
 hospital_lookup <- HBAMhistorical_master_tz %>%
   filter(id != -9999) %>%
   group_by(year, id, agecluster, caretype) %>% 
@@ -738,14 +769,20 @@ AGE_CLUSTER_LIST = c('ad', 'ped', 'sr')
 # Factor reducing (or increasing) non-LTC ALC to account for increased (or decreased) homecare, SAL, rehab space, etc.
 # LTC currently represents 55% of all ALC; therefore, non-LTC ALC will be capped at 45% of total ALC, notwithstanding the factor range described below.
 # Factor ranges from 0 to 3, where 0 = no non-LTC ALC demand, and 3 = 300% non-LTC ALC demand
-NON_LTC_ALC_FACTOR <- 1
+NON_LTC_ALC_FACTOR <- 1 #0.8
 
 # Factor identifying what percentage of new (user-added) LTC beds go to ALC patients (with the remainder assumed to go to people in the community)
 # If factor = 1, all LTC beds reduce ALC demand; if factor = 0, no LTC beds reduce ALC demand.
-USER_LTC_IMPACT_HOSP <- 0.333
+USER_LTC_IMPACT_HOSP <- 1 #1/3
 
 # Number of LTC beds added by CSD
-USER_NEW_LTC_CAP_CSD_TOTAL <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0))
+USER_NEW_LTC_CAP_CSD_TOTAL <- 
+tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 15000))
+
+#tibble (csduid = c(3501012,3501020,3502008,3502036,3502044,3506008,3507008,3507024,3507065,3509021,3510005,3510010,3511005,3512002,3512004,3512005,3512015,3514020,3515003,3515014,3515015,3516010,3518001,3518005,3518009,3518013,3518017,3518039,3519028,3519036,3519038,3519044,3519046,3519048,3519049,3519054,3519070,3520005,3521005,3521010,3521024,3522014,3523008,3523009,3523025,3523050,3524001,3524002,3524009,3524015,3525005,3526003,3526028,3526032,3526043,3526053,3528018,3528037,3528052,3529005,3529006,3530004,3530010,3530013,3530016,3530020,3531011,3531016,3532004,3532042,3534020,3534021,3536020,3537016,3537039,3537064,3538030,3538035,3539036,3539047,3540028,3541043,3542029,3542059,3543007,3543014,3543015,3543017,3543023,3543042,3543052,3543064,3543072,3544042,3547003,3547090,3548021,3548044,3551034,3553005,3554091,3556027,3557061,3557077,3558004,3559042,3560071)
+# , 
+#added.ltc.cap = c(54,45,52,35,50,1043,48,62,43,42,51,135,47,37,60,53,46,105,70,89,36,114,121,158,169,210,121,72,410,440,261,61,74,143,33,32,61,2408,891,733,82,39,151,38,32,49,233,220,132,73,568,35,65,60,101,194,55,59,77,44,116,46,137,246,111,33,34,50,66,84,46,40,102,73,226,117,72,101,423,44,33,42,47,65,48,112,62,52,92,200,44,61,44,95,40,48,90,53,45,142,64,38,62,60,111,46,14)
+#)
 
 # Factored number of LTC beds - i.e., the number which serve to reduce hospital ALC demand
 USER_NEW_LTC_CAP_CSD <- USER_NEW_LTC_CAP_CSD_TOTAL %>% 
@@ -757,14 +794,14 @@ STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospi
 CURRENCY_YEAR <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 LTC_OP_DAYS <- 365
 USER_INPUT_INFLATION <- 0.02
-USER_INPUT_CURRENT_YEAR = 2020 # Current year used to calculate construction timespan
-COST_PER_NEW_BED <- tibble(cost.per.bed.AT = 750000, cost.per.bed.CR = 850000, cost.per.bed.GR = 1100000, cost.per.bed.MH = 1500000)
+USER_INPUT_CURRENT_YEAR = 2019 # Current year used to calculate construction timespan
+COST_PER_NEW_BED <- tibble(cost.per.bed.AT = 1158358, cost.per.bed.CR = 944193, cost.per.bed.GR = 944193, cost.per.bed.MH = 571088)
 
 # Cost parameters for new hospitals
-USER_INPUT_BASE_HOSP_COST <- 5
+USER_INPUT_BASE_HOSP_COST <- 0
 
 # Cost parameters for expanding existing hospitals
-BASE_HOSP_EXP_COST <- 4
+BASE_HOSP_EXP_COST <- 0
 
 ```
 
@@ -857,7 +894,6 @@ if (DECISION_MAKING) {
 
 ### Add hospitals
 ```{r}
-
 new_hospital_user <- NULL
 
 # new_hospital_user <- tibble(
@@ -874,6 +910,7 @@ new_hospital_user <- NULL
 #   group_by(id) %>%
 #   mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
 #   ungroup()
+
 
 # Incorporate new hospitals added by redistributing demand from other hospitals and csds
 # Add hospitals based on decision-making calculations
