@@ -2457,7 +2457,7 @@ format_demand_output <- function(treso_shp, treso_zone_system, treso_population_
   return(list(crm_demand, crm_demand_travel))
 }
 
-format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel) {
+format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel, dm) {
   # Summarise total and average travel times by hospital by caretype, convert to wide format
   hosp_travel_wide <- crm_demand_travel %>% 
     # Remove the temoporary hospital if DM is off
@@ -2539,19 +2539,27 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
     left_join(num_beds_wide, by = c('id')) %>% 
     replace_na(list(total.hosp.beds.existing = 0, beds.existing = 0, beds.existing.AM = 0, beds.existing.AT = 0, beds.existing.CR = 0, 
                     beds.existing.GR = 0, beds.existing.MH = 0)) %>% 
+    # Add one bed to hospital/caretype pairs which have historical demand but 0 beds shown
+    mutate(beds.existing.AT = ifelse((sum.demand.days.total_AT > 0) & (beds.existing.AT == 0), 1, beds.existing.AT),
+           beds.existing.CR = ifelse((sum.demand.days.total_CR > 0) & (beds.existing.CR == 0), 1, beds.existing.CR),
+           beds.existing.GR = ifelse((sum.demand.days.total_GR > 0) & (beds.existing.GR == 0), 1, beds.existing.GR),
+           beds.existing.MH = ifelse((sum.demand.days.total_MH > 0) & (beds.existing.MH == 0), 1, beds.existing.MH),
+           beds.existing = beds.existing.AT + beds.existing.CR + beds.existing.GR + beds.existing.MH) %>% 
     # Replace beds.needed columns (by caretype) with the pmax of (beds.needed, beds.existing)
-    mutate(beds.forecasted.AT = pmax(beds.needed_AT, beds.existing.AT),
-           beds.forecasted.CR = pmax(beds.needed_CR, beds.existing.CR),
-           beds.forecasted.GR = pmax(beds.needed_GR, beds.existing.GR),
-           beds.forecasted.MH = pmax(beds.needed_MH, beds.existing.MH),
-           beds.forecasted = beds.forecasted.AT + beds.forecasted.CR + beds.forecasted.GR + beds.forecasted.MH)
-  
+    mutate(dm = dm,
+           beds.forecasted.AT = ifelse(dm, pmax(beds.needed_AT, beds.existing.AT), beds.existing.AT),
+           beds.forecasted.CR = ifelse(dm, pmax(beds.needed_CR, beds.existing.CR), beds.existing.CR),
+           beds.forecasted.GR = ifelse(dm, pmax(beds.needed_GR, beds.existing.GR), beds.existing.GR),
+           beds.forecasted.MH = ifelse(dm, pmax(beds.needed_MH, beds.existing.MH), beds.existing.MH),
+           beds.forecasted = beds.forecasted.AT + beds.forecasted.CR + beds.forecasted.GR + beds.forecasted.MH) %>% 
+    select(-dm)
+    
   # Calculate utilization by hospital, caretype for forecasted beds, and utilizations using existing beds
   hospital_wide_util <- hospital_wide_cap %>% 
     # Utilization calculations use the sum of demand-days rather than beds.needed because beds.needed 
     # incorporates user-input utilization targets 
     mutate(utilization.AM = 0,
-           utilization.AT = sum.demand.days.total_AM / beds.forecasted.AT / HOSP_OP_DAYS,
+           utilization.AT = sum.demand.days.total_AT / beds.forecasted.AT / HOSP_OP_DAYS,
            utilization.CR = sum.demand.days.total_CR / beds.forecasted.CR / HOSP_OP_DAYS,
            utilization.GR = sum.demand.days.total_GR / beds.forecasted.GR / HOSP_OP_DAYS,
            utilization.MH = sum.demand.days.total_MH / beds.forecasted.MH / HOSP_OP_DAYS,

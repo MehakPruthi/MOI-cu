@@ -704,10 +704,18 @@ num_beds <- readRDS("cache/moh/num_beds_processed.rds")
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
 # Read in user-set forecast year
-SCENARIO_YEAR <- 2026
+SCENARIO_YEAR <- 2016
 
-# Read in user-set target utilization factor by subsector. each care type has it's own target
-UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
+DECISION_MAKING <- FALSE
+
+# Read in user-set target utilization factor by subsector. each care type has its own target
+if (DECISION_MAKING) {
+    UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
+
+} else {
+    UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(rep(1, 5)))  
+  
+}
 
 # Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
 USER_MIN_BEDS <- 30
@@ -721,25 +729,23 @@ USER_TRIPS_PER_CASE <- 2
 # Total demand days in 2016 = 11,206,704; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (11,206,704 / 0.96) / 12,117,270 * 365 = 351 days of capacity per hospital bed per year.
 HOSP_OP_DAYS <- 365 # Assume each hospital bed can be used for this many days per year
 
-USER_SELECT <- "CRM" # TODO: Replace with value from user from visualization tool
+USER_SELECT <- "CRM"
 
-CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH') # TODO: Replace with value from user from visualization tool
+CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH')
 
-AGE_CLUSTER_LIST = c('ad', 'ped', 'sr') # TODO: Replace with value from user from visualization tool
-
-DECISION_MAKING <- FALSE # TODO: Replace with value from user from visualization tool. #if FALSE, no new hospital beds are built on its own
+AGE_CLUSTER_LIST = c('ad', 'ped', 'sr')
 
 # Factor reducing (or increasing) non-LTC ALC to account for increased (or decreased) homecare, SAL, rehab space, etc.
 # LTC currently represents 55% of all ALC; therefore, non-LTC ALC will be capped at 45% of total ALC, notwithstanding the factor range described below.
 # Factor ranges from 0 to 3, where 0 = no non-LTC ALC demand, and 3 = 300% non-LTC ALC demand
-NON_LTC_ALC_FACTOR <- 0.8
+NON_LTC_ALC_FACTOR <- 1
 
 # Factor identifying what percentage of new (user-added) LTC beds go to ALC patients (with the remainder assumed to go to people in the community)
 # If factor = 1, all LTC beds reduce ALC demand; if factor = 0, no LTC beds reduce ALC demand.
-USER_LTC_IMPACT_HOSP <- 1/3
+USER_LTC_IMPACT_HOSP <- 0.333
 
 # Number of LTC beds added by CSD
-USER_NEW_LTC_CAP_CSD_TOTAL <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(5000, 10000))
+USER_NEW_LTC_CAP_CSD_TOTAL <- tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0))
 
 # Factored number of LTC beds - i.e., the number which serve to reduce hospital ALC demand
 USER_NEW_LTC_CAP_CSD <- USER_NEW_LTC_CAP_CSD_TOTAL %>% 
@@ -751,7 +757,7 @@ STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospi
 CURRENCY_YEAR <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 LTC_OP_DAYS <- 365
 USER_INPUT_INFLATION <- 0.02
-USER_INPUT_CURRENT_YEAR = 2019 # Current year used to calculate construction timespan
+USER_INPUT_CURRENT_YEAR = 2020 # Current year used to calculate construction timespan
 COST_PER_NEW_BED <- tibble(cost.per.bed.AT = 750000, cost.per.bed.CR = 850000, cost.per.bed.GR = 1100000, cost.per.bed.MH = 1500000)
 
 # Cost parameters for new hospitals
@@ -821,8 +827,6 @@ ALC_proj_cd_ex_LTC_unscaled <- result[[2]]
 ALC_proj_cd_ex_LTC <- ALC_proj_cd_ex_LTC_unscaled %>% 
   mutate(adj.cd.residual.alc.days = adj.cd.residual.alc.days * NON_LTC_ALC_FACTOR)
 
-# ALC_proj_cd_agecluster <- result[[1]]
-# ALC_proj_cd <- result[[2]]
 ```
 
 ### Case-Rate Model Forecast Scenario
@@ -854,20 +858,22 @@ if (DECISION_MAKING) {
 ### Add hospitals
 ```{r}
 
-new_hospital_user <- tibble(
-  id = c(rep(88888, 5), rep(99999, 5)),
-  hospital.lat = c(rep(43.90032, 5), rep(43.95, 5)),
-  hospital.long = c(rep(-78.85863, 5), rep(-78.79, 5)),
-  name = c(rep('New Hospital 1', 5), rep('New Hospital 2', 5)),
-  caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"), 2)),
-  # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
-  beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
-  # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
-  specialityfactor = c(rep(0, 5), rep(1, 5)) # 1 if hospital is speciality hospital, 0 if not
-  ) %>%
-  group_by(id) %>%
-  mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
-  ungroup()
+new_hospital_user <- NULL
+
+# new_hospital_user <- tibble(
+#   id = c(rep(88888, 5), rep(99999, 5)),
+#   hospital.lat = c(rep(43.90032, 5), rep(43.95, 5)),
+#   hospital.long = c(rep(-78.85863, 5), rep(-78.79, 5)),
+#   name = c(rep('New Hospital 1', 5), rep('New Hospital 2', 5)),
+#   caretype = c(rep(c("AT", "CR", "GR", "MH", "AM"), 2)),
+#   # Set number of beds per caretype; for Emerg (AM), 0 = no emerg, -1 = emerg to be built
+#   beds = c(200, 0, 125, 50, -1, 250, 150, 0, 75, 0),
+#   # agecluster = c("all","all","all","all","all", "all","all","all","all","all"), #all ages or just "ped"
+#   specialityfactor = c(rep(0, 5), rep(1, 5)) # 1 if hospital is speciality hospital, 0 if not
+#   ) %>%
+#   group_by(id) %>%
+#   mutate(total.hosp.beds = sum(beds[caretype != 'AM'])) %>%
+#   ungroup()
 
 # Incorporate new hospitals added by redistributing demand from other hospitals and csds
 # Add hospitals based on decision-making calculations
@@ -933,36 +939,42 @@ saveRDS(crm_demand, "cache/moh/crm_demand.rds")
 
 ### Hospital asset outputs
 ```{r}
-hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_demand_travel)
-
-# Calculate Cost for new hospitals
-cost_new_hospital <- distinct(filter(hospital_wide_final, id > 999), id, beds.forecasted.AT, beds.forecasted.CR, beds.forecasted.GR, beds.forecasted.MH) %>% 
-  # Add in costs per bed by caretype
-  cbind(., COST_PER_NEW_BED) %>% 
-  mutate(cost_2018 = round(USER_INPUT_BASE_HOSP_COST * 1000000 + beds.forecasted.AT * cost.per.bed.AT + beds.forecasted.CR * cost.per.bed.CR + beds.forecasted.GR * cost.per.bed.GR + beds.forecasted.MH * cost.per.bed.MH, 0)) %>% 
-  select(id, cost_2018)
-
-# Calculate Cost for expanding existing hospitals
-cost_existing_hospital <- distinct(filter(hospital_wide_final, id < 999), id, beds.forecasted.AT, beds.forecasted.CR, beds.forecasted.GR,
-                                   beds.forecasted.MH, beds.existing.AT, beds.existing.CR, beds.existing.GR, beds.existing.MH) %>%
-  mutate(beds.to.build.AT = beds.forecasted.AT - beds.existing.AT, beds.to.build.CR = beds.forecasted.CR - beds.existing.CR,
-         beds.to.build.GR = beds.forecasted.GR - beds.existing.GR, beds.to.build.MH = beds.forecasted.MH - beds.existing.MH,
-         beds.to.build.total = beds.to.build.AT + beds.to.build.CR + beds.to.build.GR + beds.to.build.MH) %>% 
-  # Add in costs per bed by caretype
-  cbind(., COST_PER_NEW_BED) %>% 
-  mutate(cost_2018 = round(BASE_HOSP_EXP_COST * 1000000 * pmin(beds.to.build.total, 1) + beds.to.build.AT * cost.per.bed.AT + beds.to.build.CR * cost.per.bed.CR + beds.to.build.GR * cost.per.bed.GR + beds.to.build.MH * cost.per.bed.MH, 0)) %>% 
-  select(id, cost_2018)
-
-# Combining costs for new hospitals with costs for expanding existing
-cost_hospitals <- bind_rows(cost_new_hospital, cost_existing_hospital)
+hospital_wide_final <- format_hospital_asset_output(num_beds, crm_demand, crm_demand_travel, DECISION_MAKING)
 
 # Summarize lat/long/name/cduid/cdname asset list
 hospital_lat_long <- select(hospitallocations_tz, id, hospital.lat = lat, hospital.long = long, name) %>% 
   rbind(unique(select(new_hospital, id, hospital.lat, hospital.long, name)))
 
+# Calculate Cost for expanding existing hospitals
+cost_existing_hospital <- distinct(filter(hospital_wide_final, id < 999), id, beds.forecasted.AT, beds.forecasted.CR, beds.forecasted.GR,
+                                   beds.forecasted.MH, beds.existing.AT, beds.existing.CR, beds.existing.GR, beds.existing.MH) %>%
+    mutate(beds.to.build.AT = beds.forecasted.AT - beds.existing.AT, beds.to.build.CR = beds.forecasted.CR - beds.existing.CR,
+           beds.to.build.GR = beds.forecasted.GR - beds.existing.GR, beds.to.build.MH = beds.forecasted.MH - beds.existing.MH,
+           beds.to.build.total = beds.to.build.AT + beds.to.build.CR + beds.to.build.GR + beds.to.build.MH) %>% 
+    # Add in costs per bed by caretype
+    cbind(., COST_PER_NEW_BED) %>% 
+    mutate(cost_2018 = round(BASE_HOSP_EXP_COST * pmin(beds.to.build.total, 1) + beds.to.build.AT * cost.per.bed.AT + beds.to.build.CR * cost.per.bed.CR + beds.to.build.GR * cost.per.bed.GR + beds.to.build.MH * cost.per.bed.MH, 0)) %>% 
+    select(id, cost_2018)
+
+cost_hospitals <- cost_existing_hospital
+
+# Calculate Cost for new hospitals
+# Check to see if new hospitals have been built
+if (nrow(filter(hospital_wide_final, id > 999)) > 0) {
+    cost_new_hospital <- distinct(filter(hospital_wide_final, id > 999), id, beds.forecasted.AT, beds.forecasted.CR, 
+                                  beds.forecasted.GR, beds.forecasted.MH) %>% 
+        # Add in costs per bed by caretype
+        cbind(., COST_PER_NEW_BED) %>% 
+        mutate(cost_2018 = round(USER_INPUT_BASE_HOSP_COST + beds.forecasted.AT * cost.per.bed.AT + beds.forecasted.CR * cost.per.bed.CR + beds.forecasted.GR * cost.per.bed.GR + beds.forecasted.MH * cost.per.bed.MH, 0)) %>% 
+        select(id, cost_2018)
+    
+  # Combining costs for new hospitals with costs for expanding existing
+  cost_hospitals <- bind_rows(., cost_new_hospital)
+}
+
 hospital_wide_final <- hospital_wide_final %>% 
   # Join cost
-  left_join(select(cost_new_hospital, id, cost_2018), by="id") %>%
+  left_join(select(cost_hospitals, id, cost_2018), by="id") %>%
   # Join Lat/Long Information
   left_join(hospital_lat_long, by="id") %>% 
   # Join with csdname
