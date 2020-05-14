@@ -1294,16 +1294,16 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
            overfill.ade = simulated.ade - otg.threshold) %>% 
     filter(overfill.flag == 1) %>% 
     select(overfill.ade) %>% 
-    sum()
+    colSums()
   
-  if (capacity_constrained & overfill_ade >= overfill_threshold) {
+  if (capacity_constrained & overfill_ade[[1]] >= overfill_threshold) {
     print(paste0("Running distribution capacity constrained"))
     i <- 1
     pos <- create_pos_vector(filter(school_20xx, is.consolidated == 0), new_school, pos_full)
     
     # Loop through until the overfill ade is assigned
-    while(overfill_ade >= overfill_threshold) {
-      print(paste0("Iteration: ", i, ". Overfill ADE: ", round(overfill_ade, 0)))
+    while(overfill_ade[[1]] >= overfill_threshold) {
+      print(paste0("Iteration: ", i, ". Overfill ADE: ", round(overfill_ade[[1]], 0)))
       if (i <= max_iter) {
         # Create a POS vector with schools over OTG Threshold after redistributing to other schools within the TRESO zone
         pos_overfill <- school_forecast %>%
@@ -1324,7 +1324,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
                  overfill.ade = simulated.ade - otg.threshold) %>% 
           filter(overfill.flag == 1) %>% 
           select(overfill.ade) %>% 
-          sum()
+          colSums()
         
         # Create a POS vector with schools under OTG Threshold - pos_underfill
         # Use the difference between OTG Threshold and Simulated ADE as the weight
@@ -1347,7 +1347,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
           rename(ade = overfill.flag) %>% 
           rownames_to_column(var = "treso.id.por") %>% 
           # Scale the zone origin ADE to match the overfill ADE total previously calculated (overfill_ade)
-          mutate(ade.overfill = ade * overfill_ade / sum(ade)) %>% 
+          mutate(ade.overfill = ade * overfill_ade[[1]] / sum(ade)) %>% 
           select(treso.id.por, ade.overfill)
         
         # Store a list of TRESO zones where the students are assigned to overfilled schools
@@ -1365,7 +1365,7 @@ distribution_model <- function(school_base, school_20xx, school_summary_2017, sc
         print(paste0("The first element of por_overfill is: ", (prop_matrix_balanced %*% pos_overfill)[1,1]))
         print(paste0("Compare that with the sum of first column of prop_matrix_balanced: ", sum(prop_matrix_balanced[1,as.logical(pos_overfill)])))
         
-        print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which should be the same as the overfill_ade: ", overfill_ade))
+        print(paste0("The scaled POR vector sums to: ", sum(por_overfill), ". Which should be the same as the overfill_ade: ", overfill_ade[[1]]))
         
         # Balance the por_overfill against pos_underfill schools to redistribute the overfilled ADE
         print(paste0("ADE overfill total is: ", sum(por_overfill), ". OTG remaining is: ", sum(pos_underfill), "."))
