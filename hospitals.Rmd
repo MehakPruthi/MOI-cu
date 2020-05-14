@@ -775,6 +775,7 @@ NON_LTC_ALC_FACTOR <- 1 #0.8
 # If factor = 1, all LTC beds reduce ALC demand; if factor = 0, no LTC beds reduce ALC demand.
 USER_LTC_IMPACT_HOSP <- 1 #1/3
 
+# Factor to scale up or down provincial demand for LTC. Where Factor = 1, demand is unchanged; if factor is 0, demand is erased; if factor is 2, demand is doubled, etc.
 USER_LTC_RATE_FACTOR <- 1
 
 # Number of LTC beds added by CSD
