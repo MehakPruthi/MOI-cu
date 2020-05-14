@@ -1616,7 +1616,8 @@ base_scenario_crm_calculation <- function(HBAMhistorical_master_tz, treso_popula
 }
 
 forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover_raw, new_ltc_cap_csd, hospitallocations_tz, 
-                                              ALC_hosp_vol_disag, ALC_prov_rate, hospital_lookup_ALC, ltc_homes, ltc_op_days, scenario_year, LTC_FLAG) {
+                                              ALC_hosp_vol_disag, ALC_prov_rate, hospital_lookup_ALC, ltc_homes, ltc_op_days, scenario_year, 
+                                              LTC_FLAG, USER_LTC_RATE_FACTOR) {
   
   # Converts annual turnover into length of stay (days) WITHIN a given calendar year --> this does not imply the average length of stay overall is less than a year. However, WITHIN a given year, the length of stay tops out at 365 days.
   ltc_los_per_year <- ltc_turnover_raw %>% 
@@ -1670,6 +1671,8 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
   ALC_proj_csd <- proj_pop_control %>%
     left_join(select(ALC_prov_rate, agecluster, prov.alc.rate.ages), by = c('agecluster')) %>% 
     mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario_year))) %>% 
+    # Adjust LTC rate using user-input factor; when this function is run for non-LTC ALC, ignore this factor change
+    mutate(ltc.treso.demand.days = ltc.treso.demand.days + ltc.treso.demand.days * LTC_FLAG * (USER_LTC_RATE_FACTOR - 1)) %>% 
     group_by(csduid) %>%
     mutate(ltc.csd.demand.days = sum(ltc.treso.demand.days)) %>%
     # Join to capacity data
@@ -1732,6 +1735,8 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
   ALC_proj_cd_agecluster <- proj_pop_control %>%
     left_join(select(ALC_prov_rate, agecluster, prov.alc.rate.ages), by = c('agecluster')) %>% 
     mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario_year))) %>%
+    # Adjust LTC rate using user-input factor; when this function is run for non-LTC ALC, ignore this factor change
+    mutate(ltc.treso.demand.days = ltc.treso.demand.days + ltc.treso.demand.days * LTC_FLAG * (USER_LTC_RATE_FACTOR - 1)) %>% 
     mutate(cduid = substr(csduid, 1, 4)) %>% 
     group_by(cduid, agecluster) %>%
     mutate(ltc.cd.demand.days = sum(ltc.treso.demand.days)) %>% 
