@@ -1732,11 +1732,12 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
            sumBorrowed = sum(borrowed.cd.ltc.days), sumResidual = sum(adj.cd.residual.alc.days))
   
   # Similar to ALC_proj_cd but maintains agecluster disaggregation - used to reduce demand days in scenario forecast years
+  # this table is used only for assigning a proprotion of demand by CD
   ALC_proj_cd_agecluster <- proj_pop_control %>%
     left_join(select(ALC_prov_rate, agecluster, prov.alc.rate.ages), by = c('agecluster')) %>% 
     mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario_year))) %>%
-    # Adjust LTC rate using user-input factor; when this function is run for non-LTC ALC, ignore this factor change
-    mutate(ltc.treso.demand.days = ltc.treso.demand.days + ltc.treso.demand.days * LTC_FLAG * (USER_LTC_RATE_FACTOR - 1)) %>% 
+    # Adjustment to LTC demand here not needed since table outputs the same relative percentages either way
+    #mutate(ltc.treso.demand.days = ltc.treso.demand.days + ltc.treso.demand.days * LTC_FLAG * (USER_LTC_RATE_FACTOR - 1)) %>% #no impact
     mutate(cduid = substr(csduid, 1, 4)) %>% 
     group_by(cduid, agecluster) %>%
     mutate(ltc.cd.demand.days = sum(ltc.treso.demand.days)) %>% 
