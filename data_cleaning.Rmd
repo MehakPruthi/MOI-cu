@@ -1050,7 +1050,9 @@ HBAMhistoricalprep <- HBAMhistorical %>%
          caretype = Care_Type,
          agegroup = Age_Group, 
          cases = Number_of_Cases,
-         orig_csd = CSD) %>% 
+         orig_csd = CSD,
+         LOS = Length_of_Stay,
+         weighted_cases = Number_of_Weighted_Cases) %>% 
   # filter(year == 2016) %>% 
   # select(-year) %>% 
   filter(orig_csd < 4600000,
