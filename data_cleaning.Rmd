@@ -1252,9 +1252,8 @@ saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
 ```{r}
 #Count Daily Entries by Year: 2017:294 / 2018: 365
 dailybedcensusprepagg <- dailybedcensusprep %>%
-  #replace year with Calendar year instead of fiscal year 
-  mutate(year = format(as.Date(censusdate, format="%d/%m/%Y"),"%Y")) %>%
-  filter (year == 2018) %>%  #use 2018-calendar for daily bed data, which matches HBAM 2018 data
+  #using 2018-Calendar daily bed data, which matches HBAM 2018 data
+  filter(format(as.Date(censusdate, format="%d/%m/%Y"),"%Y") == 2018) %>%
   group_by(censusdate) %>% 
   mutate(sumbeds = sum())
   # group_by(year) %>% 
