@@ -1089,7 +1089,7 @@ saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
 
 # HBAM Projected
 HBAMprojectedprep <- HBAMprojected %>% 
-  select(year = Yr, 
+  select(year = Year, 
          siteid = Hospital_Site_ID, 
          hospitalname = Hospital_Site_Name,
          caretype = Care_Type,
@@ -1250,10 +1250,9 @@ saveRDS(ltc_homes, file = 'cache/moh/ltc_homes.rds')
   - Calculate Annualization factor
   - Calculate Operational and Physical Capacity
 ```{r}
-#Count Daily Entries by Year: 2017:294 / 2018: 365
+#Count Daily Entries by Year: 2017:294 / 2018: 324
 dailybedcensusprepagg <- dailybedcensusprep %>%
-  #using 2018-Calendar daily bed data, which matches HBAM 2018 data
-  filter(format(as.Date(censusdate, format="%d/%m/%Y"),"%Y") == 2018) %>%
+  filter(year == 2017) %>% 
   group_by(censusdate) %>% 
   mutate(sumbeds = sum())
   # group_by(year) %>% 
@@ -1289,7 +1288,7 @@ num_beds <- dailybedcensusprepagg %>%
   filter(totstaffbeds == maxstaffedbeds) %>% 
   # Filter data since there may be more than one census day tied for having max staffed beds - this occurs for one care type in 2018
   filter(censusdate == first(censusdate)) %>% 
-  distinct(year, type, siteid, censusdate, staffedbeds, totstaffbeds) %>% 
+  distinct(year, type, siteid, censusdate, staffedbeds, totstaffedbeds) %>% 
   group_by(year) %>%
   mutate(maxbeds.annual = sum(staffedbeds))
 
@@ -1327,15 +1326,15 @@ annualizationfactor <- dailybedcensusprepagg %>%
 
 
 #FOR INFO
-##Count Total Site IDs: 423
-#dailybedcensusprepagg %>%
-#  distinct(siteid) %>%
-#  tally
+##Count Total Site IDs: 448
+dailybedcensusprepagg %>%
+  distinct(siteid) %>%
+  tally
 
 ##List of Care-Types
-#dailybedcensusprepagg %>%
-#  group_by(type) %>%
-# distinct(type)
+dailybedcensusprepagg %>%
+  group_by(type) %>%
+  distinct(type)
 ```
 
 # MAG Data Import
