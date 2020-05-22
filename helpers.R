@@ -1588,7 +1588,7 @@ base_scenario_crm_calculation <- function(HBAMhistorical_master_tz, treso_popula
   # Join historical HBAM cases by CSD/hospital pair to TRESO information to get TRESO populations
   # Then calculate case rates for TRESO zones at the CSD-Hospital pair, segmented by caretype, year, and agecluster
   treso_origin_cases <- HBAMhistorical_origcsd_cases %>% 
-    filter(year == 2016) %>% # select most recent historical year
+    filter(year == 2018) %>% # select most recent historical year
     left_join(distinct(treso_population_long, treso_zone, agecluster, csduid, year, treso.population.agecluster), by = c('year', 'orig_csd' = 'csduid', 'agecluster')) %>% 
     rename(orig.treso.zone = treso_zone,
            orig.treso.pop.agecluster = treso.population.agecluster) %>%
@@ -1859,7 +1859,7 @@ forecast_scenario_crm_calculation <- function(treso_population_moh_agecluster, t
   # Calculate CRM at the CD level for scenario year in order to add ALC days to forecasted hospital non-ALC demand
   # Start by collecting demand data at the hospital to treso-origin level
   crm_alc <- select(hospital_lookup_master, year, id, hosp.csd = csduid) %>%
-    filter(year == 2016) %>%
+    filter(year == 2018) %>%
     select(-year) %>% 
     group_by(id) %>% 
     mutate(hosp.cd = substr(hosp.csd, 1, 4)) %>%

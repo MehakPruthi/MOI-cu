@@ -631,7 +631,7 @@ ALC_summary_ex_LTC <- ALC_hosp_vol_disag_ex_LTC %>%
 ```{r}
 # Calculate average length of stay based on projected HBAM values for 2016. 2016 is the only year for which we have historical case data and projected length of stay, since HBAM historical does not inculde length of stay.
 HBAMprojected_alos <- HBAMprojected_master_tz %>%
-  filter(year == 2016) %>%
+  filter(year == 2018) %>%
   filter(caretype != 'AM') %>% # Filter out AM (Emerg) care since there is no length of stay associated with Emerg cases
   select(year, id, agecluster, caretype, cases, beddays) %>% 
   group_by(year, id, caretype, agecluster) %>% 
@@ -735,13 +735,13 @@ num_beds <- readRDS("cache/moh/num_beds_processed.rds")
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
 # Read in user-set forecast year
-SCENARIO_YEAR <- 2016
+SCENARIO_YEAR <- 2026
 
 DECISION_MAKING <- FALSE
 
 # Read in user-set target utilization factor by subsector. each care type has its own target
 if (DECISION_MAKING) {
-    UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(0.94, 0.92, 0.96, 0.95, 0.9))
+    UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(1.00, 1.00, 1.00, 1.0, 1.0))
 
 } else {
     UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(rep(1, 5)))  
@@ -780,7 +780,7 @@ USER_LTC_RATE_FACTOR <- 1
 
 # Number of LTC beds added by CSD
 USER_NEW_LTC_CAP_CSD_TOTAL <- 
-tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 15000))
+tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0))
 
 #tibble (csduid = c(3501012,3501020,3502008,3502036,3502044,3506008,3507008,3507024,3507065,3509021,3510005,3510010,3511005,3512002,3512004,3512005,3512015,3514020,3515003,3515014,3515015,3516010,3518001,3518005,3518009,3518013,3518017,3518039,3519028,3519036,3519038,3519044,3519046,3519048,3519049,3519054,3519070,3520005,3521005,3521010,3521024,3522014,3523008,3523009,3523025,3523050,3524001,3524002,3524009,3524015,3525005,3526003,3526028,3526032,3526043,3526053,3528018,3528037,3528052,3529005,3529006,3530004,3530010,3530013,3530016,3530020,3531011,3531016,3532004,3532042,3534020,3534021,3536020,3537016,3537039,3537064,3538030,3538035,3539036,3539047,3540028,3541043,3542029,3542059,3543007,3543014,3543015,3543017,3543023,3543042,3543052,3543064,3543072,3544042,3547003,3547090,3548021,3548044,3551034,3553005,3554091,3556027,3557061,3557077,3558004,3559042,3560071)
 # , 
@@ -808,7 +808,7 @@ BASE_HOSP_EXP_COST <- 0
 
 ```
 
-## Base Scenario (2016)
+## Base Scenario (2018)
 ### ALC Base Scenario
 ```{r}
 # Flag to count existing and added LTC capacity - turned on for LTC calcs
@@ -837,7 +837,7 @@ treso_origin_cases <- base_scenario_crm_calculation(HBAMhistorical_master_tz, tr
 ### HBAM Scenario
 ```{r}
 # Results if user chooses HBAM forecast
-if (SCENARIO_YEAR > 2016 & USER_SELECT == "HBAM") {
+if (SCENARIO_YEAR > 2018 & USER_SELECT == "HBAM") {
   hospital_wide_final <- forecast_scenario_hbam_calculation(HBAMprojected_master_tz, num_beds, SCENARIO_YEAR)
   saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final_hbam.rds")
 }
@@ -1009,7 +1009,7 @@ if (nrow(filter(hospital_wide_final, id > 999)) > 0) {
         select(id, cost_2018)
     
   # Combining costs for new hospitals with costs for expanding existing
-  cost_hospitals <- bind_rows(., cost_new_hospital)
+  cost_hospitals <- bind_rows(cost_existing_hospital, cost_new_hospital)
 }
 
 hospital_wide_final <- hospital_wide_final %>% 

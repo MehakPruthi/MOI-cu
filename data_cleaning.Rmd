@@ -895,10 +895,10 @@ dailybedcensus <- read_csv('input/moh/cap.MOH_DailyBedCensus_Summary.csv')
 hospitallocations <- read_csv('input/moh/dbo.MOH_Hospital_Locations.csv')
 
 # HBAM Historical
-HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS.csv')
+HBAMhistorical <- read_csv('input/moh/cap.MOH_HBAM_HIS_2018.csv')
 
 # HBAM Projected
-HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj.csv')
+HBAMprojected <- read_csv('input/moh/cap.MOH_HBAM_Proj_2018.csv')
 
 #LHIN Data
 populationLHIN <- read_csv('input/moh/dbo.Population_LHIN.csv')
