@@ -173,7 +173,7 @@ HBAMprojected_master_tz <- left_join(HBAMprojected_master,
   group_by(year, id, caretype, agegroup) %>% 
   mutate(maxCases = max(cases),
          maxBeddays = max(beddays)) %>% 
-  select(-cases, -beddays, -facilityid) %>% 
+  select(-cases, -beddays) %>% 
   distinct() %>% 
   rename(cases = maxCases, beddays = maxBeddays) %>% 
   ungroup()

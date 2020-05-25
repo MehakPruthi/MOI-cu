@@ -1082,9 +1082,11 @@ HBAMhistoricalprep <- HBAMhistorical %>%
 HBAMhistorical_master <- HBAMhistoricalprep %>% 
   mutate(caretype = replace(caretype, caretype == "ER", "AM"),
          caretype = replace(caretype, caretype == "DS", "AM")) %>% 
-  left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id'))
+  left_join(distinct(hospitallocationsapp, id, name, pcode, lat, long), by = c('id'))
+  #joining with facilityid creates duplicate records
+  #left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id'))
 
-#Output cache historical HBAM for use in hospitals.rmd
+  #Output cache historical HBAM for use in hospitals.rmd
 saveRDS(HBAMhistorical_master, file = 'cache/moh/hbamhistorical_master.rds')
 
 # HBAM Projected
@@ -1127,7 +1129,9 @@ HBAMprojected_master <- HBAMprojectedprep %>%
   summarise(cases = sum(cases),
             los = sum(lengthofstay)) %>% 
   mutate(beddays = los) %>% 
-  left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id')) %>% 
+  left_join(distinct(hospitallocationsapp, id, name, pcode, lat, long), by = c('id')) %>% 
+  #joining with facilityid creates duplicate records
+  #left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id')) %>%
   filter(!is.na(pcode)) %>% 
   ungroup()
 
