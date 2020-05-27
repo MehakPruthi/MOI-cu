@@ -1292,7 +1292,7 @@ num_beds <- dailybedcensusprepagg %>%
   filter(totstaffbeds == maxstaffedbeds) %>% 
   # Filter data since there may be more than one census day tied for having max staffed beds - this occurs for one care type in 2018
   filter(censusdate == first(censusdate)) %>% 
-  distinct(year, type, siteid, censusdate, staffedbeds, totstaffedbeds) %>% 
+  distinct(year, type, siteid, censusdate, staffedbeds, totstaffbeds) %>% 
   group_by(year) %>%
   mutate(maxbeds.annual = sum(staffedbeds))
 
