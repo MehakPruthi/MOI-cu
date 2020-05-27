@@ -1078,10 +1078,12 @@ HBAMhistoricalprep <- HBAMhistorical %>%
   select(-id.x, -id.x.x, -id.x.x.x, -id.y, -id.y.y, -id.y.y.y) %>% 
   mutate(id = replace(id, id == 0, -9999))
 
-# Historical HBAM Master Dataset
+# Historical HBAM Master Dataset 
 HBAMhistorical_master <- HBAMhistoricalprep %>% 
   mutate(caretype = replace(caretype, caretype == "ER", "AM"),
-         caretype = replace(caretype, caretype == "DS", "AM")) %>% 
+         caretype = replace(caretype, caretype == "DS", "AM")) %>%   # changing RE and DS (2 care types) to AM will create duplicates that need to be grouped and added together
+  group_by(year, siteid, id, caretype, agegroup, orig_csd) %>%  
+  summarise(cases = sum(cases))%>% # add ER and DS together into a combined AM total 
   left_join(distinct(hospitallocationsapp, id, name, pcode, lat, long), by = c('id'))
   #joining with facilityid creates duplicate records
   #left_join(distinct(hospitallocationsapp, id, name, facilityid, pcode, lat, long), by = c('id'))
@@ -1112,7 +1114,9 @@ HBAMprojectedprep <- HBAMprojected %>%
          caretype = replace(caretype, caretype == 'CCC', 'CR'),
          caretype = replace(caretype, caretype == 'Rehab', 'GR'),
          caretype = replace(caretype, caretype == 'ER', 'AM'),
-         caretype = replace(caretype, caretype == 'DS', 'AM')) %>% 
+         caretype = replace(caretype, caretype == 'DS', 'AM')) %>%  # changing the ER and DS (2 care types) to AM will create duplicates that need to be grouped and added together
+  group_by(year, siteid, caretype, agegroup) %>%  
+  summarise(cases = sum(cases),lengthofstay = sum(lengthofstay)) %>% # add ER and DS together into a combined AM total 
   left_join(select(hospitallocationsapp, datasetID1.siteid, id), by = c('siteid' = 'datasetID1.siteid')) %>% 
   left_join(select(hospitallocationsapp, datasetID2.siteid, id), by = c('siteid' = 'datasetID2.siteid')) %>% 
   left_join(select(hospitallocationsapp, datasetID3.siteid, id), by = c('siteid' = 'datasetID3.siteid')) %>% 
