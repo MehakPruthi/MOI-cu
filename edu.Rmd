@@ -73,25 +73,25 @@ school_master <- readRDS("cache/edu/school_treso_master.rds") %>%
 por_full <- readRDS("output/treso/por_full.rds")
 pos_full <- readRDS("output/treso/pos_full.rds")
 
-FORECAST_METHOD <- "TRESO" # or set to TRESO
+FORECAST_METHOD <- "EDU" # EDU or TRESO
 
 # Read in user-set travel-time threshold as a function of mean system-wide travel time
-TRAVEL_TIME_THRESHOLD_FACTOR <- 1.1
+TRAVEL_TIME_THRESHOLD_FACTOR <- 1.5
 
 # Define zone proximity threshold in minutes of travel time (i.e., proximity of TRESO zones within which two new schools should not be built)
-ZONE_PROXIMITY_THRESHOLD <- 8
+ZONE_PROXIMITY_THRESHOLD <- 15
 
 # Define excess travel time below which it is not worthwhile to consider building a school
-MIN_TT_THRESHOLD <- 350
+MIN_TT_THRESHOLD <- 550
 
 # Define threshold below which existing schools should be consolidated, assuming existing schools are elible for consolidation
 CONSOLIDATION_THRESHOLD <- 0.25
 
 # Percentage of current OTG to be set as maximum capacity (inclusive of portables) in model
-USER_OTG_THRESHOLD = 1.5
+USER_OTG_THRESHOLD = 1.1
 
 #Percentage of OTG beyond which demand is served by portables
-PORTABLE_THRESHOLD = 1.1
+PORTABLE_THRESHOLD = 0.8
 
 # Define portable size
 ELE_STUDENTS_UNIT_CLASS = 23
@@ -105,8 +105,8 @@ base_year <- 2017
 
 # Future scenario year
 year_id <- 2025
-board_id <- "French Public"
-panel_id <- "Secondary"
+board_id <- "English Public"
+panel_id <- "Elementary"
 
 ```
 
@@ -211,7 +211,7 @@ if (FORECAST_METHOD == "EDU") {
   treso_forecast_sum <- sum(filter(treso_forecast_population_board, panel == panel_id, board_type_name == board_id)$enrolment)
   scale_ratio = edu_forecast_sum / treso_forecast_sum
   
-  print(paste0("Scaling TRESO forecast from - ", round(treso_forecast_sum, 0), " to EDU forecast of - ", round(edu_forecast, 0)))
+  print(paste0("Scaling TRESO forecast from - ", round(treso_forecast_sum, 0), " to EDU forecast of - ", round(edu_forecast_sum, 0)))
   
   treso_forecast_population_board <- treso_forecast_population_board %>% 
     mutate(enrolment = ifelse((panel == panel_id & board_type_name == board_id), round(enrolment * scale_ratio, 0), enrolment))
@@ -504,21 +504,26 @@ trip_length_check <- cbind(trip_list, select(treso_travel_time, value)) %>%
   group_by(treso.id.por) %>% 
   mutate(total.por.trips = sum(trips)) %>% 
   ungroup() %>% 
-  # Filter out any home (origin)
+  # Filter out any home (origin) with fewer than 10 trips originating there
   filter(total.por.trips > 10)
-
-# school_20xx_backup <- school_20xx
-# school_20xx <- school_20xx_backup
-
-school_20xx <- school_20xx %>% 
-  left_join(select(trip_length_check, treso.id.por, total.por.trips), by = c('treso.id.pos' = 'treso.id.por')) %>% 
-  left_join(select(trip_length_check, treso.id.pos, travel.time), by = c('treso.id.pos')) %>% 
-  # Replace is.consolidated flag with 0 if total.por.trips or travel.time is not NA (i.e., if that treso zone is in trip_length_check)
-  mutate(is.consolidated = ifelse(is.na(total.por.trips), is.consolidated, 0),
-         is.consolidated = ifelse(is.na(travel.time), is.consolidated, 0)) %>% 
-  select(-total.por.trips, -travel.time) %>% 
-  distinct()
   
+# Determine unique school zones to unconsolidate for any schools in trip_length_check POR
+unconsolidation_list_por <- trip_length_check %>% 
+  distinct(treso.id.por) %>% 
+  rename(treso.id.pos = treso.id.por)
+
+# Combine treso.id.por list with treso.id.pos list as potential zones with schools to unconsolidate
+unconsolidation_list <- trip_length_check %>%
+  select(treso.id.pos) %>% 
+  rbind(., unconsolidation_list_por) %>% 
+  distinct(treso.id.pos) %>% 
+  mutate(unconsolidate.zone = 1)
+  
+school_20xx <- school_20xx %>% 
+  left_join(select(unconsolidation_list, treso.id.pos, unconsolidate.zone), by = c('treso.id.pos')) %>% 
+  mutate(is.consolidated = ifelse(is.na(unconsolidate.zone), is.consolidated, 0)) %>% 
+  select(-unconsolidate.zone)
+
 # Reassign ADE from deleted schools based on TRESO origin distribution propensity matrix
 school_summary_20xx <- distribute_students_to_schools(filter(school_20xx, is.consolidated == 0), new_school_iteration,
                                                       por, pos_full, prop_matrix, treso_travel_time=NULL, treso_distance=NULL,
