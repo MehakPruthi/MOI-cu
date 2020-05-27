@@ -1053,17 +1053,17 @@ HBAMhistoricalprep <- HBAMhistorical %>%
          orig_csd = CSD) %>% 
   # filter(year == 2016) %>% 
   # select(-year) %>% 
-  filter(orig_csd < 4600000,
-         orig_csd > 3501000) %>% 
+  filter(orig_csd < 4600000, orig_csd > 3501000) %>% 
+  filter(agegroup != '<1', agegroup != '1-7', agegroup != '8-17') %>% #remove overlapping agegroups - assumes they are duplicates - to confirm with MOH
   mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
          agegroup = replace(agegroup, agegroup == '18-44', 2),
          agegroup = replace(agegroup, agegroup == '45-64', 3),
          agegroup = replace(agegroup, agegroup == '65-74', 4),
          agegroup = replace(agegroup, agegroup == '75-84', 5),
          agegroup = replace(agegroup, agegroup == '>85', 6),
-         agegroup = replace(agegroup, agegroup == '<1', 1),
-         agegroup = replace(agegroup, agegroup == '1-7', 1),
-         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         #agegroup = replace(agegroup, agegroup == '<1', 1),
+         #agegroup = replace(agegroup, agegroup == '1-7', 1),
+         #agegroup = replace(agegroup, agegroup == '8-17', 1),
          caretype = replace(caretype, caretype == 'IP', 'AT'),
          caretype = replace(caretype, caretype == 'CCC', 'CR'),
          caretype = replace(caretype, caretype == 'Rehab', 'GR')) %>% 
@@ -1098,15 +1098,16 @@ HBAMprojectedprep <- HBAMprojected %>%
          agegroup = Age_Group, 
          cases = Number_of_Cases,
          lengthofstay = Length_of_Stay) %>% 
+  filter(agegroup != '<1', agegroup != '1-7', agegroup != '8-17') %>% #remove overlapping agegroups - assumes they are duplicates - to confirm with MOH
   mutate(agegroup = replace(agegroup, agegroup == '0-17', 1),
          agegroup = replace(agegroup, agegroup == '18-44', 2),
          agegroup = replace(agegroup, agegroup == '45-64', 3),
          agegroup = replace(agegroup, agegroup == '65-74', 4),
          agegroup = replace(agegroup, agegroup == '75-84', 5),
          agegroup = replace(agegroup, agegroup == '>85', 6),
-         agegroup = replace(agegroup, agegroup == '<1', 1),
-         agegroup = replace(agegroup, agegroup == '1-7', 1),
-         agegroup = replace(agegroup, agegroup == '8-17', 1),
+         #agegroup = replace(agegroup, agegroup == '<1', 1),
+         #agegroup = replace(agegroup, agegroup == '1-7', 1),
+         #agegroup = replace(agegroup, agegroup == '8-17', 1),
          caretype = replace(caretype, caretype == 'IP', 'AT'),
          caretype = replace(caretype, caretype == 'CCC', 'CR'),
          caretype = replace(caretype, caretype == 'Rehab', 'GR'),
