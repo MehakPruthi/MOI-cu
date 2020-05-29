@@ -1215,7 +1215,9 @@ ALC_madd_rawprep <- ALC_madd_raw %>%
          year = replace(year, year == '1415', 2014),
          year = replace(year, year == '1516', 2015),
          year = replace(year, year == '1617', 2016),
-         year = replace(year, year == '1718', 2017))
+         year = replace(year, year == '1718', 2017)) #%>% 
+  #group_by(year,number,siteid,madd,agegroup) %>% 
+  #mutate(count = n()) #to check for duplicates - no duplicates
 
 #output to cache for use in hospitals.rmd
 saveRDS(ALC_madd_rawprep, file = 'cache/moh/ALC_madd_raw.rds')
