@@ -753,7 +753,7 @@ if (DECISION_MAKING) {
 }
 
 # Read in user-set threshold re: minimum number of beds for when to build a new hospital in a CSD with no existing hospital
-USER_MIN_BEDS <- 30
+USER_MIN_BEDS <- 1
 
 # New hospital minimum applies to each caretype individually or all caretypes cumulatively? I.e., if minimum new hospital threshold is 25 beds, and if a CSD needs 15 AT beds, 5 MH beds, and 10 GR beds (therefore sum of 30 beds), should the hospital be built because there is demand for 30 beds? Or hospital should not be built because no individual caretype exceeds minimum of 25 beds required?
 MIN_BEDS_TOGGLE <- 1 # 1 = Cumulatively, 0 = Individually
@@ -801,7 +801,7 @@ STAY_IN_CSD_FACTOR <- 1000/1 # ratio of staying in CSD or leaving when new hospi
 CURRENCY_YEAR <- 2018 # Units of costs; set to 2018 since cost function from EDU assumed to be set in 2018$
 LTC_OP_DAYS <- 365
 USER_INPUT_INFLATION <- 0.02
-USER_INPUT_CURRENT_YEAR = 2019 # Current year used to calculate construction timespan
+USER_INPUT_CURRENT_YEAR = 2020 # Current year used to calculate construction timespan
 COST_PER_NEW_BED <- tibble(cost.per.bed.AT = 1158358, cost.per.bed.CR = 944193, cost.per.bed.GR = 944193, cost.per.bed.MH = 571088)
 
 # Cost parameters for new hospitals
@@ -1013,7 +1013,7 @@ if (nrow(filter(hospital_wide_final, id > 999)) > 0) {
         select(id, cost_2018)
     
   # Combining costs for new hospitals with costs for expanding existing
-  cost_hospitals <- bind_rows(., cost_new_hospital)
+  cost_hospitals <- bind_rows(cost_existing_hospital, cost_new_hospital)
 }
 
 hospital_wide_final <- hospital_wide_final %>% 
@@ -1026,6 +1026,7 @@ hospital_wide_final <- hospital_wide_final %>%
 
 # Key output
 saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
+#write.csv(hospital_wide_final,"RESULT.csv")
 ```
 
 ## Cost Annualization 
