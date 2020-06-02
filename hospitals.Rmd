@@ -739,13 +739,13 @@ num_beds <- readRDS("cache/moh/num_beds_processed.rds")
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
 
 # Read in user-set forecast year
-SCENARIO_YEAR <- 2018
+SCENARIO_YEAR <- 2026
 
-DECISION_MAKING <- FALSE
+DECISION_MAKING <- TRUE
 
 # Read in user-set target utilization factor by subsector. each care type has its own target
 if (DECISION_MAKING) {
-    UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(1, 1, 1, 1, 1))
+    UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(1.00, 1.00, 1.00, 1.00, 1.00))
 
 } else {
     UTILIZATION_TARGETS <- tibble(caretype = c('AT', 'MH', 'CR', 'GR', 'AM'), target = c(rep(1, 5)))  
@@ -773,19 +773,19 @@ AGE_CLUSTER_LIST = c('ad', 'ped', 'sr')
 # Factor reducing (or increasing) non-LTC ALC to account for increased (or decreased) homecare, SAL, rehab space, etc.
 # LTC currently represents 55% of all ALC; therefore, non-LTC ALC will be capped at 45% of total ALC, notwithstanding the factor range described below.
 # Factor ranges from 0 to 3, where 0 = no non-LTC ALC demand, and 3 = 300% non-LTC ALC demand
-NON_LTC_ALC_FACTOR <- 1 #0.8
+NON_LTC_ALC_FACTOR <- 1.0 #0.8
 
 # Factor identifying what percentage of new (user-added) LTC beds go to ALC patients (with the remainder assumed to go to people in the community)
 # If factor = 1, all LTC beds reduce ALC demand; if factor = 0, no LTC beds reduce ALC demand.
 USER_LTC_IMPACT_HOSP <- 1 #1/3
 
 # Factor to scale up or down provincial demand for LTC. Where Factor = 1, demand is unchanged; if factor is 0, demand is erased; if factor is 2, demand is doubled, etc.
-USER_LTC_RATE_FACTOR <- 1
+USER_LTC_RATE_FACTOR <- 0.95 # CALIBRATION- this factor at 0.95 matches closest wtih observed 2018 data (daily bed census and reported alc rate)
 
 # Number of LTC beds added by CSD
 USER_NEW_LTC_CAP_CSD_TOTAL <- 
-tibble(csduid = c(3506008, 3519049), added.ltc.cap = c(0, 0))
-
+tibble(csduid = c(3501012, 3519049), added.ltc.cap = c(15000, 0))
+  
 #tibble (csduid = c(3501012,3501020,3502008,3502036,3502044,3506008,3507008,3507024,3507065,3509021,3510005,3510010,3511005,3512002,3512004,3512005,3512015,3514020,3515003,3515014,3515015,3516010,3518001,3518005,3518009,3518013,3518017,3518039,3519028,3519036,3519038,3519044,3519046,3519048,3519049,3519054,3519070,3520005,3521005,3521010,3521024,3522014,3523008,3523009,3523025,3523050,3524001,3524002,3524009,3524015,3525005,3526003,3526028,3526032,3526043,3526053,3528018,3528037,3528052,3529005,3529006,3530004,3530010,3530013,3530016,3530020,3531011,3531016,3532004,3532042,3534020,3534021,3536020,3537016,3537039,3537064,3538030,3538035,3539036,3539047,3540028,3541043,3542029,3542059,3543007,3543014,3543015,3543017,3543023,3543042,3543052,3543064,3543072,3544042,3547003,3547090,3548021,3548044,3551034,3553005,3554091,3556027,3557061,3557077,3558004,3559042,3560071)
 # , 
 #added.ltc.cap = c(54,45,52,35,50,1043,48,62,43,42,51,135,47,37,60,53,46,105,70,89,36,114,121,158,169,210,121,72,410,440,261,61,74,143,33,32,61,2408,891,733,82,39,151,38,32,49,233,220,132,73,568,35,65,60,101,194,55,59,77,44,116,46,137,246,111,33,34,50,66,84,46,40,102,73,226,117,72,101,423,44,33,42,47,65,48,112,62,52,92,200,44,61,44,95,40,48,90,53,45,142,64,38,62,60,111,46,14)
@@ -1026,7 +1026,7 @@ hospital_wide_final <- hospital_wide_final %>%
 
 # Key output
 saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final.rds")
-#write.csv(hospital_wide_final,"RESULT.csv")
+write.csv(hospital_wide_final,"RESULT.csv")
 ```
 
 ## Cost Annualization 
