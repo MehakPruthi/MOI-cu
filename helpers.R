@@ -1752,29 +1752,30 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
   return(list(ALC_proj_cd_agecluster, ALC_proj_cd))
 }
 
-forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds, year_id) {
+forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds, year_id, utilization_targets) {
   HBAM_control <- HBAMprojected_master_tz %>%
+    left_join(utilization_targets, by = c('caretype')) %>%
     mutate(los = replace_na(los, 0),
            beddays = replace_na(beddays, 0),
-           beds.forecasted = beddays / HOSP_OP_DAYS) %>%
+           beds.forecasted = beddays / HOSP_OP_DAYS / target) %>%
     filter(year == year_id) %>%
-    rename(demand.days.total = beddays) %>% 
+    rename(demand.days.total = beddays) %>%
     group_by(id, caretype, agecluster) %>%
-    summarise_at(vars(cases:beds.forecasted), sum, na.rm=TRUE) %>%
-    group_by(id) %>% 
+    summarise_at(vars(cases, demand.days.total, beds.forecasted), sum, na.rm=TRUE) %>%
+    group_by(id) %>%
     mutate(sum.cases = sum(cases),
            sum.demand.days.total = sum(demand.days.total),
            sum.beds.forecasted = sum(beds.forecasted)) %>%
-    ungroup() %>% 
+    ungroup() %>%
     # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
-    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.forecasted), 
-                values_fill = c(cases = 0, demand.days.total = 0, beds.forecasted = 0)) %>% 
+    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.forecasted),
+                values_fill = c(cases = 0, demand.days.total = 0, beds.forecasted = 0)) %>%
     mutate(sum.demand.days.total_AM = demand.days.total_AM_ad + demand.days.total_AM_ped + demand.days.total_AM_sr,
            sum.demand.days.total_AT = demand.days.total_AT_ad + demand.days.total_AT_ped + demand.days.total_AT_sr,
            sum.demand.days.total_CR = demand.days.total_CR_ad + demand.days.total_CR_ped + demand.days.total_CR_sr,
            sum.demand.days.total_GR = demand.days.total_GR_ad + demand.days.total_GR_ped + demand.days.total_GR_sr,
            sum.demand.days.total_MH = demand.days.total_MH_ad + demand.days.total_MH_ped + demand.days.total_MH_sr,
-           sum.demand.days = sum.demand.days.total_AM + sum.demand.days.total_AT + sum.demand.days.total_CR + 
+           sum.demand.days = sum.demand.days.total_AM + sum.demand.days.total_AT + sum.demand.days.total_CR +
              sum.demand.days.total_GR + sum.demand.days.total_MH)
   
   # Convert num_beds to be in wide form (i.e., one row per asset)

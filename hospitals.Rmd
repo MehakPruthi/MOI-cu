@@ -46,7 +46,7 @@ HBAMhistorical_master <- readRDS('cache/moh/HBAMhistorical_master.rds')
 HBAMprojected_master <- readRDS('cache/moh/HBAMprojected_master.rds')
 
 # Hospital Asset Data
-hospitallocations <- readRDS('cache/moh/hospitallocations.rds') %>% 
+hospitallocations <- readRDS('cache/moh/hospitallocations.rds')
 
 # Speciality Hospital Identifier
 speciality_hospitals <- read.csv("input/moh/specialty_hospital_list.csv")
@@ -761,7 +761,7 @@ USER_TRIPS_PER_CASE <- 2
 # Total demand days in 2016 = 11,206,704; total beds in 2017 (assumed same for 2016) = 33,198; 33,198 beds * 365 days/year = 12,117,270 bed-days of capacity per year. However, if we assume hospitals were 96% full in 2016, the proper annualization factor for available days per bed = (11,206,704 / 0.96) / 12,117,270 * 365 = 351 days of capacity per hospital bed per year.
 HOSP_OP_DAYS <- 365 # Assume each hospital bed can be used for this many days per year
 
-USER_SELECT <- "CRM"
+USER_SELECT <- "HBAM"
 
 CARETYPE_LIST = c('AT', 'AM', 'GR', 'CR', 'MH')
 
@@ -839,9 +839,10 @@ treso_origin_cases <- base_scenario_crm_calculation(HBAMhistorical_master_tz, tr
 ```{r}
 # Results if user chooses HBAM forecast
 if (SCENARIO_YEAR > 2016 & USER_SELECT == "HBAM") {
-  hospital_wide_final <- forecast_scenario_hbam_calculation(HBAMprojected_master_tz, num_beds, SCENARIO_YEAR)
+  hospital_wide_final <- forecast_scenario_hbam_calculation(HBAMprojected_master_tz, num_beds, SCENARIO_YEAR, UTILIZATION_TARGETS)
   saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final_hbam.rds")
 }
+
 ```
 
 
