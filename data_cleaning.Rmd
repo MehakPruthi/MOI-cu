@@ -997,9 +997,11 @@ hospitallocationsprep <- hospitallocations %>%
   group_by(id) %>% 
   mutate(name = first(name)) %>% 
   ungroup() %>% 
-  # Lat/long incorrect in raw input data for Providence Care Hospital
+  # Lat/long incorrect in raw input data for Providence Care Hospital, and Chatham-Kent in Wallaceburg
   mutate(lat = replace(lat, id == 33, 44.217317),
-         long = replace(long, id == 33, -76.527267))
+         long = replace(long, id == 33, -76.527267),
+         lat = replace(lat, id == 173, 42.5575838),
+         long = replace(long, id == 173, -82.4876522))
 ```
 
 ## Asset Location Prep W/Output
