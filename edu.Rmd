@@ -118,6 +118,7 @@ panel_id <- "Elementary"
 # Used in Step 4 but initialized here before school_master changes
 school_base <- school_master %>% 
   filter(year == base_year, panel == panel_id, board_type_name == board_id) %>% 
+        mutate(otg = otg * PORTABLE_THRESHOLD) %>%  # Update OTG to be effective OTG
   mutate(is.closed = 0)
 
 # Percentage of students attending each board type, by home origin CD
@@ -171,6 +172,7 @@ print(paste0("The number of schools with no simulated ADE is: ", number_of_zero_
 ```{r application of gravity model - Step 2}
 school_20xx <- school_master %>% 
   filter(year == year_id, panel == panel_id, board_type_name == board_id) %>% 
+  mutate(otg = otg * PORTABLE_THRESHOLD) %>%  # Update OTG to be effective OTG
   mutate(is.consolidated = 0)
 
 # Identify the schools which are projected to be closed by the ministry between 2017 and forecast year
@@ -594,7 +596,7 @@ school_summary_20xx_final <- school_summary_20xx_final %>%
          otg.y = replace_na(otg.y, 0),
          otg = otg.x + otg.y) %>% 
   select(-otg.x, -otg.y) %>% 
-  mutate(portable.ade = pmax(simulated.ade - otg*PORTABLE_THRESHOLD, 0), 
+  mutate(portable.ade = pmax(simulated.ade - otg * PORTABLE_THRESHOLD, 0), 
          portable.count = ceiling(portable.ade / portable_class_size))
 ```
 
