@@ -1050,7 +1050,7 @@ create_forecast_school_list <- function(school_base, school_20xx, new_school_df,
     select(treso.id.pos, sfis, school.name, otg, otg.threshold, ade, simulated.ade)
   
   print('debug create_forecast_school_list')
-  print(school_forecast_df %>% filter(sfis > 99000))
+  print(arrange(school_forecast_df, desc(sfis)))
   
   # Redistribute students from overfilled schools to underfilled schools in the same zone
   school_forecast_distributed_df <- distribute_students_within_zones(school_forecast_df)
@@ -1227,7 +1227,7 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
       filter(treso.id.por != build_zone_id) %>%
       anti_join(origin_zones_removed, by = c('treso.id.por'))
     
-    print(paste0("The number of zones in shortlist after proximity check is: ", nrow(shortlist_zones)))
+    #    print(paste0("The number of zones in shortlist after proximity check is: ", nrow(shortlist_zones)))
     
     # Reduce short_list pairs to exlude previously eliminated zones from future consideration
     shortlist_pairs <- shortlist_pairs %>%
@@ -1237,7 +1237,7 @@ edu_dm <- function(treso_travel_time, trip_list, treso_zone_def, por_additional,
       # OR pairs where the destination is the same as build_zone BUT outside of the proximity threshold
       filter(treso.id.pos != build_zone_id | (treso.id.pos == build_zone_id & travel.time > zone_proximity_threshold))
     
-    print(paste0('The number of OD pairs in shortlist after proximity check is: ', nrow(shortlist_pairs)))
+    #    print(paste0('The number of OD pairs in shortlist after proximity check is: ', nrow(shortlist_pairs)))
     
     # Update the number of zones in shortlist_zones
     num_shortlist_zones <- nrow(shortlist_zones)
@@ -1672,7 +1672,7 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
     left_join(select(ALC_prov_rate, agecluster, prov.alc.rate.ages), by = c('agecluster')) %>% 
     mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario_year))) %>% 
     # Adjust LTC rate using user-input factor; when this function is run for non-LTC ALC, ignore this factor change
-    mutate(ltc.treso.demand.days = ltc.treso.demand.days + ltc.treso.demand.days * LTC_FLAG * (USER_LTC_RATE_FACTOR - 1)) %>% 
+    mutate(ltc.treso.demand.days = ltc.treso.demand.days + ltc.treso.demand.days * LTC_FLAG * (USER_LTC_RATE_FACTOR - 1)) %>%
     group_by(csduid) %>%
     mutate(ltc.csd.demand.days = sum(ltc.treso.demand.days)) %>%
     # Join to capacity data
@@ -1732,7 +1732,7 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
            sumBorrowed = sum(borrowed.cd.ltc.days), sumResidual = sum(adj.cd.residual.alc.days))
   
   # Similar to ALC_proj_cd but maintains agecluster disaggregation - used to reduce demand days in scenario forecast years
-  # this table is used only for assigning a proprotion of demand by CD
+  # this table is used only for assigning a proportion of demand by CD
   ALC_proj_cd_agecluster <- proj_pop_control %>%
     left_join(select(ALC_prov_rate, agecluster, prov.alc.rate.ages), by = c('agecluster')) %>% 
     mutate(ltc.treso.demand.days = prov.alc.rate.ages * get(paste0("population.", scenario_year))) %>%
@@ -1752,24 +1752,24 @@ forecast_scenario_alc_calculation <- function(treso_population_moh, ltc_turnover
   return(list(ALC_proj_cd_agecluster, ALC_proj_cd))
 }
 
-forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds, year_id, utilization_targets) {
+forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds, year_id, utilization_targets, dm) {
   HBAM_control <- HBAMprojected_master_tz %>%
     left_join(utilization_targets, by = c('caretype')) %>%
     mutate(los = replace_na(los, 0),
            beddays = replace_na(beddays, 0),
-           beds.forecasted = beddays / HOSP_OP_DAYS / target) %>%
+           beds.needed = beddays / HOSP_OP_DAYS / target) %>%
     filter(year == year_id) %>%
     rename(demand.days.total = beddays) %>%
     group_by(id, caretype, agecluster) %>%
-    summarise_at(vars(cases, demand.days.total, beds.forecasted), sum, na.rm=TRUE) %>%
+    summarise_at(vars(cases, demand.days.total, beds.needed), sum, na.rm=TRUE) %>%
     group_by(id) %>%
     mutate(sum.cases = sum(cases),
            sum.demand.days.total = sum(demand.days.total),
-           sum.beds.forecasted = sum(beds.forecasted)) %>%
+           sum.beds.needed = sum(beds.needed)) %>%
     ungroup() %>%
     # Pivot table from long to wide for agecluster for demand columns (cases, demand-days)
-    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.forecasted),
-                values_fill = c(cases = 0, demand.days.total = 0, beds.forecasted = 0)) %>%
+    pivot_wider(names_from = c(caretype, agecluster), values_from = c(cases, demand.days.total, beds.needed),
+                values_fill = c(cases = 0, demand.days.total = 0, beds.needed = 0)) %>%
     mutate(sum.demand.days.total_AM = demand.days.total_AM_ad + demand.days.total_AM_ped + demand.days.total_AM_sr,
            sum.demand.days.total_AT = demand.days.total_AT_ad + demand.days.total_AT_ped + demand.days.total_AT_sr,
            sum.demand.days.total_CR = demand.days.total_CR_ad + demand.days.total_CR_ped + demand.days.total_CR_sr,
@@ -1788,10 +1788,16 @@ forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds
   
   hospital_wide_final_hbam <- HBAM_control %>% 
     left_join(num_beds_wide, by = c('id')) %>% 
-    mutate(beds.forecasted.AT = beds.forecasted_AT_ad + beds.forecasted_AT_ped + beds.forecasted_AT_sr,
-           beds.forecasted.CR = beds.forecasted_CR_ad + beds.forecasted_CR_ped + beds.forecasted_CR_sr,
-           beds.forecasted.GR = beds.forecasted_GR_ad + beds.forecasted_GR_ped + beds.forecasted_GR_sr,
-           beds.forecasted.MH = beds.forecasted_MH_ad + beds.forecasted_MH_ped + beds.forecasted_MH_sr,
+    mutate(beds.needed.AT = beds.needed_AT_ad + beds.needed_AT_ped + beds.needed_AT_sr,
+           beds.needed.CR = beds.needed_CR_ad + beds.needed_CR_ped + beds.needed_CR_sr,
+           beds.needed.GR = beds.needed_GR_ad + beds.needed_GR_ped + beds.needed_GR_sr,
+           beds.needed.MH = beds.needed_MH_ad + beds.needed_MH_ped + beds.needed_MH_sr,
+           beds.needed = beds.needed.AT + beds.needed.CR + beds.needed.GR + beds.needed.MH,
+           dm = dm,
+           beds.forecasted.AT = ifelse(dm, pmax(beds.needed.AT, beds.existing.AT), beds.existing.AT),
+           beds.forecasted.CR = ifelse(dm, pmax(beds.needed.CR, beds.existing.CR), beds.existing.CR),
+           beds.forecasted.GR = ifelse(dm, pmax(beds.needed.GR, beds.existing.GR), beds.existing.GR),
+           beds.forecasted.MH = ifelse(dm, pmax(beds.needed.MH, beds.existing.MH), beds.existing.MH),
            beds.forecasted = beds.forecasted.AT + beds.forecasted.CR + beds.forecasted.GR + beds.forecasted.MH,
            utilization.AM = 0,
            utilization.AT = sum.demand.days.total_AT / beds.forecasted.AT / HOSP_OP_DAYS,
@@ -1804,9 +1810,11 @@ forecast_scenario_hbam_calculation <- function(HBAMprojected_master_tz, num_beds
            utilization.GR.existing = sum.demand.days.total_GR / beds.existing.GR / HOSP_OP_DAYS,
            utilization.MH.existing = sum.demand.days.total_MH / beds.existing.MH / HOSP_OP_DAYS,
            utilization.existing = sum.demand.days / beds.existing / HOSP_OP_DAYS) %>% 
+    select(-dm) %>% 
     # Replace 'Inf' utilizations into NA
     mutate_at(vars(utilization.existing, utilization.AT.existing, utilization.CR.existing, utilization.GR.existing,
-                   utilization.MH.existing), ~replace(., is.infinite(.), NA))
+                   utilization.MH.existing), ~replace(., is.infinite(.), NA)) %>% 
+    mutate(hosp.travel.distance.total = NA, hosp.travel.distance.avg = NA, hosp.travel.time.total = NA, hosp.travel.time.avg = NA)
   
   return(hospital_wide_final_hbam)
 }
@@ -2537,7 +2545,12 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
            sum.ALC.ex.LTC.days_MH = rowSums(select(., starts_with("demand.days.ALC.ex.LTC_MH"))),
            sum.ALC.ex.LTC.days = sum.ALC.ex.LTC.days_AM + sum.ALC.ex.LTC.days_AT + sum.ALC.ex.LTC.days_CR + sum.ALC.ex.LTC.days_GR + sum.ALC.ex.LTC.days_MH) %>% 
     left_join(beds_needed, by="id") %>% 
+    #add columns if missing for partial care types
     mutate(beds.needed_AM = 0) %>% 
+    mutate(beds.needed_AT = if (exists("beds.needed_AT", where=.)) beds.needed_AT else 0,
+           beds.needed_CR = if (exists("beds.needed_CR", where=.)) beds.needed_CR else 0,
+           beds.needed_GR = if (exists("beds.needed_GR", where=.)) beds.needed_GR else 0,
+           beds.needed_MH = if (exists("beds.needed_MH", where=.)) beds.needed_MH else 0)  %>%
     mutate(total.hosp.beds.needed = beds.needed_AM + beds.needed_AT + beds.needed_CR + beds.needed_GR + beds.needed_MH) 
   
   # Join in capacity data to hospital_wide
@@ -2560,7 +2573,7 @@ format_hospital_asset_output <- function(num_beds, crm_demand, crm_demand_travel
            beds.forecasted.MH = ifelse(dm, pmax(beds.needed_MH, beds.existing.MH), beds.existing.MH),
            beds.forecasted = beds.forecasted.AT + beds.forecasted.CR + beds.forecasted.GR + beds.forecasted.MH) %>% 
     select(-dm)
-    
+  
   # Calculate utilization by hospital, caretype for forecasted beds, and utilizations using existing beds
   hospital_wide_util <- hospital_wide_cap %>% 
     # Utilization calculations use the sum of demand-days rather than beds.needed because beds.needed 
