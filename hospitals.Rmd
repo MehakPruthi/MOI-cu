@@ -839,7 +839,7 @@ treso_origin_cases <- base_scenario_crm_calculation(HBAMhistorical_master_tz, tr
 ```{r}
 # Results if user chooses HBAM forecast
 if (SCENARIO_YEAR > 2016 & USER_SELECT == "HBAM") {
-  hospital_wide_final <- forecast_scenario_hbam_calculation(HBAMprojected_master_tz, num_beds, SCENARIO_YEAR, UTILIZATION_TARGETS)
+  hospital_wide_final <- forecast_scenario_hbam_calculation(HBAMprojected_master_tz, num_beds, SCENARIO_YEAR, UTILIZATION_TARGETS, DECISION_MAKING)
   saveRDS(hospital_wide_final, "cache/moh/hospital_wide_final_hbam.rds")
 }
 
